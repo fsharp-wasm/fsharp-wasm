@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      App module: imports primitive functions from MathCore at Wasm runtime,
+      then builds higher-level wrappers on top.
+      This is the second half of the component-linking example.
+    -->
+    <Compile Include="../../../fable-library-wasmgc/Interop.fs" />
+    <Compile Include="App.fs" />
+  </ItemGroup>
+
+</Project>

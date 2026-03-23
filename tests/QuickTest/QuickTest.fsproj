@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <!--
+      Source files compiled by our WasmGC backend (Fable lang wasmgc).
+      This project is NOT referenced as a library, it IS the input to our compiler.
+      Heavy BCL modules compiled by our backend go first (cross file ctx accumulation).
+      Option/Result/Math: inline replacements in WasmGcReplacements.fs (no source needed).
+    -->
+    <!-- Minimal Fable.Core stubs (Import attribute, nativeOnly) — no NuGet needed. -->
+    <Compile Include="../../fable-library-wasmgc/Interop.fs" />
+    <Compile Include="../../fable-library-wasmgc/Map.fs" />
+    <Compile Include="QuickTestWasmGc.fs" />
+  </ItemGroup>
+
+</Project>

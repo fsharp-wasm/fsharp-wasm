@@ -1,0 +1,5 @@
+[submodule "vendor/Fable"]
+	path = vendor/Fable
+	url = https://github.com/fable-compiler/Fable.git
+[submodule "vendor/Fable-4-Upstream-DEPRECATED"]
+	path = vendor/Fable-4-Upstream-DEPRECATED

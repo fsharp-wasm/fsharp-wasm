@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Fable.WasmGc</AssemblyName>
+    <!--
+      Targets net10.0 to match Fable.Compiler NuGet (net10.0).
+      Source files are physically in this directory — no fork dependency.
+    -->
+    <TargetFramework>net10.0</TargetFramework>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <OtherFlags>$(OtherFlags) --nowarn:3536 --nowarn:3261</OtherFlags>
+    <DebugType>embedded</DebugType>
+    <RootNamespace>Fable.Transforms.WasmGc</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Official Fable.Compiler NuGet — provides Fable.AST, Fable.Transforms, FSharp.Compiler.Service.
+      PrivateAssets="all" prevents these NuGet DLLs from propagating to consumers (e.g. the fork's Fable.Cli).
+      The fork provides its own Fable.Transforms.dll / Fable.Compiler.dll which have the same assembly
+      identity (Fable-Transforms 1.0.0.0) and compatible interfaces — so Fable.WasmGc.dll
+      resolves correctly at runtime against the fork's assemblies.
+    -->
+    <PackageReference Include="Fable.Compiler" Version="5.0.0-rc.11" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Source order (strict dependency order):
+        1. WasmGC AST types (Fable.AST.WasmGc) — no deps on Fable.Transforms
+        2. Ctx / type mapping (depends on AST)
+        3. CE Builder (depends on Types)
+        4. Loop helpers, free-var analysis
+        5. Free-variable analysis
+        6. Runtime helpers (string concat, collectLocals, fixClosure)
+        7. BCL inline replacements (Option, Result, List, Array, Math, String)
+        8. Main Fable→WasmIR translator
+        9. Optimizer
+        10. WAT text emitter
+        11. Low-level struct emitter
+        12. Binary encoder
+    -->
+    <Compile Include="WasmGc.AST.fs" />
+    <Compile Include="Runtime/WasmGcTypes.fs" />
+    <Compile Include="Runtime/WasmGcBuilder.fs" />
+    <Compile Include="Runtime/WasmGcLoopHelpers.fs" />
+    <Compile Include="Runtime/WasmGcFreeVars.fs" />
+    <Compile Include="Runtime/WasmGcRuntime.fs" />
+    <Compile Include="Transforms/WasmGcReplacements.fs" />
+    <Compile Include="Transforms/Fable2WasmGc.fs" />
+    <Compile Include="Emit/WasmGcOptimize.fs" />
+    <Compile Include="Emit/WasmGcWat.fs" />
+    <Compile Include="Emit/WasmGcEmit.fs" />
+    <Compile Include="Emit/WasmGcEncoder.fs" />
+    <Compile Include="WasmGcPipeline.fs" />
+  </ItemGroup>
+
+</Project>
