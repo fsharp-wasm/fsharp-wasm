@@ -1201,6 +1201,22 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // String.replace (all occurrences)
         | "replace", [str; oldSub; newSub], _ ->
             WExpr.Call(ctx.UseHelper("$strReplace"), [str; oldSub; newSub], WType.Ref(StringTypeIdx, false))
+        // String.split — Fable emits LibCall(String, "split", [str; sepArr; option; splitOptions])
+        // We only support the simple str + single-separator case.
+        | "split", str :: rest, _ ->
+            let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
+            let arrRef = WType.Ref(strArrTypeIdx, false)
+            // Extract the separator: rest[0] is an array-of-strings; get its first element
+            let sepArr = List.tryHead rest
+            match sepArr with
+            | Some sepArrExpr ->
+                // sepArrExpr is array of strings; take first element as the delimiter
+                let delim = WExpr.ArrayGet(sepArrExpr, WExpr.Const(WConst.I32 0), WType.Ref(StringTypeIdx, false))
+                WExpr.Call(ctx.UseHelper("$strSplit"), [str; delim], arrRef)
+            | None ->
+                // No separator — split on whitespace (use " " as separator)
+                let space = WExpr.ArrayNewFixed(StringTypeIdx, [WExpr.Const(WConst.I32 32)], WType.Ref(StringTypeIdx, false))
+                WExpr.Call(ctx.UseHelper("$strSplit"), [str; space], arrRef)
         // ── printf-style format strings: "interpolate" (printfn/%d/%s/%f) ─────────
         // Fable emits: LibCall(String, "interpolate", [StringConst fmt; NewArray(ArrayValues vals)])
         // We intercept info.Args (raw Fable AST) before transformation to parse the format.
@@ -1343,6 +1359,35 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // String.toConsole is called with the final formatted string.
         | "toConsole", [str], _ ->
             WExpr.Call("consolePrint", [str], WType.Void)
+        // String.join(sep, arr) → $strJoin — Fable emits LibCall(String, "join", [sep; arr])
+        | "join", sep :: rest, WType.Ref(si, _) when si = StringTypeIdx ->
+            let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
+            let arrRef = WType.Ref(strArrTypeIdx, false)
+            match rest with
+            | [arrExpr] ->
+                WExpr.Call(ctx.UseHelper("$strJoin"), [sep; arrExpr], WType.Ref(StringTypeIdx, false))
+            | _ ->
+                // joinWithIndices or other overload — not yet supported, emit Nop
+                eprintfn "[WasmGc] WARNING: unhandled String.join variant with %d args" rest.Length
+                WExpr.Nop
+        // String.join with no sep (sep = "")
+        | "join", [arrExpr], _ ->
+            let strRef = WType.Ref(StringTypeIdx, false)
+            let emptyStr = WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
+            WExpr.Call(ctx.UseHelper("$strJoin"), [emptyStr; arrExpr], strRef)
+        // Int/Long parse: LibCall(Int/Long/Int8/UInt8/..., "parse", [str; style; unsigned; bitsize])
+        // We dispatch to $parseInt regardless of style — basic decimal parsing only.
+        | "parse", str :: _, WType.I32 ->
+            WExpr.Call(ctx.UseHelper("$parseInt"), [str], WType.I32)
+        | "parse", str :: _, WType.I64 ->
+            // Parse as i32 then extend to i64 (sufficient for typical use)
+            WExpr.Unary(WUnaryOp.ExtendI32S,
+                WExpr.Call(ctx.UseHelper("$parseInt"), [str], WType.I32), WType.I64)
+        // Double/Float parse: LibCall(Double, "parse", [str])
+        | "parse", [str], WType.F64 ->
+            WExpr.Call(ctx.UseHelper("$parseFloat"), [str], WType.F64)
+        | "parse", [str], WType.F32 ->
+            WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$parseFloat"), [str], WType.F64), WType.F32)
         // Fallback: if the selector names a function compiled from a library
         // file earlier in this project (in ctx.KnownFuncs), emit a direct call.
         // This handles same-project cross-file calls (e.g. MapModule.add).
@@ -1483,6 +1528,10 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             WExpr.Compare(WCompareOp.GeS, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; needle], WType.I32), WExpr.Const(WConst.I32 0))
         | "replace", [oldSub; newSub] ->
             WExpr.Call(ctx.UseHelper("$strReplace"), [wStr; oldSub; newSub], strRef)
+        | "split", [sep] ->
+            // str.split(sep) → $strSplit(str, sep); returns array of strings
+            let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
+            WExpr.Call(ctx.UseHelper("$strSplit"), [wStr; sep], WType.Ref(strArrTypeIdx, false))
         | "padStart", [width] | "padStart", [width; _] ->
             WExpr.Call(ctx.UseHelper("$strPadLeft"), [wStr; width], strRef)
         | "padEnd", [width] | "padEnd", [width; _] ->
@@ -1816,6 +1865,7 @@ let buildWModule (ctx: Ctx) : WModule =
                 yield { ModuleName = "env"; Name = "consolePrint"; CallName = ""
                         Desc = ImportFunc([WType.Ref(StringTypeIdx, false)], WType.Void) } ]
         Functions =
+            let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
             let helperBuilders =
                 [ "$strConcat",    WasmGcRuntime.makeStrConcatHelper
                   "$strEq",        WasmGcRuntime.makeStrEqHelper
@@ -1831,11 +1881,22 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$floatToStr",   WasmGcRuntime.makeFloatToStrHelper
                   "$strPadLeft",   WasmGcRuntime.makeStrPadLeftHelper
                   "$strPadRight",  WasmGcRuntime.makeStrPadRightHelper
-                  "$strReplace",   WasmGcRuntime.makeStrReplaceHelper ]
+                  "$strReplace",   WasmGcRuntime.makeStrReplaceHelper
+                  "$strSplit",     WasmGcRuntime.makeStrSplitHelper strArrTypeIdx
+                  "$strJoin",      WasmGcRuntime.makeStrJoinHelper strArrTypeIdx
+                  "$parseInt",     WasmGcRuntime.makeIntParseHelper
+                  "$parseFloat",   WasmGcRuntime.makeFloatParseHelper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then
                     ctx.UsedHelpers.Add("$intToStr") |> ignore
+                    ctx.UsedHelpers.Add("$strConcat") |> ignore
+                // $strSplit depends on $strIndexOf and $strSubstring
+                if ctx.UsedHelpers.Contains("$strSplit") then
+                    ctx.UsedHelpers.Add("$strIndexOf") |> ignore
+                    ctx.UsedHelpers.Add("$strSubstring") |> ignore
+                // $strJoin depends on $strConcat
+                if ctx.UsedHelpers.Contains("$strJoin") then
                     ctx.UsedHelpers.Add("$strConcat") |> ignore
                 helperBuilders |> List.choose (fun (name, make) ->
                     if ctx.UsedHelpers.Contains(name) then Some(make()) else None)

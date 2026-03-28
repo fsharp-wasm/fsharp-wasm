@@ -14,6 +14,14 @@ open Fable.Transforms.WasmGc
 // Keyed by project file path; cleared when the last file has been processed.
 let private sharedCtxs = ConcurrentDictionary<string, WasmGcTypes.Ctx>()
 
+// Per-project count of files processed.
+// Uses atomic AddOrUpdate; when count reaches com.SourceFiles.Length, emission happens.
+let private processedCounts = ConcurrentDictionary<string, int>()
+
+// Per-project emit outPath — the outPath of the "app" (non-library) source file,
+// which determines where App.wasm / App.wat are written.
+let private emitOutPaths = ConcurrentDictionary<string, string>()
+
 // ─────────────────────────────────────────────────────────────────
 // WIT / Component Model helpers
 // ─────────────────────────────────────────────────────────────────
@@ -115,23 +123,53 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             FSharp2Fable.Compiler.transformFile com
             |> FableTransforms.transformFile com
 
-        let isLastFile = com.CurrentFile = (Array.last com.SourceFiles)
+        // Library files (from fable-library-wasmgc/ or fable_modules/) are
+        // isLastFile=false — their functions get prefixed names and are not exported.
+        // App files are isLastFile=true — functions get their original names and are exported.
+        // We detect "is library" by path rather than by source-file order, so the pipeline
+        // is robust regardless of which file gets compiled first in ThreadPool.
+        let currentFile = com.CurrentFile
+        let isLibraryFile =
+            Fable.Naming.isInFableModules currentFile
+            || currentFile.Contains("fable-library-wasmgc")
+            || System.IO.Path.GetFileName(currentFile) = "Interop.fs"
+        let isLastFile = not isLibraryFile
+
         let finalCtx = Fable2WasmGc.processFileIntoCtx ctx com fableFile isLastFile
+        // Write BEFORE incrementing count so that when the emitting file reads the ctx,
+        // all prior files' declarations are visible (ConcurrentDictionary provides the barrier).
         sharedCtxs.[projectFile] <- finalCtx
 
-        // Emit only on the last source file.
-        if not isSilent && isLastFile then
+        // Track the correct output path from the app (non-library) file.
+        if not isLibraryFile then
+            emitOutPaths.[projectFile] <- outPath
+
+        // Count files processed.  Emission happens when the count reaches the total.
+        // This works regardless of processing order (race-free).
+        let totalFiles = com.SourceFiles |> Array.filter (fun f -> f.EndsWith(".fs") || f.EndsWith(".fsx")) |> Array.length
+        let processedCount = processedCounts.AddOrUpdate(projectFile, 1, fun _ c -> c + 1)
+        let allDone = processedCount >= totalFiles
+
+        // Emit only when all source files have been processed.
+        // Use the stored app-file outPath (not the current file's outPath which may be a library file).
+        if not isSilent && allDone then
+            let emitPath =
+                match emitOutPaths.TryGetValue(projectFile) with
+                | true, p -> p
+                | _ -> outPath  // fallback: single-file project
+            processedCounts.TryRemove(projectFile) |> ignore
+            emitOutPaths.TryRemove(projectFile) |> ignore
             sharedCtxs.TryRemove(projectFile) |> ignore
 
             let wasmModule =
                 Fable2WasmGc.buildWModule finalCtx
                 |> WasmGcOptimize.optimizeModule
 
-            let dir = System.IO.Path.GetDirectoryName(outPath)
+            let dir = System.IO.Path.GetDirectoryName(emitPath)
             if not (System.IO.Directory.Exists(dir)) then
                 System.IO.Directory.CreateDirectory(dir) |> ignore
 
-            let stem = System.IO.Path.GetFileNameWithoutExtension(outPath)
+            let stem = System.IO.Path.GetFileNameWithoutExtension(emitPath)
 
             // Always emit WAT (human-readable, primary output for debugging)
             let watPath = System.IO.Path.Combine(dir, stem + ".wat")

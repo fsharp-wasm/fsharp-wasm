@@ -837,6 +837,30 @@ check("externAddNeg: -5 + 5 = 0", 0, exp.testExternAddNeg());
 check("externMul: 6 × 7 = 42", 42, exp.testExternMul());
 check("externChain: (2+3)*4 = 20", 20, exp.testExternChain());
 
+console.log("\n─── String.Split Tests ──────────────────────────\n");
+check("strSplitLen: 'a,b,c'.Split(',') → 3 parts", 3, exp.testStrSplitLen());
+check("strSplitFirst: first part 'a' has length 1", 1, exp.testStrSplitFirst());
+check("strSplitSecond: second part 'b' first char = 98", 98, exp.testStrSplitSecond());
+check("strSplitWords: 'hello world foo'.Split(' ') → 3", 3, exp.testStrSplitWords());
+check("strSplitNoDelim: 'no-delim'.Split(',') → 1", 1, exp.testStrSplitNoDelim());
+check("strSplitEmpty: ''.Split(',') → 1", 1, exp.testStrSplitEmpty());
+check("strSplitMultiChar: 'x::y::z'.Split('::') → 3", 3, exp.testStrSplitMultiChar());
+
+// String.Join tests
+check("strJoinLen: Join(', ', [hello,world,foo]) → length 17", 17, exp.testStrJoinLen());
+check("strJoinNoSep: Join('', [hello,world]) → length 10", 10, exp.testStrJoinNoSep());
+check("strJoinOne: Join(',', [hello]) → length 5", 5, exp.testStrJoinOne());
+
+// Int32.Parse tests
+check("intParse: Int32.Parse('42') = 42", 42, exp.testIntParse());
+check("intParseNeg: Int32.Parse('-17') = -17", -17, exp.testIntParseNeg());
+check("intParseZero: Int32.Parse('0') = 0", 0, exp.testIntParseZero());
+
+// Double.Parse / float tests
+check("floatParse: float '3.14' * 100 = 314", 314, exp.testFloatParse());
+check("floatParseNeg: float '-2.5' * 10 = -25", -25, exp.testFloatParseNeg());
+check("floatParseInt: float '7' = 7", 7, exp.testFloatParseInt());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

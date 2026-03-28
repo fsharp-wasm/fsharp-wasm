@@ -1498,3 +1498,83 @@ let testExternMul () : int =
 /// Test: chaining two extern calls — (2 + 3) * 4 = 20
 let testExternChain () : int =
     externWasmMul (externWasmAdd 2 3) 4
+
+// ── String.Split tests ─────────────────────────────────────────────────────
+
+/// Test: "a,b,c".Split([|","|]) → 3 parts
+let testStrSplitLen () : int =
+    let parts = "a,b,c".Split([| "," |], System.StringSplitOptions.None)
+    parts.Length
+
+/// Test: "a,b,c".Split(",") → first part is "a" → length 1
+let testStrSplitFirst () : int =
+    let parts = "a,b,c".Split([| "," |], System.StringSplitOptions.None)
+    parts.[0].Length
+
+/// Test: "a,b,c".Split(",") → second part "b" → first char = 98 ('b')
+let testStrSplitSecond () : int =
+    let parts = "a,b,c".Split([| "," |], System.StringSplitOptions.None)
+    int parts.[1].[0]
+
+/// Test: "hello world foo".Split(" ") → 3 parts
+let testStrSplitWords () : int =
+    let parts = "hello world foo".Split([| " " |], System.StringSplitOptions.None)
+    parts.Length
+
+/// Test: "no-delim".Split(",") → 1 part (no delimiter found)
+let testStrSplitNoDelim () : int =
+    let parts = "no-delim".Split([| "," |], System.StringSplitOptions.None)
+    parts.Length
+
+/// Test: "".Split(",") → 1 part (empty string gives 1 segment)
+let testStrSplitEmpty () : int =
+    let parts = "".Split([| "," |], System.StringSplitOptions.None)
+    parts.Length
+
+/// Test: split and re-join length — "x::y::z" split by "::" → 3 parts
+let testStrSplitMultiChar () : int =
+    let parts = "x::y::z".Split([| "::" |], System.StringSplitOptions.None)
+    parts.Length
+
+// ── String.Join tests ──────────────────────────────────────────────────────
+
+/// Test: String.Join(", ", [|"hello";"world";"foo"|]) → "hello, world, foo" (length 17)
+let testStrJoinLen () : int =
+    let parts = [| "hello"; "world"; "foo" |]
+    System.String.Join(", ", parts).Length
+
+/// Test: String.Join with empty sep → "helloworld" (length 10)
+let testStrJoinNoSep () : int =
+    System.String.Join("", [| "hello"; "world" |]).Length
+
+/// Test: String.Join with single element → same as element (length 5)
+let testStrJoinOne () : int =
+    System.String.Join(",", [| "hello" |]).Length
+
+// ── Int32.Parse tests ──────────────────────────────────────────────────────
+
+/// Test: Int32.Parse("42") = 42
+let testIntParse () : int =
+    System.Int32.Parse("42")
+
+/// Test: Int32.Parse("-17") = -17
+let testIntParseNeg () : int =
+    System.Int32.Parse("-17")
+
+/// Test: Int32.Parse("0") = 0
+let testIntParseZero () : int =
+    System.Int32.Parse("0")
+
+// ── Double.Parse / float tests ─────────────────────────────────────────────
+
+/// Test: float "3.14" * 100.0 |> int = 314
+let testFloatParse () : int =
+    int (float "3.14" * 100.0)
+
+/// Test: float "-2.5" * 10.0 |> int = -25
+let testFloatParseNeg () : int =
+    int (float "-2.5" * 10.0)
+
+/// Test: float "7" |> int = 7   (integer string, no dot)
+let testFloatParseInt () : int =
+    int (float "7")

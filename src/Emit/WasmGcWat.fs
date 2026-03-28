@@ -17,13 +17,17 @@ open Fable.AST.WasmGc
 
 /// Ensure a name has the WAT $ prefix and sanitize to valid WAT idchars.
 /// WAT identifiers (idchar) do NOT allow: ' ' , ; ( ) [ ] { } " = ...
-/// We replace ',' → '~' (already valid) and space → '_'.
+/// We replace: ',' → '~', ' '/'|'/'.'→ '_', ';'/'('/')' → '_'.
 /// This is applied consistently at both definition and use sites.
 let private watId (name: string) =
     let base' = if name.StartsWith("$") then name else "$" + name
-    // ',' is not a valid WAT idchar — replace with '~'
-    if base'.IndexOfAny([|','; ' '|]) >= 0 then
-        base'.Replace(',', '~').Replace(' ', '_')
+    // Check for any invalid WAT id character
+    if base'.IndexOfAny([|','; ' '; '|'; '.'; ';'; '('; ')'; '['; ']'; '{'; '}'|]) >= 0 then
+        base'.Replace(',', '~').Replace(' ', '_').Replace('|', '_')
+             .Replace('.', '_').Replace(';', '_')
+             .Replace('(', '_').Replace(')', '_')
+             .Replace('[', '_').Replace(']', '_')
+             .Replace('{', '_').Replace('}', '_')
     else base'
 
 /// Strip the $ prefix for use in export/import string names.
