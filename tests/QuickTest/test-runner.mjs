@@ -868,6 +868,25 @@ check("strCompareEq: compare 'abc' 'abc' = 0", 0, exp.testStrCompareEq());
 check("strCompareLt: compare 'abc' 'abd' = -1", -1, exp.testStrCompareLt());
 check("strCompareGt: compare 'b' 'a' = 1", 1, exp.testStrCompareGt());
 
+console.log("\n─── Showcase: Recursion ─────────────────────────\n");
+check("fib10: fibonacci 10 = 55", 55, exp.testFib10());
+check("fib15: fibonacci 15 = 610", 610, exp.testFib15());
+
+console.log("\n─── Showcase: Primes ────────────────────────────\n");
+check("isPrime7: isPrime 7 = true (1)", 1, exp.testIsPrime7());
+check("isPrime4: isPrime 4 = false (0)", 0, exp.testIsPrime4());
+check("countPrimesTo50: primes ≤ 50 = 15", 15, exp.testCountPrimesTo50());
+
+console.log("\n─── Showcase: Project Euler ─────────────────────\n");
+check("sumMultiples35: sum 3|5 below 1000 = 233168", 233168, exp.testSumMultiples35());
+check("collatz27: collatz steps for 27 = 111", 111, exp.testCollatz27());
+
+console.log("\n─── Showcase: List Combinators ──────────────────\n");
+check("arrayToList: [|1;2;3|] toList sum = 6", 6, exp.testArrayToList());
+check("listOfArray: ofArray [|4;5;6|] sum = 15", 15, exp.testListOfArray());
+check("listSortBy: sortBy id [3;1;4;1;5;9;2;6] head = 1", 1, exp.testListSortBy());
+check("listFlatten: append [1;2;3] [4;5] sum = 15", 15, exp.testListFlatten());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

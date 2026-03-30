@@ -1600,3 +1600,83 @@ let testStrCompareLt () : int =
 /// Test: String.compare "b" "a" > 0 → 1
 let testStrCompareGt () : int =
     System.String.Compare("b", "a")
+
+// ── Showcase: Recursion ───────────────────────────────────────────────────
+
+/// Fibonacci (recursive)
+let rec fibonacci (n: int) : int =
+    if n <= 1 then n else fibonacci (n - 1) + fibonacci (n - 2)
+
+/// Test: fibonacci 10 = 55
+let testFib10 () : int = fibonacci 10
+
+/// Test: fibonacci 15 = 610
+let testFib15 () : int = fibonacci 15
+
+// ── Showcase: Primes (array + loop) ──────────────────────────────────────
+
+/// Naive primality test: O(n) trial division
+let isPrime (n: int) : bool =
+    if n < 2 then false
+    else
+        let mutable i = 2
+        let mutable ok = true
+        while i * i <= n && ok do
+            if n % i = 0 then ok <- false
+            i <- i + 1
+        ok
+
+/// Test: isPrime 7 = true → 1
+let testIsPrime7 () : int = if isPrime 7 then 1 else 0
+
+/// Test: isPrime 4 = false → 0
+let testIsPrime4 () : int = if isPrime 4 then 1 else 0
+
+/// Test: count primes up to 50 = 15 (2,3,5,7,11,13,17,19,23,29,31,37,41,43,47)
+let testCountPrimesTo50 () : int =
+    let mutable count = 0
+    for i in 2 .. 50 do
+        if isPrime i then count <- count + 1
+    count
+
+// ── Showcase: Project Euler style ────────────────────────────────────────
+
+/// Sum of all multiples of 3 or 5 below 1000 = 233168
+let testSumMultiples35 () : int =
+    let mutable sum = 0
+    for i in 1 .. 999 do
+        if i % 3 = 0 || i % 5 = 0 then sum <- sum + i
+    sum
+
+/// Collatz sequence steps for n=27 = 111
+let testCollatz27 () : int =
+    let mutable n = 27
+    let mutable steps = 0
+    while n <> 1 do
+        if n % 2 = 0 then n <- n / 2
+        else n <- 3 * n + 1
+        steps <- steps + 1
+    steps
+
+// ── Showcase: List combinators ────────────────────────────────────────────
+
+/// Test: Array.toList [|1;2;3|] |> List.sum = 6
+let testArrayToList () : int =
+    let arr = [| 1; 2; 3 |]
+    let lst = Array.toList arr
+    List.sum lst
+
+/// Test: List.ofArray [|4;5;6|] |> List.sum = 15
+let testListOfArray () : int =
+    let arr = [| 4; 5; 6 |]
+    let lst = List.ofArray arr
+    List.sum lst
+
+/// Test: List.sortBy id [3;1;4;1;5;9;2;6] |> List.head = 1
+let testListSortBy () : int =
+    List.sortBy id [3; 1; 4; 1; 5; 9; 2; 6]
+    |> List.head
+
+/// Test: List.append [1;2;3] [4;5] |> List.sum = 15
+let testListFlatten () : int =
+    List.append [1; 2; 3] [4; 5] |> List.sum

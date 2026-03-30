@@ -1,0 +1,28 @@
+<!-- WasmGC Base Class Library (BCL) — F# source compiled by Fable WasmGC backend.
+     Not a .NET library; consumed as source by user projects.
+     Include files from this project via <Compile Include="..." /> in the user .fsproj.
+     Intended compilation order: Core → Collections → Text → ... -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- Note: this project is a source-only BCL for the WasmGC target.
+         It is referenced by ConsumedByPaths in user project files via Compile items,
+         NOT by ProjectReference (Fable compiles all sources together). -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ── Tier 0: Core stubs (Import, nativeOnly, WasmGC primitives) ──────── -->
+    <Compile Include="Core/Interop.fs" />
+
+    <!-- ── Tier 1: Collections ──────────────────────────────────────────────── -->
+    <!-- Map<int,'V> — BST; key must be comparable (int for now) -->
+    <Compile Include="Collections/Map.fs" />
+    <!-- Set<'T> — stub; full implementation planned when generics land -->
+    <Compile Include="Collections/Set.fs" />
+  </ItemGroup>
+
+</Project>

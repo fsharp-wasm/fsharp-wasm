@@ -9,8 +9,10 @@ open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.WasmGc
 open Fable.Transforms.WasmGc.WasmGcTypes
+open Fable.Transforms.WasmGc.WasmGcBuilder
 open Fable.Transforms.WasmGc.WasmGcRuntime
 open Fable.Transforms.WasmGc.WasmGcLoopHelpers
+open Fable.Transforms.WasmGc.WasmGcLoopCombinators
 
 // ─────────────────────────────────────────────────────────────────
 // Option representation helpers
@@ -919,6 +921,103 @@ let tryListTakeSkipSortInline
                             listBaseRefT)))
                     (WExpr.LocalGet("$trev2_acc", listBaseRefT)) None)
         | None -> None
+    // List.sortBy f xs / List.sortByDescending f xs — sort by key function.
+    // Strategy: fill parallel elem+key arrays; insertion sort on keys; rebuild list.
+    | ("sortBy" | "sortByDescending"),
+        ((Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)) :: listArg :: _) ->
+        let descending = selector = "sortByDescending"
+        match tryListTypeInfo ctx listArg with
+        | None -> None
+        | Some(elemT, consIdx) ->
+        let keyFableT  = fbody.Type
+        let keyT       = mapTypeKnown ctx keyFableT
+        let arrTypeIdx = getOrAddArrayType ctx elemT
+        let keyArrIdx  = getOrAddArrayType ctx keyT
+        let arrRefT    = WType.Ref(arrTypeIdx, false)
+        let keyArrRefT = WType.Ref(keyArrIdx, false)
+        let s   = mkListShape elemT consIdx
+        let gen = LabelGen("lsby")
+        let ctx' = ctx.WithLocal(farg.Name, elemT)
+        let wKey = transform ctx' fbody
+        let wLst = transform ctx listArg
+        let cmpOp = if descending then WCompareOp.GtS else WCompareOp.LtS
+        let lstVar = "$lsby_lst"
+        let arrVar = "$lsby_arr"
+        let keyVar = "$lsby_key"
+        let iVar   = "$lsby_i"
+        let jVar   = "$lsby_j"
+        let seVar  = "$lsby_se"
+        let skVar  = "$lsby_sk"
+        let riVar  = "$lsby_ri"
+        let accVar = "$lsby_acc"
+        let lstGet = WExpr.LocalGet(lstVar, s.BaseTy)
+        let lenVar = "$lsby_len"
+        let lenGet = WExpr.LocalGet(lenVar, WType.I32)
+        let arrGet = WExpr.LocalGet(arrVar, arrRefT)
+        let keyGet = WExpr.LocalGet(keyVar, keyArrRefT)
+        let iGet   = WExpr.LocalGet(iVar, WType.I32)
+        let jGet   = WExpr.LocalGet(jVar, WType.I32)
+        let seGet  = WExpr.LocalGet(seVar, elemT)
+        let skGet  = WExpr.LocalGet(skVar, keyT)
+        let riGet  = WExpr.LocalGet(riVar, WType.I32)
+        let accGet = WExpr.LocalGet(accVar, s.BaseTy)
+        let feVar  = "$lsby_fe"
+        let fkVar  = "$lsby_fk"
+        let fillLoop =
+            // Thread index (i32) through fold — avoids void-typed accumulator
+            sequence [
+                listFold gen s lstGet (i32Const 0) WType.I32
+                    (fun i elem ->
+                        WExpr.Let(feVar, elem,
+                        WExpr.Let(fkVar, WExpr.Let(farg.Name, WExpr.LocalGet(feVar, elemT), wKey),
+                            sequence [
+                                WExpr.ArraySet(arrGet, i, WExpr.LocalGet(feVar, elemT))
+                                WExpr.ArraySet(keyGet, i, WExpr.LocalGet(fkVar, keyT))
+                                add i (i32Const 1)
+                            ])))
+                WExpr.Nop   // drop final index (already know len)
+            ]
+        let sjCond =
+            // Inner while: shift right while key[j] > sk (ascending) or key[j] < sk (descending)
+            wasmAnd (geS jGet (i32Const 0))
+                     (WExpr.Compare(
+                        (if descending then WCompareOp.LtS else WCompareOp.GtS),
+                        WExpr.ArrayGet(keyGet, jGet, keyT),
+                        skGet))
+        let sortLoop =
+            WExpr.LetMut(iVar, i32Const 1,
+                whileLoop (gen.Next("sil")) (ltS iGet lenGet)
+                    (WExpr.Let(seVar, WExpr.ArrayGet(arrGet, iGet, elemT),
+                    WExpr.Let(skVar, WExpr.ArrayGet(keyGet, iGet, keyT),
+                    WExpr.LetMut(jVar, sub iGet (i32Const 1),
+                        sequence [
+                            whileLoop (gen.Next("sjl")) sjCond
+                                (sequence [
+                                    WExpr.ArraySet(arrGet, add jGet (i32Const 1), WExpr.ArrayGet(arrGet, jGet, elemT))
+                                    WExpr.ArraySet(keyGet, add jGet (i32Const 1), WExpr.ArrayGet(keyGet, jGet, keyT))
+                                    localSet jVar (sub jGet (i32Const 1))
+                                ])
+                            WExpr.ArraySet(arrGet, add jGet (i32Const 1), seGet)
+                            WExpr.ArraySet(keyGet, add jGet (i32Const 1), skGet)
+                            localSet iVar (add iGet (i32Const 1))
+                        ])))))
+        let rebuildList =
+            WExpr.LetMut(riVar, sub lenGet (i32Const 1),
+                WExpr.LetMut(accVar, s.Nil,
+                    sequence [
+                        whileLoop (gen.Next("ril")) (geS riGet (i32Const 0))
+                            (sequence [
+                                localSet accVar (s.Cons (WExpr.ArrayGet(arrGet, riGet, elemT)) accGet)
+                                localSet riVar  (sub riGet (i32Const 1))
+                            ])
+                        accGet
+                    ]))
+        Some(
+            WExpr.Let(lstVar, wLst,
+            WExpr.Let(lenVar, listLength gen s lstGet,
+            WExpr.Let(arrVar, arrayNew arrTypeIdx lenGet (makeNumericZero elemT) arrRefT,
+            WExpr.Let(keyVar, arrayNew keyArrIdx  lenGet (makeNumericZero keyT)  keyArrRefT,
+                sequence [fillLoop; sortLoop; rebuildList])))))
     // List.sort xs / List.sortDescending xs — args: [xs; _comparer]
     // Strategy: list → array, insertion sort, array → list (walk backwards to cons).
     | ("sort" | "sortDescending"), (listArg :: _) ->
@@ -1045,6 +1144,34 @@ let tryListTakeSkipSortInline
                                     ]))
                         ]))))
         | None -> None
+    // List.flatten xss / List.concat xss — flatten list-of-lists using listFold combinators.
+    // Two nested listFolds + one final listRev restores order.
+    | ("flatten" | "concat"), (listArg :: _) ->
+        let elemFableT =
+            match listArg.Type with
+            | Fable.Type.List(Fable.Type.List t) -> Some t
+            | _ -> None
+        match elemFableT with
+        | None -> None
+        | Some innerFableT ->
+        match tryListTypeInfoFromElemType ctx innerFableT with
+        | None -> None
+        | Some(elemT, innerConsIdx) ->
+        let outerElemFableT = Fable.Type.List innerFableT
+        match tryListTypeInfoFromElemType ctx outerElemFableT with
+        | None -> None
+        | Some(outerElemT, outerConsIdx) ->
+        let s   = mkListShape elemT innerConsIdx
+        let os  = mkListShape outerElemT outerConsIdx
+        let gen = LabelGen("flat")
+        let wLst = transform ctx listArg
+        // Fold outer → for each inner list, fold inner prepend-reversed into accumulator
+        let revResult =
+            listFold gen os wLst s.Nil s.BaseTy
+                (fun acc innerList ->
+                    listFold gen s innerList acc s.BaseTy
+                        (fun acc2 elem -> s.Cons elem acc2))
+        Some(listRev gen s revResult)
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -1328,6 +1455,25 @@ let tryListPrimitiveInline
                                 WExpr.Nop, WType.Void)))
                     (WExpr.Const(WConst.I32 0)) (Some(exitLabel, WType.I32))))
         | None -> None
+    // List.ofArray arr — convert GC array to linked list using arrayToListRev combinator.
+    | ("ofArray" | "ofSeq"), [wArr] ->
+        match List.tryHead fableArgs with
+        | None -> None
+        | Some arrFableArg ->
+        match arrFableArg.Type with
+        | Fable.Type.Array(elemFableT, _) ->
+            match tryListTypeInfoFromElemType ctx elemFableT with
+            | None -> None
+            | Some(elemT, consIdx) ->
+                let s       = mkListShape elemT consIdx
+                let gen     = LabelGen("ofa")
+                let arrRefT = mapTypeKnown ctx arrFableArg.Type
+                let arrVar  = "$ofa_arr"
+                Some(WExpr.Let(arrVar, wArr,
+                    let a = WExpr.LocalGet(arrVar, arrRefT)
+                    arrayToListRev gen s a (WExpr.ArrayLen a)
+                        (fun ar i -> WExpr.ArrayGet(ar, i, elemT))))
+        | _ -> None
     // List.last xs — iterate to the end, return the final element
     | "last", [wList] ->
         let innerFableType =
@@ -2192,6 +2338,27 @@ let tryArrayInline
                             ]))))
             | None -> None
         | _ -> None
+    // ── Array.toList arr — convert GC array to linked list (right-to-left cons) ──
+    // Uses arrayToListRev combinator for clean, readable code.
+    | "toList" when (match resultFableType with | Fable.Type.List _ -> true | _ -> false) ->
+        match List.tryHead fableArgs with
+        | None -> None
+        | Some arrArg ->
+        match getArrElemT arrArg.Type with
+        | None -> None
+        | Some elemFableT ->
+        match tryListTypeInfoFromElemType ctx elemFableT with
+        | None -> None
+        | Some(elemT, consIdx) ->
+            let s      = mkListShape elemT consIdx
+            let gen    = LabelGen("atl")
+            let wArr   = transform ctx arrArg
+            let arrRefT = mapTypeKnown ctx arrArg.Type
+            let arrVar  = "$atl_arr"
+            Some(WExpr.Let(arrVar, wArr,
+                let a = WExpr.LocalGet(arrVar, arrRefT)
+                arrayToListRev gen s a (WExpr.ArrayLen a)
+                    (fun ar i -> WExpr.ArrayGet(ar, i, elemT))))
     // ── Array.append arr1 arr2 — new array = arr1 ++ arr2 ────────────────────
     | "append" ->
         match fableArgs with
