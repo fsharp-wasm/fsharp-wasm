@@ -44,6 +44,17 @@ let buildTypeNames (typeDefs: WTypeDeclEntry list) : Map<int, string> =
     |> List.mapi (fun i td -> (i, td.Name))
     |> Map.ofList
 
+/// Build a map from type index → array element WType.
+/// Used to determine whether to emit array.get vs. array.get_s (for packed i16 types).
+let buildArrayElemTypes (typeDefs: WTypeDeclEntry list) : Map<int, WType> =
+    typeDefs
+    |> List.mapi (fun i td ->
+        match td.Def with
+        | WTypeDef.Array(elemType, _) -> Some (i, elemType)
+        | _ -> None)
+    |> List.choose id
+    |> Map.ofList
+
 // ─────────────────────────────────────────────────────────────────
 // WType → WAT text
 // ─────────────────────────────────────────────────────────────────
@@ -54,6 +65,7 @@ let rec private wtypeToStr (typeNames: Map<int, string>) (ty: WType) : string =
     | WType.I64 -> "i64"
     | WType.F32 -> "f32"
     | WType.F64 -> "f64"
+    | WType.I16 -> "i16"  // packed type — only valid inside array type defs
     | WType.Ref(idx, false) ->
         let name = typeNames |> Map.tryFind idx |> Option.defaultValue (sprintf "%d" idx)
         sprintf "(ref %s)" (watId name)
@@ -356,10 +368,10 @@ let private ind (depth: int) = System.String(' ', depth * 2)
 
 /// Emit WAT instructions for a WExpr into the string buffer.
 /// `depth` controls indentation; `sb` is the output buffer.
-let rec private emitExpr (typeNames: Map<int, string>) (depth: int) (sb: StringBuilder) (expr: WExpr) : unit =
+let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int, WType>) (depth: int) (sb: StringBuilder) (expr: WExpr) : unit =
     let w (line: string) = sb.AppendLine(ind depth + line) |> ignore
-    let emit e = emitExpr typeNames depth sb e
-    let emitD d e = emitExpr typeNames d sb e
+    let emit e = emitExpr typeNames arrayElemTypes depth sb e
+    let emitD d e = emitExpr typeNames arrayElemTypes d sb e
 
     match expr with
     // ── Constants ──────────────────────────────────────────
@@ -460,7 +472,12 @@ let rec private emitExpr (typeNames: Map<int, string>) (depth: int) (sb: StringB
         emit idx
         let typeIdx = match exprType arr with | WType.Ref(ti, _) -> ti | _ -> 0
         let name = typeNames |> Map.tryFind typeIdx |> Option.defaultValue (sprintf "%d" typeIdx)
-        w $"array.get {watId name}"
+        // Use array.get_s for packed i16 arrays (sign-extends to i32).
+        let instr =
+            match Map.tryFind typeIdx arrayElemTypes with
+            | Some WType.I16 -> "array.get_s"
+            | _              -> "array.get"
+        w $"{instr} {watId name}"
 
     | WExpr.ArraySet(arr, idx, value) ->
         emit arr
@@ -673,12 +690,12 @@ let rec private emitExpr (typeNames: Map<int, string>) (depth: int) (sb: StringB
         w $"(block{resultStr}"
         w "  (block"
         w $"    (try_table{resultStr} (catch_all 0)"
-        emitExpr typeNames (depth + 6) sb body
+        emitExpr typeNames arrayElemTypes (depth + 6) sb body
         w "    )"
         w $"    br 1"
         w "  )"
         match catch_ with
-        | Some (_, handler) -> emitExpr typeNames (depth + 2) sb handler
+        | Some (_, handler) -> emitExpr typeNames arrayElemTypes (depth + 2) sb handler
         | None -> ()
         w ")"
 
@@ -689,7 +706,7 @@ let rec private emitExpr (typeNames: Map<int, string>) (depth: int) (sb: StringB
 // WFuncDecl → WAT function text
 // ─────────────────────────────────────────────────────────────────
 
-let private funcToWat (typeNames: Map<int, string>) (f: WFuncDecl) : string =
+let private funcToWat (typeNames: Map<int, string>) (arrayElemTypes: Map<int, WType>) (f: WFuncDecl) : string =
     let sb = StringBuilder()
     let funcId = watId f.Name
     // Build (param $name type) list
@@ -713,7 +730,7 @@ let private funcToWat (typeNames: Map<int, string>) (f: WFuncDecl) : string =
     if localStr <> "" then
         sb.AppendLine(localStr) |> ignore
     // Emit function body
-    emitExpr typeNames 2 sb f.Body
+    emitExpr typeNames arrayElemTypes 2 sb f.Body
     sb.AppendLine("  )") |> ignore
     sb.ToString()
 
@@ -721,13 +738,13 @@ let private funcToWat (typeNames: Map<int, string>) (f: WFuncDecl) : string =
 // WGlobalDecl → WAT global declaration
 // ─────────────────────────────────────────────────────────────────
 
-let private globalToWat (typeNames: Map<int, string>) (g: WGlobalDecl) : string =
+let private globalToWat (typeNames: Map<int, string>) (arrayElemTypes: Map<int, WType>) (g: WGlobalDecl) : string =
     let sb = StringBuilder()
     let gid = watId g.Name
     let tyStr = wtypeToStr typeNames g.Type
     let mutStr = if g.Mutable then sprintf "(mut %s)" tyStr else tyStr
     sb.Append($"  (global {gid} {mutStr}") |> ignore
-    emitExpr typeNames 0 sb g.Init
+    emitExpr typeNames arrayElemTypes 0 sb g.Init
     sb.Append(")") |> ignore
     sb.ToString()
 
@@ -806,7 +823,8 @@ let private collectClosureFuncNames (funcs: WFuncDecl list) : string list =
 /// Convert a WModule to a WAT text string.
 /// This is the primary output function for Sprint 1.
 let moduleToWat (wmod: WModule) : string =
-    let typeNames = buildTypeNames wmod.Types
+    let typeNames     = buildTypeNames wmod.Types
+    let arrayElemTypes = buildArrayElemTypes wmod.Types
     let sb = StringBuilder()
 
     sb.AppendLine("(module") |> ignore
@@ -827,7 +845,7 @@ let moduleToWat (wmod: WModule) : string =
     if not wmod.Functions.IsEmpty then
         sb.AppendLine("  ;; ── Functions ──────────────────────────────────────") |> ignore
         for f in wmod.Functions do
-            sb.Append(funcToWat typeNames f) |> ignore
+            sb.Append(funcToWat typeNames arrayElemTypes f) |> ignore
 
     // ── Elem declare (required for ref.func validity) ─────
     // Any function used as ref.func must be declared in an element segment.
@@ -847,7 +865,7 @@ let moduleToWat (wmod: WModule) : string =
     if not wmod.Globals.IsEmpty then
         sb.AppendLine("  ;; ── Globals ─────────────────────────────────────────") |> ignore
         for g in wmod.Globals do
-            sb.AppendLine(globalToWat typeNames g) |> ignore
+            sb.AppendLine(globalToWat typeNames arrayElemTypes g) |> ignore
 
     sb.AppendLine(")") |> ignore
     sb.ToString()

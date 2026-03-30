@@ -70,6 +70,9 @@ let rec encodeValType (buf: ResizeArray<byte>) (ty: WType) =
     | WType.I64 -> buf.Add(0x7Euy)
     | WType.F32 -> buf.Add(0x7Duy)
     | WType.F64 -> buf.Add(0x7Cuy)
+    // Packed i16 type — only valid as an array element storage type.
+    // Encoding: 0x79 (storagetype = packedi16) per the GC extension spec.
+    | WType.I16 -> buf.Add(0x79uy)
     | WType.Ref(typeIdx, nullable) ->
         if nullable then
             buf.Add(0x63uy) // ref null typeIdx

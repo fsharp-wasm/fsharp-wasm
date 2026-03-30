@@ -114,7 +114,13 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             match sharedCtxs.TryGetValue(projectFile) with
             | true, existing -> existing
             | _ ->
-                let fresh = WasmGcTypes.Ctx.Create(com)
+                // Allow the host to opt into i16 string storage via an env var.
+                // Set WASMGC_STRING_MODE=i16 before invoking Fable to enable packed strings.
+                let stringMode =
+                    match System.Environment.GetEnvironmentVariable("WASMGC_STRING_MODE") with
+                    | "i16" -> WasmGcTypes.I16
+                    | _     -> WasmGcTypes.I32
+                let fresh = WasmGcTypes.Ctx.Create(com, stringMode)
                 sharedCtxs.[projectFile] <- fresh
                 fresh
 

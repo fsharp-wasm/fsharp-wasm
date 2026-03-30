@@ -1,0 +1,343 @@
+/// Quotation-to-WExpr translator for WasmGC runtime helpers.
+///
+/// Translates [<ReflectedDefinition>] F# functions into WFuncDecl,
+/// making WasmGcRuntime.fs helpers writable as plain, readable F#.
+///
+/// Status: Core walker is complete.  WasmStr indexer/member support
+///         is provided with phantom [<WasmIntrinsic>]-tagged methods.
+///         Port helpers by annotating with [<ReflectedDefinition>] and
+///         calling translateReflected in your makeAllHelpers function.
+///
+/// Design principles:
+///   • Only covers monomorphic value-type F# — no classes, interfaces, or
+///     captured lambdas (closures handled by Fable2WasmGc).
+///   • Supported: let/let mutable, while, if-then-else, arithmetic, comparisons,
+///     array indexing, Array.zeroCreate, explicit WasmIntrinsic calls.
+///   • Not supported (clear error message): tuples, object expressions, match.
+module Fable.Transforms.WasmGc.WasmGcQuotationWalker
+
+open Microsoft.FSharp.Quotations
+open Microsoft.FSharp.Quotations.Patterns
+open Microsoft.FSharp.Quotations.DerivedPatterns
+open System
+open System.Reflection
+
+open Fable.AST.WasmGc
+open Fable.Transforms.WasmGc.WasmGcTypes
+open Fable.Transforms.WasmGc.WasmGcBuilder
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Intrinsic attribute
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Marks a method or property as representing a WasmGC intrinsic operation.
+/// The quotation walker replaces calls to this member with the corresponding
+/// WExpr primitive (looked up in the Intrinsics map by the attribute's name).
+[<AttributeUsage(AttributeTargets.Method ||| AttributeTargets.Property)>]
+type WasmIntrinsicAttribute(name: string) =
+    inherit System.Attribute()
+    member _.Name = name
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom type for WasmStr — used ONLY in [<ReflectedDefinition>] sources
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Phantom type representing a WasmGC array-of-i32 (our string representation).
+/// Used as parameter/return types in quoted helper functions.
+/// Never instantiated at runtime — only exists in F# quotations.
+[<Struct>]
+type WasmStr = WasmStr
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom intrinsic helpers
+//
+// Use these in [<ReflectedDefinition>] helper functions instead of direct
+// array operations.  The quotation walker intercepts calls to these via
+// [<WasmIntrinsic>] reflection and emits the correct WExpr.
+//
+// Example:
+//   [<ReflectedDefinition>]
+//   let strLen (s: WasmStr) : int =
+//       wsLen s
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// String length.  Translated to arrayLen. Never called at runtime.
+[<WasmIntrinsic("$wasmStr_length")>]
+let wsLen (_s: WasmStr) : int = failwith "phantom intrinsic"
+
+/// String character at index.  Translated to arrayGet s i I32. Never called at runtime.
+[<WasmIntrinsic("$wasmStr_get")>]
+let wsGet (_s: WasmStr) (_i: int) : int = failwith "phantom intrinsic"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Type mapping — System.Type → WType
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Configuration for the quotation translator: how to map F# types to WTypes.
+type QTypeMap = {
+    /// Type index of the WasmStr array type (pre-registered at index StringTypeIdx).
+    StrTypeIdx    : int
+    /// Custom type resolver for project-specific struct types.
+    /// Return None to let the walker raise an error for unknown types.
+    ResolveCustom : System.Type -> WType option
+}
+
+let private toWType (tm: QTypeMap) (t: System.Type) : WType =
+    if   t = typeof<int>    || t = typeof<int32>  then WType.I32
+    elif t = typeof<int64>                         then WType.I64
+    elif t = typeof<float>                         then WType.F64
+    elif t = typeof<float32>                       then WType.F32
+    elif t = typeof<bool>                          then WType.I32  // booleans are i32 in WASM
+    elif t = typeof<char>                          then WType.I32  // chars are Unicode code-points
+    elif t = typeof<unit>                          then WType.Void
+    elif t = typeof<WasmStr>                       then WType.Ref(tm.StrTypeIdx, false)
+    else
+        match tm.ResolveCustom t with
+        | Some wty -> wty
+        | None     -> failwithf "WasmQuotationWalker: no WType mapping for %s. Add to QTypeMap.ResolveCustom." t.FullName
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Translation context
+// ─────────────────────────────────────────────────────────────────────────────
+
+type private QCtx = {
+    TypeMap    : QTypeMap
+    /// Known runtime intrinsics: declared-name → WExpr builder.
+    /// Populated by the caller (typically from standardIntrinsics).
+    Intrinsics : Map<string, WExpr list -> WExpr>
+    /// Shared counter for fresh label generation.
+    LabelN     : int ref
+}
+
+let private freshLbl (ctx: QCtx) (tag: string) =
+    let n = System.Threading.Interlocked.Increment(ctx.LabelN)
+    $"$q_{tag}_{n}"
+
+let private wty (ctx: QCtx) (t: System.Type) = toWType ctx.TypeMap t
+
+/// Prefix for quotation-source local variables.
+let private localPfx (v: Var) = "$" + v.Name
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core translator
+// ─────────────────────────────────────────────────────────────────────────────
+
+let rec private tx (ctx: QCtx) (expr: Expr) : WExpr =
+    match expr with
+
+    // ── Constants ────────────────────────────────────────────────────────────
+    | Int32  n  -> i32Const n
+    | Int64  n  -> i64Const n
+    | Double f  -> f64Const f
+    | Single f  -> f32Const f
+    | Bool   b  -> i32Const (if b then 1 else 0)
+    | Value(v, t) when t = typeof<char>  -> i32Const (int (v :?> char))
+    | Value(_, t) when t = typeof<unit>  -> WExpr.Nop
+    | Value(v, t) ->
+        failwithf "WasmQuotationWalker: unhandled constant %A : %s — only int/int64/float/bool/char/unit are supported." v t.FullName
+
+    // ── Variables ────────────────────────────────────────────────────────────
+    | Var v ->
+        localGet (localPfx v) (wty ctx v.Type)
+
+    // ── Let (immutable) ──────────────────────────────────────────────────────
+    | Let(v, e, body) when not v.IsMutable ->
+        WExpr.Let(localPfx v, tx ctx e, tx ctx body)
+
+    // ── Let mutable ──────────────────────────────────────────────────────────
+    | Let(v, e, body) when v.IsMutable ->
+        WExpr.LetMut(localPfx v, tx ctx e, tx ctx body)
+
+    // ── VarSet (x <- e) ──────────────────────────────────────────────────────
+    | VarSet(v, e) ->
+        localSet (localPfx v) (tx ctx e)
+
+    // ── Sequential (a; b) ────────────────────────────────────────────────────
+    | Sequential(a, b) ->
+        sequence [tx ctx a; tx ctx b]
+
+    // ── If-then-else ─────────────────────────────────────────────────────────
+    | IfThenElse(cond, thenE, elseE) ->
+        wasmIf (tx ctx cond) (tx ctx thenE) (tx ctx elseE)
+
+    // ── While loop ───────────────────────────────────────────────────────────
+    | WhileLoop(cond, body) ->
+        let lbl = freshLbl ctx "wl"
+        whileLoop lbl (tx ctx cond) (tx ctx body)
+
+    // ── For (integer range: for i = lo to hi do ...) ──────────────────────────
+    | ForIntegerRangeLoop(v, lo, hi, body) ->
+        let iV  = localPfx v
+        let lbl = freshLbl ctx "fl"
+        let gi  = localGet iV WType.I32
+        WExpr.LetMut(iV, tx ctx lo,
+            whileLoop lbl (leS gi (tx ctx hi))
+                (sequence [tx ctx body; localSet iV (add gi (i32Const 1))]))
+
+    // ── Array .Length property ────────────────────────────────────────────────
+    | PropertyGet(Some arr, pi, []) when pi.Name = "Length" ->
+        arrayLen (tx ctx arr)
+
+    // ── GetArray — arr.[i] ───────────────────────────────────────────────────
+    | Call(None, mi, [arr; idx])
+            when mi.Name = "GetArray" || mi.Name = "get_Item" ->
+        arrayGet (tx ctx arr) (tx ctx idx) (wty ctx mi.ReturnType)
+
+    // ── SetArray — arr.[i] <- v ───────────────────────────────────────────────
+    | Call(None, mi, [arr; idx; v])
+            when mi.Name = "SetArray" || mi.Name = "set_Item" ->
+        arraySet (tx ctx arr) (tx ctx idx) (tx ctx v)
+
+    // ── Array.zeroCreate n ───────────────────────────────────────────────────
+    // NOTE: This requires the caller to pass the correct array typeIdx.
+    // Register the translation via Intrinsics map: "ZeroCreate" → builder.
+    | Call(None, mi, [n])
+            when mi.Name = "ZeroCreate" || mi.Name = "zeroCreate" ->
+        match Map.tryFind "ZeroCreate" ctx.Intrinsics with
+        | Some builder -> builder [tx ctx n]
+        | None -> failwith "WasmQuotationWalker: Array.zeroCreate requires a 'ZeroCreate' entry in Intrinsics map (typeIdx-specific). Register it via standardIntrinsics."
+
+    // ── Arithmetic operators ──────────────────────────────────────────────────
+    | SpecificCall <@ (+)  @> (_, _, [a; b]) -> add  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (-)  @> (_, _, [a; b]) -> sub  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (*)  @> (_, _, [a; b]) -> mul  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (/)  @> (_, _, [a; b]) -> div_ (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (%)  @> (_, _, [a; b]) -> rem_ (tx ctx a) (tx ctx b)
+
+    // ── Comparison operators ──────────────────────────────────────────────────
+    | SpecificCall <@ (=)  @> (_, _, [a; b]) -> eq  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (<>) @> (_, _, [a; b]) -> ne  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (<)  @> (_, _, [a; b]) -> ltS (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (<=) @> (_, _, [a; b]) -> leS (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (>)  @> (_, _, [a; b]) -> gtS (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (>=) @> (_, _, [a; b]) -> geS (tx ctx a) (tx ctx b)
+
+    // ── Boolean operators (short-circuit via wasmAnd / wasmOr) ───────────────
+    | SpecificCall <@ (&&) @> (_, _, [a; b]) -> wasmAnd (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (||) @> (_, _, [a; b]) -> wasmOr  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ not  @> (_, _, [a])    ->
+        // `not x` = `if x then 0 else 1`
+        WExpr.If(tx ctx a, i32Const 0, i32Const 1, WType.I32)
+
+    // ── Type conversions (identity in WASM for our supported types) ───────────
+    | SpecificCall <@ int  @> (_, _, [a]) -> tx ctx a  // i32 → i32 nop
+    | SpecificCall <@ char @> (_, _, [a]) -> tx ctx a  // i32 → char nop
+
+    // ── WasmIntrinsic static calls ────────────────────────────────────────────
+    // Methods tagged [<WasmIntrinsic("$name")>] are resolved to intrinsic builders.
+    | Call(None, mi, args) ->
+        let intrName =
+            mi.GetCustomAttributes(typeof<WasmIntrinsicAttribute>, false)
+            |> Array.tryHead
+            |> Option.map (fun a -> (a :?> WasmIntrinsicAttribute).Name)
+        match intrName with
+        | Some name ->
+            let wArgs = List.map (tx ctx) args
+            match Map.tryFind name ctx.Intrinsics with
+            | Some builder -> builder wArgs
+            | None         -> WExpr.Call(name, wArgs, wty ctx mi.ReturnType)
+        | None ->
+            // Plain call to another module-level function (assumed available as WExpr.Call).
+            WExpr.Call("$" + mi.Name, List.map (tx ctx) args, wty ctx mi.ReturnType)
+
+    // ── WasmIntrinsic instance calls (e.g., wasmStr.Length, wasmStr.[i]) ─────
+    | PropertyGet(Some obj, pi, []) ->
+        let intrName =
+            pi.GetCustomAttributes(typeof<WasmIntrinsicAttribute>, false)
+            |> Array.tryHead
+            |> Option.map (fun a -> (a :?> WasmIntrinsicAttribute).Name)
+        match intrName with
+        | Some name ->
+            match Map.tryFind name ctx.Intrinsics with
+            | Some builder -> builder [tx ctx obj]
+            | None         -> WExpr.Call(name, [tx ctx obj], wty ctx pi.PropertyType)
+        | None ->
+            failwithf "WasmQuotationWalker: unsupported property get '%s.%s'" pi.DeclaringType.Name pi.Name
+
+    | Call(Some obj, mi, args) ->
+        let intrName =
+            mi.GetCustomAttributes(typeof<WasmIntrinsicAttribute>, false)
+            |> Array.tryHead
+            |> Option.map (fun a -> (a :?> WasmIntrinsicAttribute).Name)
+        match intrName with
+        | Some name ->
+            let wArgs = tx ctx obj :: List.map (tx ctx) args
+            match Map.tryFind name ctx.Intrinsics with
+            | Some builder -> builder wArgs
+            | None         -> WExpr.Call(name, wArgs, wty ctx mi.ReturnType)
+        | None ->
+            failwithf "WasmQuotationWalker: unsupported instance call '%s.%s'. Add [<WasmIntrinsic>] or translate to a module-level call." mi.DeclaringType.Name mi.Name
+
+    | NewTuple _ ->
+        failwith "WasmQuotationWalker: tuples not supported — use struct fields or individual let-bindings."
+
+    | _ ->
+        failwithf "WasmQuotationWalker: unsupported F# pattern:\n%A\nAdd a case to WasmGcQuotationWalker.tx." expr
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Translate a [<ReflectedDefinition>] function into a WFuncDecl.
+///
+/// `qexpr`      — obtained via `<@ myFunc @>` at the call site.
+/// `funcName`   — the WASM function name to assign (e.g. "$strTrim").
+/// `typeMap`    — F# type → WType mapping.
+/// `intrinsics` — known intrinsic builders; see standardIntrinsics.
+let translateReflected
+        (funcName  : string)
+        (typeMap   : QTypeMap)
+        (intrinsics: Map<string, WExpr list -> WExpr>)
+        (qexpr     : Expr)
+        : WFuncDecl =
+    let ctx = {
+        TypeMap    = typeMap
+        Intrinsics = intrinsics
+        LabelN     = ref 0
+    }
+    // A module-level function quotation is a chain of Lambdas ending in the body.
+    let rec stripLambdas acc = function
+        | Lambda(v, rest) -> stripLambdas ((v.Name, wty ctx v.Type) :: acc) rest
+        | body            -> List.rev acc, body
+    let parms, body = stripLambdas [] qexpr
+    let retTy =
+        let rec lastTy = function
+            | Lambda(_, rest) -> lastTy rest
+            | e               -> wty ctx e.Type
+        lastTy qexpr
+    {
+        Name    = funcName
+        Params  = parms |> List.map (fun (n, t) -> "$" + n, t)
+        Locals  = []    // WasmGcEmit.collectLocals fills this in when emitting
+        Result  = retTy
+        Body    = tx ctx body
+        Exported = false
+    }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Standard intrinsics map
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Build the standard intrinsics map for WasmGcRuntime.fs helpers.
+/// Pass `strTypeIdx = StringTypeIdx` (= 1) from WasmGcTypes.
+let standardIntrinsics (strTypeIdx: int) : Map<string, WExpr list -> WExpr> =
+    let strRefTy = WType.Ref(strTypeIdx, false)
+    Map.ofList [
+        // ── WasmStr member intrinsics ─────────────────────────────────────────
+        "$wasmStr_length", (function [s]       -> arrayLen s          | a -> failwithf "arity mismatch $wasmStr_length: got %d" a.Length)
+        "$wasmStr_get",    (function [s; i]    -> arrayGet s i WType.I32 | a -> failwithf "arity mismatch $wasmStr_get: got %d" a.Length)
+        // ── Array ops ─────────────────────────────────────────────────────────
+        "arrayLen",        (function [a]       -> arrayLen a          | a -> failwithf "arity mismatch arrayLen: got %d" a.Length)
+        "arrayGet",        (function [a; i; _] -> arrayGet a i WType.I32 | a -> failwithf "arity mismatch arrayGet: got %d" a.Length)
+        "arraySet",        (function [a; i; v] -> arraySet a i v      | a -> failwithf "arity mismatch arraySet: got %d" a.Length)
+        // ── String helpers — forwarded as WExpr.Call to existing runtime fns ──
+        "$strSubstring",   fun args -> WExpr.Call("$strSubstring", args, strRefTy)
+        "$strConcat",      fun args -> WExpr.Call("$strConcat",    args, strRefTy)
+        "$strIndexOf",     fun args -> WExpr.Call("$strIndexOf",   args, WType.I32)
+        "$strLastIndexOf", fun args -> WExpr.Call("$strLastIndexOf", args, WType.I32)
+        // ── Char helpers ───────────────────────────────────────────────────────
+        "$charIsWhitespace", (function [c] -> WExpr.Call("$charIsWhitespace", [c], WType.I32) | a -> failwithf "arity mismatch $charIsWhitespace: got %d" a.Length)
+        "$charIsDigit",      (function [c] -> WExpr.Call("$charIsDigit",      [c], WType.I32) | a -> failwithf "arity mismatch $charIsDigit: got %d" a.Length)
+        "$charToLower",      (function [c] -> WExpr.Call("$charToLower",      [c], WType.I32) | a -> failwithf "arity mismatch $charToLower: got %d" a.Length)
+        "$charToUpper",      (function [c] -> WExpr.Call("$charToUpper",      [c], WType.I32) | a -> failwithf "arity mismatch $charToUpper: got %d" a.Length)
+    ]

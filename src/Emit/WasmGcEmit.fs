@@ -23,6 +23,8 @@ type EmitCtx =
         ImportFuncCount: int
         /// Global variable name → global index
         GlobalIndex: Map<string, int>
+        /// Type index → array element WType; used for packed-type (i16) array.get_s selection.
+        ArrayElemTypes: Map<int, WType>
     }
 
     member this.GetFuncIdx(name: string) =
@@ -212,7 +214,11 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
             match exprResultType arr with
             | WType.Ref(ti, _) -> ti
             | _ -> 0
-        arrInstrs @ idxInstrs @ [Instr.ArrayGet typeIdx]
+        let getInstr =
+            match Map.tryFind typeIdx ctx.ArrayElemTypes with
+            | Some WType.I16 -> Instr.ArrayGetS typeIdx
+            | _              -> Instr.ArrayGet typeIdx
+        arrInstrs @ idxInstrs @ [getInstr]
 
     | WExpr.ArraySet(arr, idx, value) ->
         let arrInstrs = emitExpr ctx arr
@@ -752,6 +758,16 @@ let emitModule (wmod: WModule) : WasmModule =
         |> List.mapi (fun i g -> g.Name, i)
         |> Map.ofList
 
+    // 3d. Build array element type map: type index → element WType (for packed i16 read selection)
+    let arrayElemTypes =
+        wmod.Types
+        |> List.mapi (fun i td ->
+            match td.Def with
+            | WTypeDef.Array(elemTy, _) -> Some(i, elemTy)
+            | _                         -> None)
+        |> List.choose id
+        |> Map.ofList
+
     // 4. Register all function types
     let funcTypeIndices =
         wmod.Functions
@@ -792,6 +808,7 @@ let emitModule (wmod: WModule) : WasmModule =
                     LabelStack = []
                     ImportFuncCount = importFuncCount
                     GlobalIndex = globalIndex
+                    ArrayElemTypes = arrayElemTypes
                 }
 
             let bodyInstrs = emitExpr ctx f.Body
@@ -821,6 +838,7 @@ let emitModule (wmod: WModule) : WasmModule =
                     LabelStack = []
                     ImportFuncCount = importFuncCount
                     GlobalIndex = globalIndex
+                    ArrayElemTypes = arrayElemTypes
                 }
             let initInstrs = emitExpr initCtx g.Init
             {

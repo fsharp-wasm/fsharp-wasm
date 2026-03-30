@@ -27,6 +27,12 @@ let ListBaseTypeIdx = 2
 // Context — threaded through the translation
 // ─────────────────────────────────────────────────────────────────
 
+/// Selects how F# strings are stored in the WasmGC (array) type.
+/// I32 (default): each slot is a 32-bit integer — UTF-16 code units stored wide.
+/// I16: each slot is a packed 16-bit integer — 50 % smaller for ASCII-heavy workloads;
+///      reads use array.get_s (sign-extend). Not all Wasm runtimes support i16 arrays yet.
+type StringMode = I32 | I16
+
 type Ctx =
     {
         /// Currently known local variable types
@@ -100,15 +106,21 @@ type Ctx =
         /// External Wasm function imports declared via [<Import("name","module")>] on nativeOnly funcs.
         /// Key = internal call-name "$ext$module$name"; Value = WImport to be emitted in import section.
         ExternImports: System.Collections.Generic.Dictionary<string, WImport>
+        /// String storage mode: I32 (default, wide) or I16 (packed, 50 % smaller for ASCII).
+        StringMode: StringMode
     }
 
-    static member Create(com: Compiler) =
+    static member Create(com: Compiler, ?stringMode: StringMode) =
+        let stringMode = defaultArg stringMode I32
         let typeDefs = new ResizeArray<WTypeDeclEntry>()
         let functions = new ResizeArray<WFuncDecl>()
         // Pre-register $AnyFn = struct {} (index 0)
         typeDefs.Add({ Name = "$AnyFn"; Def = WTypeDef.Struct([], None) })
-        // Pre-register $WasmStr = (array (mut i32)) (index 1)
-        typeDefs.Add({ Name = "$WasmStr"; Def = WTypeDef.Array(WType.I32, true) })
+        // Pre-register $WasmStr — element type depends on StringMode:
+        //   I32 (default): (array (mut i32)) — wide UTF-16 code units
+        //   I16:           (array (mut i16)) — packed UTF-16, saved 50% memory; reads use array.get_s
+        let strElemType = match stringMode with I32 -> WType.I32 | I16 -> WType.I16
+        typeDefs.Add({ Name = "$WasmStr"; Def = WTypeDef.Array(strElemType, true) })
         // Pre-register $ListBase = struct {} (index 2)
         typeDefs.Add({ Name = "$ListBase"; Def = WTypeDef.Struct([], None) })
         {
@@ -139,6 +151,7 @@ type Ctx =
             FuncNameAlias = Map.empty
             KnownFuncsByPath = Map.empty
             ExternImports = System.Collections.Generic.Dictionary<string, WImport>()
+            StringMode = stringMode
         }
 
     member this.WithLocal(name: string, ty: WType) =

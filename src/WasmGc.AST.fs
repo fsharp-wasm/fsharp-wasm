@@ -20,6 +20,9 @@ type WType =
     | I64
     | F32
     | F64
+    /// Packed 16-bit integer — only valid as a WTypeDef.Array element type (i16 strings).
+    /// Automatically uses array.get_s on read-back.
+    | I16
     | Ref of typeIdx: int * nullable: bool
     | Func of args: WType list * results: WType list
     | Struct of fields: WField list
@@ -52,6 +55,7 @@ module WTypeKeys =
         | WType.I64 -> "i64"
         | WType.F32 -> "f32"
         | WType.F64 -> "f64"
+        | WType.I16 -> "i16"
         | WType.Void -> "void"
         | WType.Externref -> "extern"
         | WType.I31ref -> "i31"

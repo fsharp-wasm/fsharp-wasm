@@ -322,3 +322,54 @@ let countLoop (lbl: string) (n: WExpr) (body: WExpr -> WExpr) : WExpr =
                     body iGet
                     localSet iVar (add iGet (i32Const 1))
                 ])))
+
+// ─────────────────────────────────────────────────────────────────
+// LabelGen — deterministic, debuggable label generation
+// ─────────────────────────────────────────────────────────────────
+
+/// Generates scoped, deterministic variable/label names.
+/// Each LabelGen instance has its own counter, so names won't clash
+/// between different combinator invocations.
+///
+/// Usage:
+///   let gen = LabelGen "fold"
+///   let cur = gen.Next "cur"   // "$fold_cur_1"
+///   let acc = gen.Next "acc"   // "$fold_acc_2"
+type LabelGen(prefix: string) =
+    let mutable n = 0
+    member _.Next(tag: string) =
+        n <- n + 1
+        $"${prefix}_{tag}_{n}"
+    member _.Prefix = prefix
+
+// ─────────────────────────────────────────────────────────────────
+// Scoped variable helpers — letVal / letMut
+// ─────────────────────────────────────────────────────────────────
+
+/// Introduce an immutable let-binding; body receives the LocalGet expression.
+///
+///   letVal gen "n" WType.I32 (arrayLen arr) (fun gn -> ...)
+let letVal (gen: LabelGen) (tag: string) (ty: WType) (value: WExpr) (body: WExpr -> WExpr) : WExpr =
+    let name = gen.Next(tag)
+    WExpr.Let(name, value, body (localGet name ty))
+
+/// Introduce a mutable let-binding; body receives the LocalGet expression AND
+/// a setter function (WExpr → WExpr = LocalSet "name" newVal).
+///
+///   letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
+///       whileLoop ... (sequence [setI (add i (i32Const 1))]))
+let letMut (gen: LabelGen) (tag: string) (ty: WType) (init: WExpr) (body: WExpr -> (WExpr -> WExpr) -> WExpr) : WExpr =
+    let name = gen.Next(tag)
+    WExpr.LetMut(name, init, body (localGet name ty) (localSet name))
+
+/// RefIsNotNull — often needed inside loop conditions.
+/// Implemented as eqz(ref.is_null e): returns 1 when e is not null.
+let refIsNotNull (e: WExpr) = WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull e, WType.I32)
+
+/// Helper zero-value for a numeric WType (used by buildListSort etc.)
+let makeNumericZero = function
+    | WType.I32 -> i32Const 0
+    | WType.I64 -> i64Const 0L
+    | WType.F32 -> f32Const 0.0f
+    | WType.F64 -> f64Const 0.0
+    | ty        -> failwithf "makeNumericZero: non-numeric type %A" ty

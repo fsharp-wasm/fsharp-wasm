@@ -46,6 +46,8 @@
     <Compile Include="Runtime/WasmGcTypes.fs" />
     <Compile Include="Runtime/WasmGcBuilder.fs" />
     <Compile Include="Runtime/WasmGcLoopHelpers.fs" />
+    <Compile Include="Runtime/WasmGcLoopCombinators.fs" />
+    <Compile Include="Runtime/WasmGcQuotationWalker.fs" />
     <Compile Include="Runtime/WasmGcFreeVars.fs" />
     <Compile Include="Runtime/WasmGcRuntime.fs" />
     <Compile Include="Transforms/WasmGcReplacements.fs" />
