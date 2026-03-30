@@ -861,6 +861,13 @@ check("floatParse: float '3.14' * 100 = 314", 314, exp.testFloatParse());
 check("floatParseNeg: float '-2.5' * 10 = -25", -25, exp.testFloatParseNeg());
 check("floatParseInt: float '7' = 7", 7, exp.testFloatParseInt());
 
+// String.IsNullOrEmpty / String.compare tests
+check("strIsNullOrEmptyTrue: IsNullOrEmpty('') = 1", 1, exp.testStrIsNullOrEmptyTrue());
+check("strIsNullOrEmptyFalse: IsNullOrEmpty('hi') = 0", 0, exp.testStrIsNullOrEmptyFalse());
+check("strCompareEq: compare 'abc' 'abc' = 0", 0, exp.testStrCompareEq());
+check("strCompareLt: compare 'abc' 'abd' = -1", -1, exp.testStrCompareLt());
+check("strCompareGt: compare 'b' 'a' = 1", 1, exp.testStrCompareGt());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

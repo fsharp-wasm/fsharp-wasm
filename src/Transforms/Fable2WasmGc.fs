@@ -1183,6 +1183,17 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // String.contains(str, needle) → $strIndexOf >= 0
         | "contains", [str; needle], _ ->
             WExpr.Compare(WCompareOp.GeS, WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; needle], WType.I32), WExpr.Const(WConst.I32 0))
+        // String.IsNullOrEmpty(str) → array.len = 0 (our strings are never null in WasmGC)
+        | "isNullOrEmpty", [str], _ ->
+            WExpr.Compare(WCompareOp.Eq, WExpr.ArrayLen(str), WExpr.Const(WConst.I32 0))
+        // String.IsNullOrWhiteSpace(str) → trim then check length = 0
+        | "isNullOrWhiteSpace", [str], _ ->
+            WExpr.Compare(WCompareOp.Eq,
+                WExpr.ArrayLen(WExpr.Call(ctx.UseHelper("$strTrim"), [str], WType.Ref(StringTypeIdx, false))),
+                WExpr.Const(WConst.I32 0))
+        // String.compare(a, b) / String.Compare(a, b) → $strCompare → i32 (-1 | 0 | 1)
+        | ("compare" | "compareOrdinal" | "compareCurrentCulture"), [a; b], WType.I32 ->
+            WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
         // toString for numbers (via LibCall path)
         | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx ->
             WExpr.Call(ctx.UseHelper("$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
@@ -1885,7 +1896,8 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$strSplit",     WasmGcRuntime.makeStrSplitHelper strArrTypeIdx
                   "$strJoin",      WasmGcRuntime.makeStrJoinHelper strArrTypeIdx
                   "$parseInt",     WasmGcRuntime.makeIntParseHelper
-                  "$parseFloat",   WasmGcRuntime.makeFloatParseHelper ]
+                  "$parseFloat",   WasmGcRuntime.makeFloatParseHelper
+                  "$strCompare",   WasmGcRuntime.makeStrCompareHelper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then

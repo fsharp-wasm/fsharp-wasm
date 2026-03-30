@@ -1578,3 +1578,25 @@ let testFloatParseNeg () : int =
 /// Test: float "7" |> int = 7   (integer string, no dot)
 let testFloatParseInt () : int =
     int (float "7")
+
+// ── String.IsNullOrEmpty / String.compare ─────────────────────────────────
+
+/// Test: String.IsNullOrEmpty "" = true (1)
+let testStrIsNullOrEmptyTrue () : int =
+    if System.String.IsNullOrEmpty("") then 1 else 0
+
+/// Test: String.IsNullOrEmpty "hi" = false (0)
+let testStrIsNullOrEmptyFalse () : int =
+    if System.String.IsNullOrEmpty("hi") then 1 else 0
+
+/// Test: String.compare "abc" "abc" = 0
+let testStrCompareEq () : int =
+    System.String.Compare("abc", "abc")
+
+/// Test: String.compare "abc" "abd" < 0 → -1
+let testStrCompareLt () : int =
+    System.String.Compare("abc", "abd")
+
+/// Test: String.compare "b" "a" > 0 → 1
+let testStrCompareGt () : int =
+    System.String.Compare("b", "a")

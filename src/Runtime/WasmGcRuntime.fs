@@ -797,6 +797,50 @@ let makeFloatParseHelper () : WFuncDecl =
 
 // ─────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────
+
+/// Runtime helper: $strCompare(a, b) → i32  (-1 | 0 | 1)
+/// Lexicographic comparison of two WasmStr arrays (char by char, then by length).
+let makeStrCompareHelper () : WFuncDecl =
+    let strRef = WType.Ref(StringTypeIdx, false)
+    let i32 = WType.I32
+    let aGet = localGet "$sc_a" strRef
+    let bGet = localGet "$sc_b" strRef
+    let iGet = localGet "$sc_i" i32
+    let laGet = localGet "$sc_la" i32
+    let lbGet = localGet "$sc_lb" i32
+    let caGet = localGet "$sc_ca" i32
+    let cbGet = localGet "$sc_cb" i32
+    let minLen la lb = wasmIf (ltS la lb) la lb
+    let charCompare =
+        WExpr.Let("$sc_ca", arrayGet aGet iGet i32,
+        WExpr.Let("$sc_cb", arrayGet bGet iGet i32,
+            wasmIf (gtS caGet cbGet)
+                (WExpr.Break("$sc_ret", Some (i32Const 1)))
+                (wasmIf (ltS caGet cbGet)
+                    (WExpr.Break("$sc_ret", Some (i32Const (-1))))
+                    WExpr.Nop)))
+    let loopBody =
+        wasmIf (geS iGet (minLen laGet lbGet))
+            (WExpr.Sequence [
+                wasmIf (gtS laGet lbGet) (WExpr.Break("$sc_ret", Some (i32Const 1))) WExpr.Nop
+                wasmIf (ltS laGet lbGet) (WExpr.Break("$sc_ret", Some (i32Const (-1)))) WExpr.Nop
+                WExpr.Break("$sc_ret", Some (i32Const 0))])
+            (WExpr.Sequence [
+                charCompare
+                localSet "$sc_i" (add iGet (i32Const 1))
+                continue_ "$sc_lp"])
+    let body =
+        WExpr.Let("$sc_la", arrayLen aGet,
+        WExpr.Let("$sc_lb", arrayLen bGet,
+            block_ "$sc_ret" i32 (
+                WExpr.LetMut("$sc_i", i32Const 0,
+                    WExpr.Sequence [
+                        loop "$sc_lp" loopBody
+                        i32Const 0     // unreachable fallthru, satisfies block type
+                    ]))))
+    makeFunc "$strCompare" [("$sc_a", strRef); ("$sc_b", strRef)] i32 body
+
 /// After all functions are translated, fixup any ClosureApply nodes whose
 let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =
     let funcTypeToClosureMap =
