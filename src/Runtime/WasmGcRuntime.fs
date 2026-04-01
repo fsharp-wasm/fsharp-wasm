@@ -6,6 +6,7 @@ module Fable.Transforms.WasmGc.WasmGcRuntime
 open Fable.AST.WasmGc
 open Fable.Transforms.WasmGc.WasmGcTypes
 open Fable.Transforms.WasmGc.WasmGcBuilder
+open Fable.Transforms.WasmGc.WasmGcQuotationWalker
 
 // ─────────────────────────────────────────────────────────────────
 // Local variable collection
@@ -840,6 +841,67 @@ let makeStrCompareHelper () : WFuncDecl =
                         i32Const 0     // unreachable fallthru, satisfies block type
                     ]))))
     makeFunc "$strCompare" [("$sc_a", strRef); ("$sc_b", strRef)] i32 body
+
+// ─────────────────────────────────────────────────────────────────
+// Tier 1 — char helpers (QuotationWalker-translated)
+// ─────────────────────────────────────────────────────────────────
+
+/// Type-map used when translating runtime quotations: strings map to StringTypeIdx.
+let private runtimeTypeMap : QTypeMap =
+    { StrTypeIdx = StringTypeIdx; ResolveCustom = fun _ -> None }
+
+/// Intrinsics used when translating runtime quotations.
+let private runtimeIntrinsics = standardIntrinsics StringTypeIdx
+
+/// Translate an inline quotation to a WFuncDecl and collect locals.
+/// The WFuncDecl returned by translateReflected has Locals = [];
+/// resolveLocals fills them in so the function is self-contained.
+let private q (name: string) (qexpr: Microsoft.FSharp.Quotations.Expr) : WFuncDecl =
+    translateReflected name runtimeTypeMap runtimeIntrinsics qexpr
+    |> resolveLocals
+
+/// Runtime helper: $charIsDigit(c) → 1 if '0'..'9' else 0.
+let makeCharIsDigitHelper () : WFuncDecl =
+    q "$charIsDigit" <@ fun (c: int) -> if c >= 48 && c <= 57 then 1 else 0 @>
+
+/// Runtime helper: $charIsLetter(c) → 1 if 'A'..'Z' or 'a'..'z' else 0.
+let makeCharIsLetterHelper () : WFuncDecl =
+    q "$charIsLetter"
+        <@ fun (c: int) ->
+            if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) then 1 else 0 @>
+
+/// Runtime helper: $charIsUpper(c) → 1 if 'A'..'Z' else 0.
+let makeCharIsUpperHelper () : WFuncDecl =
+    q "$charIsUpper" <@ fun (c: int) -> if c >= 65 && c <= 90 then 1 else 0 @>
+
+/// Runtime helper: $charIsLower(c) → 1 if 'a'..'z' else 0.
+let makeCharIsLowerHelper () : WFuncDecl =
+    q "$charIsLower" <@ fun (c: int) -> if c >= 97 && c <= 122 then 1 else 0 @>
+
+/// Runtime helper: $charIsWhitespace(c) → 1 if space or ASCII ctrl (9..13) else 0.
+let makeCharIsWhitespaceHelper () : WFuncDecl =
+    q "$charIsWhitespace"
+        <@ fun (c: int) ->
+            if c = 32 || (c >= 9 && c <= 13) then 1 else 0 @>
+
+/// Runtime helper: $charToLower(c) → lowercase: A-Z → a-z, others unchanged.
+let makeCharToLowerHelper () : WFuncDecl =
+    q "$charToLower"
+        <@ fun (c: int) ->
+            if c >= 65 && c <= 90 then c + 32 else c @>
+
+/// Runtime helper: $charToUpper(c) → uppercase: a-z → A-Z, others unchanged.
+let makeCharToUpperHelper () : WFuncDecl =
+    q "$charToUpper"
+        <@ fun (c: int) ->
+            if c >= 97 && c <= 122 then c - 32 else c @>
+
+/// Runtime helper: $charIsLetterOrDigit(c) → 1 if letter or digit else 0.
+let makeCharIsLetterOrDigitHelper () : WFuncDecl =
+    q "$charIsLetterOrDigit"
+        <@ fun (c: int) ->
+            if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
+            then 1 else 0 @>
 
 /// After all functions are translated, fixup any ClosureApply nodes whose
 let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =

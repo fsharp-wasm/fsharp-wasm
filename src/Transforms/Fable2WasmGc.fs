@@ -1897,7 +1897,16 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$strJoin",      WasmGcRuntime.makeStrJoinHelper strArrTypeIdx
                   "$parseInt",     WasmGcRuntime.makeIntParseHelper
                   "$parseFloat",   WasmGcRuntime.makeFloatParseHelper
-                  "$strCompare",   WasmGcRuntime.makeStrCompareHelper ]
+                  "$strCompare",   WasmGcRuntime.makeStrCompareHelper
+                  // ── Tier 1 char helpers ───────────────────────────────────
+                  "$charIsDigit",         WasmGcRuntime.makeCharIsDigitHelper
+                  "$charIsLetter",        WasmGcRuntime.makeCharIsLetterHelper
+                  "$charIsUpper",         WasmGcRuntime.makeCharIsUpperHelper
+                  "$charIsLower",         WasmGcRuntime.makeCharIsLowerHelper
+                  "$charIsWhitespace",    WasmGcRuntime.makeCharIsWhitespaceHelper
+                  "$charToLower",         WasmGcRuntime.makeCharToLowerHelper
+                  "$charToUpper",         WasmGcRuntime.makeCharToUpperHelper
+                  "$charIsLetterOrDigit", WasmGcRuntime.makeCharIsLetterOrDigitHelper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then

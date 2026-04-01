@@ -18,7 +18,13 @@
     <!-- ── Tier 0: Core stubs (Import, nativeOnly, WasmGC primitives) ──────── -->
     <Compile Include="Core/Interop.fs" />
 
-    <!-- ── Tier 1: Collections ──────────────────────────────────────────────── -->
+    <!-- ── Tier 1: Core type combinators ────────────────────────────────────── -->
+    <!-- Option<'T> — combinators over F#'s built-in option type -->
+    <Compile Include="Core/Option.fs" />
+    <!-- Result<'T,'E> — combinators over F#'s built-in Result type -->
+    <Compile Include="Core/Result.fs" />
+
+    <!-- ── Tier 2: Collections ──────────────────────────────────────────────── -->
     <!-- Map<int,'V> — BST; key must be comparable (int for now) -->
     <Compile Include="Collections/Map.fs" />
     <!-- Set<'T> — stub; full implementation planned when generics land -->

@@ -336,8 +336,12 @@ let standardIntrinsics (strTypeIdx: int) : Map<string, WExpr list -> WExpr> =
         "$strIndexOf",     fun args -> WExpr.Call("$strIndexOf",   args, WType.I32)
         "$strLastIndexOf", fun args -> WExpr.Call("$strLastIndexOf", args, WType.I32)
         // ── Char helpers ───────────────────────────────────────────────────────
-        "$charIsWhitespace", (function [c] -> WExpr.Call("$charIsWhitespace", [c], WType.I32) | a -> failwithf "arity mismatch $charIsWhitespace: got %d" a.Length)
-        "$charIsDigit",      (function [c] -> WExpr.Call("$charIsDigit",      [c], WType.I32) | a -> failwithf "arity mismatch $charIsDigit: got %d" a.Length)
-        "$charToLower",      (function [c] -> WExpr.Call("$charToLower",      [c], WType.I32) | a -> failwithf "arity mismatch $charToLower: got %d" a.Length)
-        "$charToUpper",      (function [c] -> WExpr.Call("$charToUpper",      [c], WType.I32) | a -> failwithf "arity mismatch $charToUpper: got %d" a.Length)
+        "$charIsWhitespace",    (function [c] -> WExpr.Call("$charIsWhitespace",    [c], WType.I32) | a -> failwithf "arity mismatch $charIsWhitespace: got %d" a.Length)
+        "$charIsDigit",         (function [c] -> WExpr.Call("$charIsDigit",         [c], WType.I32) | a -> failwithf "arity mismatch $charIsDigit: got %d" a.Length)
+        "$charIsLetter",        (function [c] -> WExpr.Call("$charIsLetter",        [c], WType.I32) | a -> failwithf "arity mismatch $charIsLetter: got %d" a.Length)
+        "$charIsUpper",         (function [c] -> WExpr.Call("$charIsUpper",         [c], WType.I32) | a -> failwithf "arity mismatch $charIsUpper: got %d" a.Length)
+        "$charIsLower",         (function [c] -> WExpr.Call("$charIsLower",         [c], WType.I32) | a -> failwithf "arity mismatch $charIsLower: got %d" a.Length)
+        "$charIsLetterOrDigit", (function [c] -> WExpr.Call("$charIsLetterOrDigit", [c], WType.I32) | a -> failwithf "arity mismatch $charIsLetterOrDigit: got %d" a.Length)
+        "$charToLower",         (function [c] -> WExpr.Call("$charToLower",         [c], WType.I32) | a -> failwithf "arity mismatch $charToLower: got %d" a.Length)
+        "$charToUpper",         (function [c] -> WExpr.Call("$charToUpper",         [c], WType.I32) | a -> failwithf "arity mismatch $charToUpper: got %d" a.Length)
     ]
