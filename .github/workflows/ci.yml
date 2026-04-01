@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install wasm-tools
+        run: |
+          curl -LO https://github.com/nickhutchinson/nickhutchinson.github.io/releases/latest/download/wasm-tools-x86_64-linux.tar.gz
+          tar xzf wasm-tools-x86_64-linux.tar.gz
+          sudo mv wasm-tools /usr/local/bin/
+          wasm-tools --version
+
+      - name: Build
+        run: dotnet build src/Fable.WasmGc.fsproj
+
+      - name: QuickTest
+        run: cd tests/QuickTest && bash run.sh
+
+      - name: Showcase
+        run: cd tests/Showcase && bash run.sh
+
+      - name: Component Embed
+        run: cd examples/component-embed && bash run.sh
+
+      - name: Component Linking
+        run: cd examples/component-linking && bash run.sh
