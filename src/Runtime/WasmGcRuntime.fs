@@ -51,68 +51,82 @@ let makeStrEqHelper () : WFuncDecl =
 
 /// Runtime helper: $strIndexOf(haystack, needle) → first position, or -1 if not found.
 /// Brute-force O(n·m). needle="" always returns 0.
+/// Tier 2 with Sprint 18 DSL: WVar, WArray, WasmDsl, loopResult.
+/// NOTE: The inner j-loop uses block+loop instead of while_(&&.) to avoid
+/// non-short-circuit evaluation of the array accesses — WASM i32.and always
+/// evaluates both operands, which would cause an out-of-bounds trap when j = lb.
 let makeStrIndexOfHelper () : WFuncDecl =
     let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let haGet = localGet "$sio_ha" strRef
-    let neGet = localGet "$sio_ne" strRef
-    let iGet  = localGet "$sio_i"  i32
-    let jGet  = localGet "$sio_j"  i32
-    makeFunc "$strIndexOf" [("$sio_ha", strRef); ("$sio_ne", strRef)] i32 (
+    let gen = LabelGen "sio"
+    makeFunc "$strIndexOf" [("$ha", strRef); ("$ne", strRef)] WType.I32 (
+        let ha = WArray.wrap WType.I32 (localGet "$ha" strRef)
+        let ne = WArray.wrap WType.I32 (localGet "$ne" strRef)
         wasm {
-            let! la = arrayLen haGet
-            let! lb = arrayLen neGet
-            return wasmIf (eq lb (i32Const 0))
-                (i32Const 0)
-                (WExpr.LetMut("$sio_i", i32Const 0,
-                    loopWithResult "$sio" i32
-                        (wasmIf (leS iGet (sub la lb))
-                            (WExpr.LetMut("$sio_j", i32Const 0,
-                                sequence [
-                                    whileLoop "$sio_jl"
-                                        (wasmAnd (ltS jGet lb)
-                                                 (eq (arrayGet haGet (add iGet jGet) i32)
-                                                     (arrayGet neGet jGet i32)))
-                                        (localSet "$sio_j" (add jGet (i32Const 1)))
-                                    wasmIf (geS jGet lb)
-                                        (WExpr.Break("$sio_exit", Some iGet))
-                                        (localSet "$sio_i" (add iGet (i32Const 1)))
-                                ]))
-                            (WExpr.Break("$sio_exit", Some (i32Const -1))))
-                        (i32Const -1)))
+            let! la = ha.Len
+            let! lb = ne.Len
+            return
+                wasmIf (lb =. i32Const 0)
+                    (i32Const 0)
+                    (WVar.letMut gen "i" WType.I32 (i32Const 0) (fun i ->
+                        loopResult WType.I32 (i32Const -1) (fun brk ->
+                            wasmIf (i.Val <=. la -. lb)
+                                (WVar.letMut gen "j" WType.I32 (i32Const 0) (fun j ->
+                                    let jBlkLbl = gen.Next("jlb")
+                                    let jLpLbl  = gen.Next("jl")
+                                    sequence [
+                                        WExpr.Block(jBlkLbl,
+                                            WExpr.Loop(jLpLbl,
+                                                sequence [
+                                                    wasmWhen (j.Val >=. lb) (brk i.Val)
+                                                    wasmWhen (ha.[i.Val +. j.Val] <>. ne.[j.Val])
+                                                        (WExpr.Break(jBlkLbl, None))
+                                                    j.Update (fun v -> v +. i32Const 1)
+                                                    WExpr.Continue(jLpLbl, [])
+                                                ],
+                                                WType.Void),
+                                            WType.Void)
+                                        i.Update (fun v -> v +. i32Const 1)
+                                    ]))
+                                (brk (i32Const -1)))))
         })
 
 /// Runtime helper: $strLastIndexOf(haystack, needle) → last position, or -1 if not found.
 /// Brute-force O(n·m) backward scan. needle="" always returns la (length of haystack).
+/// Tier 2 with Sprint 18 DSL: WVar, WArray, WasmDsl, loopResult.
+/// NOTE: Same non-short-circuit AND avoidance as makeStrIndexOfHelper.
 let makeStrLastIndexOfHelper () : WFuncDecl =
     let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let haGet = localGet "$slio_ha" strRef
-    let neGet = localGet "$slio_ne" strRef
-    let iGet  = localGet "$slio_i"  i32
-    let jGet  = localGet "$slio_j"  i32
-    makeFunc "$strLastIndexOf" [("$slio_ha", strRef); ("$slio_ne", strRef)] i32 (
+    let gen = LabelGen "slio"
+    makeFunc "$strLastIndexOf" [("$ha", strRef); ("$ne", strRef)] WType.I32 (
+        let ha = WArray.wrap WType.I32 (localGet "$ha" strRef)
+        let ne = WArray.wrap WType.I32 (localGet "$ne" strRef)
         wasm {
-            let! la = arrayLen haGet
-            let! lb = arrayLen neGet
-            return wasmIf (eq lb (i32Const 0))
-                la
-                (WExpr.LetMut("$slio_i", sub la lb,
-                    loopWithResult "$slio" i32
-                        (wasmIf (geS iGet (i32Const 0))
-                            (WExpr.LetMut("$slio_j", i32Const 0,
-                                sequence [
-                                    whileLoop "$slio_jl"
-                                        (wasmAnd (ltS jGet lb)
-                                                 (eq (arrayGet haGet (add iGet jGet) i32)
-                                                     (arrayGet neGet jGet i32)))
-                                        (localSet "$slio_j" (add jGet (i32Const 1)))
-                                    wasmIf (geS jGet lb)
-                                        (WExpr.Break("$slio_exit", Some iGet))
-                                        (localSet "$slio_i" (sub iGet (i32Const 1)))
-                                ]))
-                            (WExpr.Break("$slio_exit", Some (i32Const -1))))
-                        (i32Const -1)))
+            let! la = ha.Len
+            let! lb = ne.Len
+            return
+                wasmIf (lb =. i32Const 0)
+                    la
+                    (WVar.letMut gen "i" WType.I32 (la -. lb) (fun i ->
+                        loopResult WType.I32 (i32Const -1) (fun brk ->
+                            wasmIf (i.Val >=. i32Const 0)
+                                (WVar.letMut gen "j" WType.I32 (i32Const 0) (fun j ->
+                                    let jBlkLbl = gen.Next("jlb")
+                                    let jLpLbl  = gen.Next("jl")
+                                    sequence [
+                                        WExpr.Block(jBlkLbl,
+                                            WExpr.Loop(jLpLbl,
+                                                sequence [
+                                                    wasmWhen (j.Val >=. lb) (brk i.Val)
+                                                    wasmWhen (ha.[i.Val +. j.Val] <>. ne.[j.Val])
+                                                        (WExpr.Break(jBlkLbl, None))
+                                                    j.Update (fun v -> v +. i32Const 1)
+                                                    WExpr.Continue(jLpLbl, [])
+                                                ],
+                                                WType.Void),
+                                            WType.Void)
+                                        i.Update (fun v -> v -. i32Const 1)
+                                    ]))
+                                (brk (i32Const -1)))))
         })
 
 /// Runtime helper: $strSubstring(str, start, len) → new string sub-array.
@@ -738,6 +752,24 @@ let makeCharIsLetterOrDigitHelper () : WFuncDecl =
         <@ fun (c: int) ->
             if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
             then 1 else 0 @>
+
+// ─────────────────────────────────────────────────────────────────
+// Tier 1 — integer math helpers
+// ─────────────────────────────────────────────────────────────────
+
+/// Runtime helper: $pown(x, n) → integer exponentiation by repeated squaring.
+/// For n ≤ 0 returns 1 (consistent with F#'s pown for nonneg exponents).
+let makePownHelper () : WFuncDecl =
+    q "$pown"
+        <@ fun (x: int) (n: int) ->
+            let mutable result = 1
+            let mutable b = x
+            let mutable e = n
+            while e > 0 do
+                if e &&& 1 <> 0 then result <- result * b
+                b <- b * b
+                e <- e >>> 1
+            result @>
 
 /// After all functions are translated, fixup any ClosureApply nodes whose
 let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =

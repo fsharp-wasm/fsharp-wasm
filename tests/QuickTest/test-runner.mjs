@@ -513,6 +513,12 @@ console.log("\n─── Interface Vtable Dispatch ─────────�
 check("interfaceDispatch: EnglishGreeter 'hello'.Length = 5", 5, exp.testInterfaceDispatch());
 check("interfacePolymorphism: 'hello'.Length + 'hola'.Length = 9", 9, exp.testInterfacePolymorphism());
 
+console.log("\n─── pown (integer exponentiation) ───────────────\n");
+check("pown 2 10 = 1024", 1024, exp.testPown2_10());
+check("pown 3 0 = 1", 1, exp.testPownZero());
+check("pown 5 3 = 125", 125, exp.testPownCube());
+check("pown 1 100 = 1", 1, exp.testPownOne());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

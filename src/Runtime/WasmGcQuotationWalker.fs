@@ -219,6 +219,13 @@ let rec private tx (ctx: QCtx) (expr: Expr) : WExpr =
         // `not x` = `if x then 0 else 1`
         WExpr.If(tx ctx a, i32Const 0, i32Const 1, WType.I32)
 
+    // ── Bitwise operators (i32) ───────────────────────────────────────────────
+    | SpecificCall <@ (&&&) @> (_, _, [a; b]) -> and_ (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (|||) @> (_, _, [a; b]) -> or_  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (^^^) @> (_, _, [a; b]) -> xor_ (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (<<<) @> (_, _, [a; b]) -> shl  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (>>>) @> (_, _, [a; b]) -> shrS (tx ctx a) (tx ctx b)
+
     // ── Type conversions (identity in WASM for our supported types) ───────────
     | SpecificCall <@ int  @> (_, _, [a]) -> tx ctx a  // i32 → i32 nop
     | SpecificCall <@ char @> (_, _, [a]) -> tx ctx a  // i32 → char nop

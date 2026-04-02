@@ -1511,6 +1511,10 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             eprintfn "[WasmGc] WARNING: unhandled char method '%s' — returning char unchanged" fi.Name
             wChar
     // ── Math.* (JS GlobalCall("Math", ...) from replacements) ─────
+    // ── Math.pow on int args → $pown (integer fast exponentiation) ────────────
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "pow" && ty = WType.I32 ->
+        WExpr.Call(ctx.UseHelper("$pown"), wArgs, WType.I32)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _) ->
         dispatchMathCall fi.Name wArgs ty
     // ── String instance methods: indexOf, startsWith, endsWith, substring ──────
@@ -2014,7 +2018,8 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$charIsWhitespace",    WasmGcRuntime.makeCharIsWhitespaceHelper
                   "$charToLower",         WasmGcRuntime.makeCharToLowerHelper
                   "$charToUpper",         WasmGcRuntime.makeCharToUpperHelper
-                  "$charIsLetterOrDigit", WasmGcRuntime.makeCharIsLetterOrDigitHelper ]
+                  "$charIsLetterOrDigit", WasmGcRuntime.makeCharIsLetterOrDigitHelper
+                  "$pown",                WasmGcRuntime.makePownHelper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then

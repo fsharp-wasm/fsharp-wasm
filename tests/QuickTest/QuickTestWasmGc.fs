@@ -1709,3 +1709,17 @@ let testInterfacePolymorphism () : int =
         [ { Word = "hello" } :> IGreeter
           { Palabra = "hola" } :> IGreeter ]
     greeters |> List.sumBy (fun g -> g.Greet())
+
+// ── pown (integer exponentiation) ─────────────────────────────────────────
+
+/// Test: pown 2 10 = 1024
+let testPown2_10 () : int = pown 2 10
+
+/// Test: pown 3 0 = 1
+let testPownZero () : int = pown 3 0
+
+/// Test: pown 5 3 = 125
+let testPownCube () : int = pown 5 3
+
+/// Test: pown 1 100 = 1
+let testPownOne () : int = pown 1 100
