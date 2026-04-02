@@ -33,6 +33,10 @@ type WType =
     | Externref
     /// i31ref — small unboxed integer on the GC heap.
     | I31ref
+    /// Non-nullable (ref eq) — supertype of all GC-managed structs, arrays, and i31.
+    /// Used for vtable method self-parameters that can receive any concrete type.
+    /// Encoded as 0x64 0x6D in binary.
+    | EqRef
 
 and WField =
     {
@@ -59,6 +63,7 @@ module WTypeKeys =
         | WType.Void -> "void"
         | WType.Externref -> "extern"
         | WType.I31ref -> "i31"
+        | WType.EqRef -> "eqref"
         | WType.Ref(idx, false) -> $"ref{idx}"
         | WType.Ref(idx, true) -> $"refnull{idx}"
         | WType.Func(ps, rs) ->
@@ -105,7 +110,11 @@ type WExpr =
     // ── Functions ──────────────────────────────────────────
     | Call of func: string * args: WExpr list * WType
     | CallIndirect of funcRef: WExpr * args: WExpr list * WType
-    | CallVirtual of obj: WExpr * methodIdx: int * args: WExpr list * WType
+    /// Vtable dispatch: extract vtable from box[0], self from box[1], funcref from vtable[methodIdx].
+    /// boxTypeIdx, vtableTypeIdx, funcTypeIdx must be registered type indices.
+    | CallVirtual of obj: WExpr * boxTypeIdx: int * vtableTypeIdx: int * methodIdx: int * funcTypeIdx: int * args: WExpr list * WType
+    /// ref.func $funcName — creates a typed function reference for vtable global initialization.
+    | FuncRef of funcName: string
 
     // ── Struct operations (WASM GC) ───────────────────────
     | StructNew of typeIdx: int * fields: WExpr list * WType

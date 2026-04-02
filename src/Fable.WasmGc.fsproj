@@ -49,7 +49,10 @@
     <Compile Include="Runtime/WasmGcLoopCombinators.fs" />
     <Compile Include="Runtime/WasmGcQuotationWalker.fs" />
     <Compile Include="Runtime/WasmGcFreeVars.fs" />
+    <Compile Include="Runtime/WasmGcLocals.fs" />
     <Compile Include="Runtime/WasmGcRuntime.fs" />
+    <Compile Include="Runtime/WasmGcEquality.fs" />
+    <Compile Include="Runtime/WasmGcVTable.fs" />
     <Compile Include="Transforms/WasmGcReplacements.fs" />
     <Compile Include="Transforms/Fable2WasmGc.fs" />
     <Compile Include="Emit/WasmGcOptimize.fs" />

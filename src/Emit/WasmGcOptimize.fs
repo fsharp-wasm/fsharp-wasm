@@ -22,7 +22,7 @@ let mapSubExprs (f: WExpr -> WExpr) (expr: WExpr) : WExpr =
     | WExpr.Assign(n, v) -> WExpr.Assign(n, f v)
     | WExpr.Call(fn, args, t) -> WExpr.Call(fn, List.map f args, t)
     | WExpr.CallIndirect(ref_, args, t) -> WExpr.CallIndirect(f ref_, List.map f args, t)
-    | WExpr.CallVirtual(obj, mi, args, t) -> WExpr.CallVirtual(f obj, mi, List.map f args, t)
+    | WExpr.CallVirtual(obj, bti, vti, mi, fti, args, t) -> WExpr.CallVirtual(f obj, bti, vti, mi, fti, List.map f args, t)
     | WExpr.StructNew(ti, fields, t) -> WExpr.StructNew(ti, List.map f fields, t)
     | WExpr.StructGet(obj, fi, t) -> WExpr.StructGet(f obj, fi, t)
     | WExpr.StructSet(obj, fi, v) -> WExpr.StructSet(f obj, fi, f v)
@@ -59,7 +59,7 @@ let mapSubExprs (f: WExpr -> WExpr) (expr: WExpr) : WExpr =
     | WExpr.TailCall(fn, args, t) -> WExpr.TailCall(fn, List.map f args, t)
     | WExpr.TailCallRef(fn, args, ft, ct, cc, t) -> WExpr.TailCallRef(f fn, List.map f args, ft, ct, cc, t)
     // Atoms — nothing to map
-    | WExpr.Const _ | WExpr.LocalGet _ | WExpr.GlobalGet _ | WExpr.Nop -> expr
+    | WExpr.Const _ | WExpr.LocalGet _ | WExpr.GlobalGet _ | WExpr.Nop | WExpr.FuncRef _ -> expr
     | WExpr.GlobalSet(n, v) -> WExpr.GlobalSet(n, f v)
 
 /// Bottom-up transformation: recursively transform sub-expressions, then apply f.

@@ -108,6 +108,14 @@ type Ctx =
         ExternImports: System.Collections.Generic.Dictionary<string, WImport>
         /// String storage mode: I32 (default, wide) or I16 (packed, 50 % smaller for ASCII).
         StringMode: StringMode
+        // ── Interface vtable support ───────────────────────────────────────
+        /// Interface full name → (vtableTypeIdx, boxTypeIdx, methodFuncTypeIndices, orderedMethodNames).
+        /// Populated on first encounter of an interface being implemented.
+        VTableRegistry: System.Collections.Generic.Dictionary<string, int * int * int list * string list>
+        /// (implTypeName, ifaceName) → vtable global name ($ImplType_IFace_vtable).
+        VTableImplRegistry: System.Collections.Generic.Dictionary<string * string, string>
+        /// Accumulated vtable globals to emit in the final WModule.
+        VTableGlobals: ResizeArray<WGlobalDecl>
     }
 
     static member Create(com: Compiler, ?stringMode: StringMode) =
@@ -152,6 +160,9 @@ type Ctx =
             KnownFuncsByPath = Map.empty
             ExternImports = System.Collections.Generic.Dictionary<string, WImport>()
             StringMode = stringMode
+            VTableRegistry = System.Collections.Generic.Dictionary<string, int * int * int list * string list>()
+            VTableImplRegistry = System.Collections.Generic.Dictionary<string * string, string>()
+            VTableGlobals = new ResizeArray<WGlobalDecl>()
         }
 
     member this.WithLocal(name: string, ty: WType) =
@@ -289,7 +300,15 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
         else
             match Map.tryFind entRef.FullName ctx.TypeRegistry with
             | Some idx -> WType.Ref(idx, false)
-            | None -> WType.I32
+            | None ->
+                // Check if it's a registered interface (vtable box struct).
+                // VTableRegistry is populated when a ClassDeclaration implementing
+                // the interface is processed, which always precedes function bodies.
+                let ifaceName = entRef.FullName
+                if ctx.VTableRegistry.ContainsKey(ifaceName) then
+                    let _, boxTypeIdx, _, _ = ctx.VTableRegistry.[ifaceName]
+                    WType.Ref(boxTypeIdx, false)
+                else WType.I32
     | Fable.Type.Tuple(elementTypes, _) ->
         let wTypes = elementTypes |> List.map (mapTypeKnown ctx)
         let key = wTypesKey wTypes
@@ -404,7 +423,8 @@ let rec exprWType (expr: WExpr) : WType =
     | WExpr.Compare _ -> WType.I32
     | WExpr.TryCatch(_, _, _, t) -> t
     | WExpr.Throw _ -> WType.Void
-    | WExpr.CallVirtual(_, _, _, t) -> t
+    | WExpr.CallVirtual(_, _, _, _, _, _, t) -> t
+    | WExpr.FuncRef _ -> WType.Ref(AnyFnTypeIdx, false)  // funcref is a Ref to AnyFn
     | WExpr.RefIsNull _ -> WType.I32
 
 /// Function type alias used to pass `transformExpr` into replacement modules.

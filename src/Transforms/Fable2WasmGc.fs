@@ -11,6 +11,8 @@ open Fable.Transforms.WasmGc.WasmGcTypes
 open Fable.Transforms.WasmGc.WasmGcFreeVars
 open Fable.Transforms.WasmGc.WasmGcLoopHelpers
 open Fable.Transforms.WasmGc.WasmGcRuntime
+open Fable.Transforms.WasmGc.WasmGcLocals
+open Fable.Transforms.WasmGc.WasmGcEquality
 open Fable.Transforms.WasmGc.WasmGcReplacements
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     match expr with
@@ -355,6 +357,21 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             // ── Float width changes ────────
             | WType.F32, WType.F64 -> WExpr.Unary(WUnaryOp.PromoteF32,   wExpr, WType.F64)
             | WType.F64, WType.F32 -> WExpr.Unary(WUnaryOp.DemoteF64,    wExpr, WType.F32)
+            // ── Interface boxing: upcasting a concrete struct ref to an interface type ──
+            | WType.Ref(concreteTypeIdx, false), WType.I32 ->
+                // Interface types currently map to I32 (not yet registered in TypeRegistry).
+                // If the target is a known interface in VTableRegistry, emit a box.
+                match targetFableType with
+                | Fable.Type.DeclaredType(targetEntRef, _) ->
+                    let ifaceName = targetEntRef.FullName
+                    match ctx.VTableRegistry.TryGetValue(ifaceName) with
+                    | true, (_, boxTypeIdx, _, _) ->
+                        match ctx.TypeRegistry |> Map.tryFindKey (fun _ idx -> idx = concreteTypeIdx) with
+                        | Some implTypeName ->
+                            WasmGcVTable.emitBox ctx wExpr implTypeName ifaceName boxTypeIdx
+                        | None -> wExpr
+                    | false, _ -> wExpr
+                | _ -> wExpr
             // ── Unsupported / same ref type → passthrough ─
             | _ -> wExpr
 
@@ -957,6 +974,26 @@ and transformOperation (ctx: Ctx) (kind: OperationKind) (typ: Fable.Type) : WExp
 and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.Type) : WExpr =
     let ty = mapTypeKnown ctx typ
     let wArgs = info.Args |> List.map (transformExpr ctx)
+    // ── Interface vtable dispatch ─────────────────────────────────────────────
+    // Detect `iface.Method(args)` where the receiver is a known vtable-boxed interface.
+    // MemberRef points to the interface's own method declaration; thisArg is the box.
+    let ifaceDispatch =
+        match info.MemberRef, info.ThisArg with
+        | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)), Some thisArg ->
+            let ifaceName = ifaceEntityRef.FullName
+            match ctx.VTableRegistry.TryGetValue(ifaceName) with
+            | true, (vtableTypeIdx, boxTypeIdx, funcTypeIndices, methodNames) ->
+                let methodName = ifaceMemberInfo.CompiledName
+                match methodNames |> List.tryFindIndex (fun n -> n = methodName) with
+                | Some methodIdx ->
+                    let boxExpr = transformExpr ctx thisArg
+                    Some (WasmGcVTable.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx boxExpr wArgs ty)
+                | None -> None
+            | false, _ -> None
+        | _ -> None
+    match ifaceDispatch with
+    | Some result -> result
+    | None ->
     match callee with
     | Fable.Expr.IdentExpr ident ->
         // Sprint 5: try demand-driven generic specialization first.
@@ -1552,12 +1589,42 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             WExpr.Nop
     // ── Native JS array HOF instance calls — delegated to WasmGcReplacements ──
     // Fable maps Array.Filter/Exists/ForAll/Iterate to JS native: .filter/.some/.every/.forEach
-    | Fable.Expr.Get(arrExpr, GetKind.FieldGet fi, _, _) ->
-        match tryArrayInstanceCall transformExpr ctx fi.Name arrExpr info.Args typ with
-        | Some result -> result
-        | None ->
-            let wCallee = transformExpr ctx callee
-            WExpr.CallIndirect(wCallee, wArgs, ty)
+    | Fable.Expr.Get(arrExpr, GetKind.FieldGet fi, typ2, _) ->
+        // ── vtable dispatch: `iface.Method(args)` where iface is a box-typed value ──
+        let wReceiver = transformExpr ctx arrExpr
+        match exprWType wReceiver with
+        | WType.Ref(boxTypeIdx, false) ->
+            // Check if boxTypeIdx corresponds to a known vtable box struct.
+            let ifaceNameOpt =
+                ctx.VTableRegistry |> Seq.tryFind (fun kv ->
+                    let _, bti, _, _ = kv.Value
+                    bti = boxTypeIdx)
+                |> Option.map (fun kv -> kv.Key)
+            match ifaceNameOpt with
+            | Some ifaceName ->
+                let vtableTypeIdx, _, funcTypeIndices, methodNames = ctx.VTableRegistry.[ifaceName]
+                match methodNames |> List.tryFindIndex (fun n -> n = fi.Name) with
+                | Some methodIdx ->
+                    WasmGcVTable.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx wReceiver wArgs ty
+                | None ->
+                    // Method not in vtable — fall through to array instance/indirect
+                    match tryArrayInstanceCall transformExpr ctx fi.Name arrExpr info.Args typ with
+                    | Some result -> result
+                    | None ->
+                        let wCallee = transformExpr ctx callee
+                        WExpr.CallIndirect(wCallee, wArgs, ty)
+            | None ->
+                match tryArrayInstanceCall transformExpr ctx fi.Name arrExpr info.Args typ with
+                | Some result -> result
+                | None ->
+                    let wCallee = transformExpr ctx callee
+                    WExpr.CallIndirect(wCallee, wArgs, ty)
+        | _ ->
+            match tryArrayInstanceCall transformExpr ctx fi.Name arrExpr info.Args typ with
+            | Some result -> result
+            | None ->
+                let wCallee = transformExpr ctx callee
+                WExpr.CallIndirect(wCallee, wArgs, ty)
     | _ ->
         // Indirect call (TODO: closure apply)
         let wCallee = transformExpr ctx callee
@@ -1823,10 +1890,51 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                 |> List.map (fun f ->
                     { Name = f.Name; Type = mapTypeKnown ctx' f.FieldType; Mutable = f.IsMutable })
             ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(fields, None) })
-            (ctx', classDecl.AttachedMembers)
-            ||> List.fold (fun c m ->
-                let func = transformMemberDecl c m |> resolveLocals
-                c.Functions.Add(func); c)
+            let ctx'' =
+                (ctx', classDecl.AttachedMembers)
+                ||> List.fold (fun c m ->
+                    let func = transformMemberDecl c m |> resolveLocals
+                    // Interface implementations are internals — accessed via vtable wrappers.
+                    // Qualify the name with the declaring type to avoid duplicate Wasm function
+                    // names when multiple types implement the same interface method name.
+                    let func =
+                        if m.ImplementedSignatureRef.IsSome then
+                            let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
+                            { func with Name = qualName; Exported = false }
+                        else func
+                    c.Functions.Add(func); c)
+            // ── Vtable wiring for interface implementations ──────────────
+            // Find all members that implement an interface method.
+            let ifaceImpls =
+                classDecl.AttachedMembers
+                |> List.choose (fun m ->
+                    match m.ImplementedSignatureRef with
+                    | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)) ->
+                        // The compiled function was qualified: TypeFullName_MethodName
+                        let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
+                        match ctx''.Functions |> Seq.tryFindBack (fun f -> f.Name = qualName) with
+                        | Some func ->
+                            Some(ifaceEntityRef.FullName, ifaceMemberInfo.CompiledName,
+                                 qualName, func.Params |> List.map snd, func.Result)
+                        | None -> None
+                    | _ -> None)
+            // Group by interface full name.
+            let byIface = ifaceImpls |> List.groupBy (fun (ifaceName, _, _, _, _) -> ifaceName)
+            for (ifaceName, methods) in byIface do
+                // Collect method signatures for interface registration.
+                // We need the non-self param types: skip the first param (concrete self).
+                let methodSigs =
+                    methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
+                        let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
+                        methodName, nonSelfParams, retType)
+                let vtableTypeIdx, boxTypeIdx = WasmGcVTable.getOrRegisterInterface ctx'' ifaceName methodSigs
+                let _, _, funcTypeIndices, _ = ctx''.VTableRegistry.[ifaceName]
+                let methodImpls =
+                    methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
+                        methodName, compiledFunc, compiledParams, retType)
+                WasmGcVTable.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
+                    ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
+            ctx''
         elif ent.IsFSharpUnion then
             let cases = ent.UnionCases
             let isEnumLike = cases |> List.forall (fun c -> c.UnionCaseFields.IsEmpty)
@@ -1922,7 +2030,7 @@ let buildWModule (ctx: Ctx) : WModule =
                 helperBuilders |> List.choose (fun (name, make) ->
                     if ctx.UsedHelpers.Contains(name) then Some(make()) else None)
             runtimeHelpers @ fixedFunctions
-        Globals = []
+        Globals = ctx.VTableGlobals |> Seq.toList
         Exports =
             fixedFunctions
             |> List.choose (fun f ->

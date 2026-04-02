@@ -1680,3 +1680,32 @@ let testListSortBy () : int =
 /// Test: List.append [1;2;3] [4;5] |> List.sum = 15
 let testListFlatten () : int =
     List.append [1; 2; 3] [4; 5] |> List.sum
+
+// ── Interface vtable dispatch tests ─────────────────────────────────────
+
+type IGreeter =
+    abstract Greet: unit -> int  // returns length of greeting string
+
+type EnglishGreeter = { Word: string }
+    with
+        interface IGreeter with
+            member this.Greet() = this.Word.Length
+
+type SpanishGreeter = { Palabra: string }
+    with
+        interface IGreeter with
+            member this.Greet() = this.Palabra.Length
+
+/// Test: vtable dispatch — Dog.Speak via IAnimal interface.
+/// EnglishGreeter { Word = "hello" } :> IGreeter |> .Greet() = 5
+let testInterfaceDispatch () : int =
+    let g : IGreeter = { Word = "hello" } :> IGreeter
+    g.Greet()
+
+/// Test: vtable dispatch polymorphism — two different implementors.
+/// ["hello".Length; "hola".Length] |> List.sum = 5 + 4 = 9
+let testInterfacePolymorphism () : int =
+    let greeters : IGreeter list =
+        [ { Word = "hello" } :> IGreeter
+          { Palabra = "hola" } :> IGreeter ]
+    greeters |> List.sumBy (fun g -> g.Greet())

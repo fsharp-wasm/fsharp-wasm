@@ -75,6 +75,7 @@ let rec private wtypeToStr (typeNames: Map<int, string>) (ty: WType) : string =
     | WType.Void -> ""
     | WType.Externref -> "externref"
     | WType.I31ref -> "(ref i31)"
+    | WType.EqRef -> "(ref eq)"
     | WType.Func _ -> "(ref func)"
     | WType.Struct _ -> "(ref struct)"
     | WType.Array _ -> "(ref array)"
@@ -193,7 +194,8 @@ let rec private exprType (expr: WExpr) : WType =
     | WExpr.Assign _             -> WType.Void
     | WExpr.Call(_, _, t)        -> t
     | WExpr.CallIndirect(_, _, t)-> t
-    | WExpr.CallVirtual(_, _, _, t) -> t
+    | WExpr.CallVirtual(_, _, _, _, _, _, t) -> t
+    | WExpr.FuncRef _            -> WType.Ref(0, false)
     | WExpr.StructNew(_, _, t)   -> t
     | WExpr.StructGet(_, _, t)   -> t
     | WExpr.StructSet _          -> WType.Void
@@ -433,8 +435,28 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         emit funcRef
         w "call_ref 0 ;; TODO: resolve functype"
 
-    | WExpr.CallVirtual(_, _, _, _) ->
-        w "unreachable ;; vtable dispatch not yet implemented"
+    | WExpr.CallVirtual(box, boxTypeIdx, vtableTypeIdx, methodIdx, funcTypeIdx, args, _) ->
+        // Vtable dispatch — correct call_ref stack order: [self, args..., funcref]
+        // box is always a LocalGet in practice, so emitting it twice is safe.
+        //   box struct.get $box 1          → self (eqref, first arg)
+        //   args...
+        //   box struct.get $box 0          → vtable ref
+        //   struct.get $vtable N           → funcref (must be on top for call_ref)
+        //   call_ref $func_type
+        let boxName    = typeNames |> Map.tryFind boxTypeIdx    |> Option.defaultValue (string boxTypeIdx)
+        let vtableName = typeNames |> Map.tryFind vtableTypeIdx |> Option.defaultValue (string vtableTypeIdx)
+        let ftName     = typeNames |> Map.tryFind funcTypeIdx   |> Option.defaultValue (string funcTypeIdx)
+        emit box
+        w $"struct.get {watId boxName} 1"    // self (eqref) — first arg
+        for a in args do emit a
+        emit box
+        w $"struct.get {watId boxName} 0"    // vtable
+        w $"struct.get {watId vtableName} {methodIdx}"  // funcref on top
+        w $"call_ref {watId ftName}"
+
+    /// ref.func $funcName — create a typed funcref for vtable global init.
+    | WExpr.FuncRef funcName ->
+        w $"ref.func {watId funcName}"
 
     // ── Struct operations ─────────────────────────────────
     | WExpr.StructNew(typeIdx, fields, _) ->
@@ -783,7 +805,8 @@ let private collectClosureFuncNames (funcs: WFuncDecl list) : string list =
         | WExpr.If(cond, thenE, elseE, _) -> scan cond; scan thenE; scan elseE
         | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _) -> for a in args do scan a
         | WExpr.CallIndirect(funcRef, args, _) -> scan funcRef; for a in args do scan a
-        | WExpr.CallVirtual(obj, _, args, _) -> scan obj; for a in args do scan a
+        | WExpr.CallVirtual(obj, _, _, _, _, args, _) -> scan obj; for a in args do scan a
+        | WExpr.FuncRef funcName -> refs.Add(funcName) |> ignore
         | WExpr.ClosureApply(clo, args, _, _, _, _) -> scan clo; for a in args do scan a
         | WExpr.TailCallRef(clo, args, _, _, _, _) -> scan clo; for a in args do scan a
         | WExpr.Binary(_, l, r, _) -> scan l; scan r
@@ -820,6 +843,19 @@ let private collectClosureFuncNames (funcs: WFuncDecl list) : string list =
     for f in funcs do scan f.Body
     refs |> Seq.toList |> List.sortBy id
 
+/// Collect all FuncRef names referenced from global init expressions.
+/// These also need (elem declare func ...) to be valid.
+let private collectGlobalFuncRefs (globals: WGlobalDecl list) : string list =
+    let refs = System.Collections.Generic.HashSet<string>()
+    let rec scan (expr: WExpr) =
+        match expr with
+        | WExpr.FuncRef name -> refs.Add(name) |> ignore
+        | WExpr.StructNew(_, fields, _) -> for f in fields do scan f
+        | WExpr.Sequence exprs -> for e in exprs do scan e
+        | _ -> ()
+    for g in globals do scan g.Init
+    refs |> Seq.toList |> List.sortBy id
+
 /// Convert a WModule to a WAT text string.
 /// This is the primary output function for Sprint 1.
 let moduleToWat (wmod: WModule) : string =
@@ -850,9 +886,11 @@ let moduleToWat (wmod: WModule) : string =
     // ── Elem declare (required for ref.func validity) ─────
     // Any function used as ref.func must be declared in an element segment.
     let closureFuncNames = collectClosureFuncNames wmod.Functions
-    if not closureFuncNames.IsEmpty then
+    let globalFuncRefs   = collectGlobalFuncRefs wmod.Globals
+    let allFuncRefs = (closureFuncNames @ globalFuncRefs) |> List.distinct |> List.sortBy id
+    if not allFuncRefs.IsEmpty then
         sb.AppendLine("  ;; ── Elem declare (func refs) ────────────────────────") |> ignore
-        let funcIds = closureFuncNames |> List.map watId |> String.concat " "
+        let funcIds = allFuncRefs |> List.map watId |> String.concat " "
         sb.AppendLine($"  (elem declare func {funcIds})") |> ignore
 
     // ── Exports ───────────────────────────────────────────

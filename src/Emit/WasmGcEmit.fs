@@ -171,8 +171,20 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         @ castInstr
         @ [Instr.StructGet(closureTypeIdx, 0); Instr.ReturnCallRef funcTypeIdx]
 
-    | WExpr.CallVirtual(_obj, _methodIdx, _args, _) ->
-        [Instr.Unreachable] // TODO: vtable dispatch
+    | WExpr.CallVirtual(box, boxTypeIdx, vtableTypeIdx, methodIdx, funcTypeIdx, args, _) ->
+        // Vtable dispatch — correct call_ref stack order: [self, args..., funcref]
+        // box is always a LocalGet (boxing result is always immediately let-bound),
+        // so evaluating it twice is safe and avoids a typed-tmp local.
+        //   box.self               → first arg (eqref)
+        //   args...
+        //   box.vtable.method_N    → funcref (must be on TOP for call_ref)
+        //   call_ref $funcTypeIdx
+        let boxInstrs = emitExpr ctx box
+        let argsInstrs = args |> List.collect (emitExpr ctx)
+        boxInstrs @ [Instr.StructGet(boxTypeIdx, 1)]   // self (eqref) — first arg
+        @ argsInstrs
+        @ boxInstrs @ [Instr.StructGet(boxTypeIdx, 0); Instr.StructGet(vtableTypeIdx, methodIdx)]  // funcref on top
+        @ [Instr.CallRef funcTypeIdx]
 
     // ── Struct operations ─────────────────────────────────
     | WExpr.StructNew(typeIdx, fields, _) ->
@@ -377,6 +389,11 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let funcIdx = ctx.GetFuncIdx(funcName)
         let captureInstrs = captures |> List.collect (emitExpr ctx)
         [Instr.RefFunc funcIdx] @ captureInstrs @ [Instr.StructNew closureTypeIdx]
+
+    /// ref.func $funcName — used in vtable global initializers.
+    | WExpr.FuncRef funcName ->
+        let funcIdx = ctx.GetFuncIdx(funcName)
+        [Instr.RefFunc funcIdx]
 
     | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, _captureCount, _) ->
         // Emit:
@@ -872,9 +889,17 @@ let emitModule (wmod: WModule) : WasmModule =
                 collectRefFuncs body
             | _ -> [])
 
-    let declaredFuncRefs =
+    let refFuncsFromFunctions =
         wasmFuncs
         |> List.collect (fun f -> collectRefFuncs f.Body)
+
+    // Also collect ref.func from global init instructions (for vtable globals)
+    let refFuncsFromGlobals =
+        wasmGlobals
+        |> List.collect (fun g -> collectRefFuncs g.Init)
+
+    let declaredFuncRefs =
+        (refFuncsFromFunctions @ refFuncsFromGlobals)
         |> List.distinct
         |> List.sort
 
