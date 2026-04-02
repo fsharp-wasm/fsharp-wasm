@@ -5,6 +5,7 @@ module Fable.Transforms.WasmGc.WasmGcEquality
 
 open Fable.AST.WasmGc
 open Fable.Transforms.WasmGc.WasmGcTypes
+open Fable.Transforms.WasmGc.WasmGcBuilder
 open Fable.Transforms.WasmGc.WasmGcLocals
 
 // ─────────────────────────────────────────────────────────────────
@@ -30,23 +31,17 @@ let rec compareByWType (ctx: Ctx) (ty: WType) (a: WExpr) (b: WExpr) : WExpr =
         // Nullable ref: if both null → 1, one null → 0, both non-null → recurse
         let nullA = WExpr.RefIsNull a
         let nullB = WExpr.RefIsNull b
-        WExpr.If(
-            // if both null
-            WExpr.Binary(WBinaryOp.And, nullA, nullB, WType.I32),
-            WExpr.Const(WConst.I32 1),
-            WExpr.If(
-                // else if one null
-                WExpr.Binary(WBinaryOp.Or, nullA, nullB, WType.I32),
-                WExpr.Const(WConst.I32 0),
+        wasmIf (and_ nullA nullB)
+            (i32Const 1)
+            (wasmIf (or_ nullA nullB)
+                (i32Const 0)
                 // both non-null: cast to non-nullable and compare
                 (match ctx.EqualityRegistry.TryGetValue(idx) with
                  | true, funcName ->
                      let aFixed = WExpr.Cast(a, WType.Ref(idx, false))
                      let bFixed = WExpr.Cast(b, WType.Ref(idx, false))
                      WExpr.Call(funcName, [aFixed; bFixed], WType.I32)
-                 | false, _ -> WExpr.Compare(WCompareOp.Eq, a, b)),
-                WType.I32),
-            WType.I32)
+                 | false, _ -> WExpr.Compare(WCompareOp.Eq, a, b)))
     | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
 
 /// Generate an equality function for a record struct type.
@@ -57,16 +52,14 @@ let makeRecordEqualsFunc (ctx: Ctx) (funcName: string) (typeIdx: int) (fields: W
     let bGet = WExpr.LocalGet("$eq_b", refT)
     let body =
         if fields.IsEmpty then
-            WExpr.Const(WConst.I32 1)  // empty struct: always equal
+            i32Const 1  // empty struct: always equal
         else
             let comps =
                 fields |> List.mapi (fun i field ->
                     let fa = WExpr.StructGet(aGet, i, field.Type)
                     let fb = WExpr.StructGet(bGet, i, field.Type)
                     compareByWType ctx field.Type fa fb)
-            comps |> List.fold (fun acc cmp ->
-                WExpr.Binary(WBinaryOp.And, acc, cmp, WType.I32)
-            ) (WExpr.Const(WConst.I32 1))
+            comps |> List.fold (fun acc cmp -> and_ acc cmp) (i32Const 1)
     let parms = [("$eq_a", refT); ("$eq_b", refT)]
     let paramNames = parms |> List.map fst |> Set.ofList
     { Name = funcName; Params = parms; Result = WType.I32
@@ -84,7 +77,7 @@ let makeDuEqualsFunc (ctx: Ctx) (funcName: string) (baseIdx: int) (caseTypeIdxs:
     let tagB = WExpr.StructGet(bGet, 0, WType.I32)
     // If tags differ → 0. If same → compare case fields.
     let caseEquality =
-        if caseTypeIdxs.IsEmpty then WExpr.Const(WConst.I32 1) else
+        if caseTypeIdxs.IsEmpty then i32Const 1 else
         // Build if-else chain: if tag=0 then compare_case0 else if tag=1 then ...
         let tagLocal = WExpr.LocalGet("$eq_tag", WType.I32)
         let indexedCases = caseTypeIdxs |> List.mapi (fun i caseIdx -> (i, caseIdx))
@@ -97,7 +90,7 @@ let makeDuEqualsFunc (ctx: Ctx) (funcName: string) (baseIdx: int) (caseTypeIdxs:
                     | WTypeDef.Struct(fields, _) -> fields |> List.tail  // skip tag field
                     | _ -> []
                 let caseEq =
-                    if caseFields.IsEmpty then WExpr.Const(WConst.I32 1)
+                    if caseFields.IsEmpty then i32Const 1
                     else
                         let castedA = WExpr.Cast(aGet, caseRef)
                         let castedB = WExpr.Cast(bGet, caseRef)
@@ -106,20 +99,17 @@ let makeDuEqualsFunc (ctx: Ctx) (funcName: string) (baseIdx: int) (caseTypeIdxs:
                                 let fa = WExpr.StructGet(castedA, fi + 1, field.Type)
                                 let fb = WExpr.StructGet(castedB, fi + 1, field.Type)
                                 compareByWType ctx field.Type fa fb)
-                        comps |> List.fold (fun acc cmp ->
-                            WExpr.Binary(WBinaryOp.And, acc, cmp, WType.I32)
-                        ) (WExpr.Const(WConst.I32 1))
+                        comps |> List.fold (fun acc cmp -> and_ acc cmp) (i32Const 1)
                 WExpr.If(
                     WExpr.Compare(WCompareOp.Eq, tagLocal, WExpr.Const(WConst.I32 i)),
                     caseEq, elseExpr, WType.I32)
-            ) indexedCases (WExpr.Const(WConst.I32 0))
+            ) indexedCases (i32Const 0)
         WExpr.Let("$eq_tag", tagA, caseChain)
     let body =
-        WExpr.If(
-            WExpr.Compare(WCompareOp.Ne, tagA, tagB),
-            WExpr.Const(WConst.I32 0),
-            caseEquality,
-            WType.I32)
+        wasmIf
+            (WExpr.Compare(WCompareOp.Ne, tagA, tagB))
+            (i32Const 0)
+            caseEquality
     let parms = [("$eq_a", baseRefT); ("$eq_b", baseRefT)]
     let paramNames = parms |> List.map fst |> Set.ofList
     { Name = funcName; Params = parms; Result = WType.I32

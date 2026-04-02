@@ -10,234 +10,153 @@ open Fable.Transforms.WasmGc.WasmGcLocals
 open Fable.Transforms.WasmGc.WasmGcQuotationWalker
 
 // ─────────────────────────────────────────────────────────────────
-// String runtime helpers
+// Quotation walker helpers — shared by all Tier 1 string/char helpers
 // ─────────────────────────────────────────────────────────────────
 
-/// Runtime helper: $strConcat(a, b) → concatenate two (array i32) strings.
-let makeStrConcatHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let aG = localGet "$a" strRef
-    let bG = localGet "$b" strRef
-    makeFunc "$strConcat" [("$a", strRef); ("$b", strRef)] strRef (
-        wasm {
-            let! la = arrayLen aG
-            let! lb = arrayLen bG
-            let! result = arrayNew StringTypeIdx (add la lb) (i32Const 0) strRef
-            do! arrayCopy result (i32Const 0) aG (i32Const 0) la
-            do! arrayCopy result la bG (i32Const 0) lb
-            return result
-        })
+/// Type-map used when translating runtime quotations: strings map to StringTypeIdx.
+let private runtimeTypeMap : QTypeMap =
+    { StrTypeIdx = StringTypeIdx; ResolveCustom = fun _ -> None }
 
-/// Runtime helper: $strEq(a, b) → 1 if equal, 0 if not (element-wise comparison).
+/// Intrinsics used when translating runtime quotations.
+let private runtimeIntrinsics = standardIntrinsics StringTypeIdx
+
+/// Translate an inline quotation to a WFuncDecl and collect locals.
+/// The WFuncDecl returned by translateReflected has Locals = [];
+/// resolveLocals fills them in so the function is self-contained.
+let private q (name: string) (qexpr: Microsoft.FSharp.Quotations.Expr) : WFuncDecl =
+    translateReflected name runtimeTypeMap runtimeIntrinsics qexpr
+    |> resolveLocals
+
+// ─────────────────────────────────────────────────────────────────
+// Tier 1 — string runtime helpers (QuotationWalker-translated)
+// ─────────────────────────────────────────────────────────────────
+
+/// Runtime helper: $strConcat(a, b) → concatenate two strings.
+let makeStrConcatHelper () : WFuncDecl =
+    q "$strConcat"
+        <@ fun (a: WasmStr) (b: WasmStr) ->
+            let la = wsLen a
+            let lb = wsLen b
+            let res = wsCreate (la + lb)
+            wsCopy res 0 a 0 la
+            wsCopy res la b 0 lb
+            res @>
+
+/// Runtime helper: $strEq(a, b) → 1 if equal, 0 if not.
 let makeStrEqHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let aG  = localGet "$a"  strRef
-    let bG  = localGet "$b"  strRef
-    makeFunc "$strEq" [("$a", strRef); ("$b", strRef)] i32 (
-        wasm {
-            let! la = arrayLen aG
-            let! lb = arrayLen bG
-            return WExpr.Block("$eq_outer",
-                wasmIf (ne la lb)
-                    (WExpr.Break("$eq_outer", Some(i32Const 0)))
-                    (sequence [
-                        countLoop "$eq" la (fun i ->
-                            wasmWhen (ne (arrayGet aG i i32) (arrayGet bG i i32))
-                                (WExpr.Break("$eq_outer", Some(i32Const 0))))
-                        i32Const 1]),
-                i32)
-        })
+    q "$strEq"
+        <@ fun (a: WasmStr) (b: WasmStr) ->
+            let la = wsLen a
+            let lb = wsLen b
+            if la <> lb then 0
+            else
+                let mutable i = 0
+                while i < la && wsGet a i = wsGet b i do i <- i + 1
+                if i = la then 1 else 0 @>
 
 /// Runtime helper: $strIndexOf(haystack, needle) → first position, or -1 if not found.
 /// Brute-force O(n·m). needle="" always returns 0.
-/// Tier 2 with Sprint 18 DSL: WVar, WArray, WasmDsl, loopResult.
-/// NOTE: The inner j-loop uses block+loop instead of while_(&&.) to avoid
-/// non-short-circuit evaluation of the array accesses — WASM i32.and always
-/// evaluates both operands, which would cause an out-of-bounds trap when j = lb.
+/// Short-circuit `&&` from the QuotationWalker prevents out-of-bounds array access.
 let makeStrIndexOfHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let gen = LabelGen "sio"
-    makeFunc "$strIndexOf" [("$ha", strRef); ("$ne", strRef)] WType.I32 (
-        let ha = WArray.wrap WType.I32 (localGet "$ha" strRef)
-        let ne = WArray.wrap WType.I32 (localGet "$ne" strRef)
-        wasm {
-            let! la = ha.Len
-            let! lb = ne.Len
-            return
-                wasmIf (lb =. i32Const 0)
-                    (i32Const 0)
-                    (WVar.letMut gen "i" WType.I32 (i32Const 0) (fun i ->
-                        loopResult WType.I32 (i32Const -1) (fun brk ->
-                            wasmIf (i.Val <=. la -. lb)
-                                (WVar.letMut gen "j" WType.I32 (i32Const 0) (fun j ->
-                                    let jBlkLbl = gen.Next("jlb")
-                                    let jLpLbl  = gen.Next("jl")
-                                    sequence [
-                                        WExpr.Block(jBlkLbl,
-                                            WExpr.Loop(jLpLbl,
-                                                sequence [
-                                                    wasmWhen (j.Val >=. lb) (brk i.Val)
-                                                    wasmWhen (ha.[i.Val +. j.Val] <>. ne.[j.Val])
-                                                        (WExpr.Break(jBlkLbl, None))
-                                                    j.Update (fun v -> v +. i32Const 1)
-                                                    WExpr.Continue(jLpLbl, [])
-                                                ],
-                                                WType.Void),
-                                            WType.Void)
-                                        i.Update (fun v -> v +. i32Const 1)
-                                    ]))
-                                (brk (i32Const -1)))))
-        })
+    q "$strIndexOf"
+        <@ fun (ha: WasmStr) (ne: WasmStr) ->
+            let la = wsLen ha
+            let lb = wsLen ne
+            if lb = 0 then 0
+            else
+                let mutable result = -1
+                let mutable i = 0
+                while result = -1 && i <= la - lb do
+                    let mutable j = 0
+                    while j < lb && wsGet ha (i + j) = wsGet ne j do j <- j + 1
+                    if j >= lb then result <- i
+                    i <- i + 1
+                result @>
 
 /// Runtime helper: $strLastIndexOf(haystack, needle) → last position, or -1 if not found.
 /// Brute-force O(n·m) backward scan. needle="" always returns la (length of haystack).
-/// Tier 2 with Sprint 18 DSL: WVar, WArray, WasmDsl, loopResult.
-/// NOTE: Same non-short-circuit AND avoidance as makeStrIndexOfHelper.
+/// Short-circuit `&&` from the QuotationWalker prevents out-of-bounds array access.
 let makeStrLastIndexOfHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let gen = LabelGen "slio"
-    makeFunc "$strLastIndexOf" [("$ha", strRef); ("$ne", strRef)] WType.I32 (
-        let ha = WArray.wrap WType.I32 (localGet "$ha" strRef)
-        let ne = WArray.wrap WType.I32 (localGet "$ne" strRef)
-        wasm {
-            let! la = ha.Len
-            let! lb = ne.Len
-            return
-                wasmIf (lb =. i32Const 0)
-                    la
-                    (WVar.letMut gen "i" WType.I32 (la -. lb) (fun i ->
-                        loopResult WType.I32 (i32Const -1) (fun brk ->
-                            wasmIf (i.Val >=. i32Const 0)
-                                (WVar.letMut gen "j" WType.I32 (i32Const 0) (fun j ->
-                                    let jBlkLbl = gen.Next("jlb")
-                                    let jLpLbl  = gen.Next("jl")
-                                    sequence [
-                                        WExpr.Block(jBlkLbl,
-                                            WExpr.Loop(jLpLbl,
-                                                sequence [
-                                                    wasmWhen (j.Val >=. lb) (brk i.Val)
-                                                    wasmWhen (ha.[i.Val +. j.Val] <>. ne.[j.Val])
-                                                        (WExpr.Break(jBlkLbl, None))
-                                                    j.Update (fun v -> v +. i32Const 1)
-                                                    WExpr.Continue(jLpLbl, [])
-                                                ],
-                                                WType.Void),
-                                            WType.Void)
-                                        i.Update (fun v -> v -. i32Const 1)
-                                    ]))
-                                (brk (i32Const -1)))))
-        })
+    q "$strLastIndexOf"
+        <@ fun (ha: WasmStr) (ne: WasmStr) ->
+            let la = wsLen ha
+            let lb = wsLen ne
+            if lb = 0 then la
+            else
+                let mutable result = -1
+                let mutable i = la - lb
+                while result = -1 && i >= 0 do
+                    let mutable j = 0
+                    while j < lb && wsGet ha (i + j) = wsGet ne j do j <- j + 1
+                    if j >= lb then result <- i
+                    i <- i - 1
+                result @>
 
-/// Runtime helper: $strSubstring(str, start, len) → new string sub-array.
+/// Runtime helper: $strSubstring(src, start, len) → new string slice.
 let makeStrSubstringHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let srcG  = localGet "$ssub_src"   strRef
-    let startG = localGet "$ssub_start" WType.I32
-    let lenG   = localGet "$ssub_len"   WType.I32
-    makeFunc "$strSubstring" [("$ssub_src", strRef); ("$ssub_start", WType.I32); ("$ssub_len", WType.I32)] strRef (
-        wasm {
-            let! res = arrayNew StringTypeIdx lenG (i32Const 0) strRef
-            do! arrayCopy res (i32Const 0) srcG startG lenG
-            return res
-        })
+    q "$strSubstring"
+        <@ fun (src: WasmStr) (start: int) (len: int) ->
+            let res = wsCreate len
+            wsCopy res 0 src start len
+            res @>
 
 /// Runtime helper: $strToLower(s) → ASCII-only case fold (A-Z → a-z).
 let makeStrToLowerHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let srcGet = localGet "$stl_src" strRef
-    makeFunc "$strToLower" [("$stl_src", strRef)] strRef (
-        wasm {
-            let! len = arrayLen srcGet
-            let! res = arrayNew StringTypeIdx len (i32Const 0) strRef
-            do! countLoop "$stl" len (fun i ->
-                    WExpr.Let("$stl_c", arrayGet srcGet i i32,
-                        let cGet = localGet "$stl_c" i32
-                        arraySet res i
-                            (wasmIf (wasmAnd (geS cGet (i32Const 65)) (leS cGet (i32Const 90)))
-                                (add cGet (i32Const 32))
-                                cGet)))
-            return res
-        })
+    q "$strToLower"
+        <@ fun (s: WasmStr) ->
+            let len = wsLen s
+            let res = wsCreate len
+            for i = 0 to len - 1 do
+                let c = wsGet s i
+                wsSet res i (if c >= 65 && c <= 90 then c + 32 else c)
+            res @>
 
 /// Runtime helper: $strToUpper(s) → ASCII-only case fold (a-z → A-Z).
 let makeStrToUpperHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let srcGet = localGet "$stu_src" strRef
-    makeFunc "$strToUpper" [("$stu_src", strRef)] strRef (
-        wasm {
-            let! len = arrayLen srcGet
-            let! res = arrayNew StringTypeIdx len (i32Const 0) strRef
-            do! countLoop "$stu" len (fun i ->
-                    WExpr.Let("$stu_c", arrayGet srcGet i i32,
-                        let cGet = localGet "$stu_c" i32
-                        arraySet res i
-                            (wasmIf (wasmAnd (geS cGet (i32Const 97)) (leS cGet (i32Const 122)))
-                                (sub cGet (i32Const 32))
-                                cGet)))
-            return res
-        })
+    q "$strToUpper"
+        <@ fun (s: WasmStr) ->
+            let len = wsLen s
+            let res = wsCreate len
+            for i = 0 to len - 1 do
+                let c = wsGet s i
+                wsSet res i (if c >= 97 && c <= 122 then c - 32 else c)
+            res @>
 
-/// Runtime helper: $strTrim(s) → skip leading/trailing whitespace (chars ≤ 32).
+/// Runtime helper: $strTrim(s) → strip leading/trailing whitespace (chars ≤ 32).
 let makeStrTrimHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let srcGet = localGet "$str_src" strRef
-    let sGet   = localGet "$str_s"   i32
-    let eGet   = localGet "$str_e"   i32
-    makeFunc "$strTrim" [("$str_src", strRef)] strRef (
-        wasm {
-            let! len = arrayLen srcGet
-            return WExpr.LetMut("$str_s", i32Const 0,
-                WExpr.LetMut("$str_e", len,
-                    sequence [
-                        whileLoop "$str_sl"
-                            (wasmAnd (ltS sGet len) (leS (arrayGet srcGet sGet i32) (i32Const 32)))
-                            (localSet "$str_s" (add sGet (i32Const 1)))
-                        whileLoop "$str_el"
-                            (wasmAnd (gtS eGet sGet) (leS (arrayGet srcGet (sub eGet (i32Const 1)) i32) (i32Const 32)))
-                            (localSet "$str_e" (sub eGet (i32Const 1)))
-                        call "$strSubstring" [srcGet; sGet; sub eGet sGet] strRef
-                    ]))
-        })
+    q "$strTrim"
+        <@ fun (src: WasmStr) ->
+            let len = wsLen src
+            let mutable s = 0
+            let mutable e = len
+            while s < len && wsGet src s <= 32 do s <- s + 1
+            while e > s && wsGet src (e - 1) <= 32 do e <- e - 1
+            let resLen = e - s
+            let res = wsCreate resLen
+            wsCopy res 0 src s resLen
+            res @>
 
-/// Runtime helper: $strTrimStart(s) → skip leading whitespace (chars ≤ 32).
+/// Runtime helper: $strTrimStart(s) → strip leading whitespace (chars ≤ 32).
 let makeStrTrimStartHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let srcGet = localGet "$strs_src" strRef
-    let sGet   = localGet "$strs_s"   i32
-    makeFunc "$strTrimStart" [("$strs_src", strRef)] strRef (
-        wasm {
-            let! len = arrayLen srcGet
-            return WExpr.LetMut("$strs_s", i32Const 0,
-                sequence [
-                    whileLoop "$strs_sl"
-                        (wasmAnd (ltS sGet len) (leS (arrayGet srcGet sGet i32) (i32Const 32)))
-                        (localSet "$strs_s" (add sGet (i32Const 1)))
-                    call "$strSubstring" [srcGet; sGet; sub len sGet] strRef
-                ])
-        })
+    q "$strTrimStart"
+        <@ fun (src: WasmStr) ->
+            let len = wsLen src
+            let mutable s = 0
+            while s < len && wsGet src s <= 32 do s <- s + 1
+            let res = wsCreate (len - s)
+            wsCopy res 0 src s (len - s)
+            res @>
 
-/// Runtime helper: $strTrimEnd(s) → skip trailing whitespace (chars ≤ 32).
+/// Runtime helper: $strTrimEnd(s) → strip trailing whitespace (chars ≤ 32).
 let makeStrTrimEndHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let srcGet = localGet "$stre_src" strRef
-    let eGet   = localGet "$stre_e"   i32
-    makeFunc "$strTrimEnd" [("$stre_src", strRef)] strRef (
-        wasm {
-            let! len = arrayLen srcGet
-            return WExpr.LetMut("$stre_e", len,
-                sequence [
-                    whileLoop "$stre_el"
-                        (wasmAnd (gtS eGet (i32Const 0)) (leS (arrayGet srcGet (sub eGet (i32Const 1)) i32) (i32Const 32)))
-                        (localSet "$stre_e" (sub eGet (i32Const 1)))
-                    call "$strSubstring" [srcGet; i32Const 0; eGet] strRef
-                ])
-        })
+    q "$strTrimEnd"
+        <@ fun (src: WasmStr) ->
+            let len = wsLen src
+            let mutable e = len
+            while e > 0 && wsGet src (e - 1) <= 32 do e <- e - 1
+            let res = wsCreate e
+            wsCopy res 0 src 0 e
+            res @>
 
 /// Runtime helper: $intToStr(n) → decimal string representation of an i32.
 let makeIntToStrHelper () : WFuncDecl =
@@ -359,43 +278,25 @@ let makeFloatToStrHelper () : WFuncDecl =
 
 /// Runtime helper: $strPadLeft(str, width) → pad with spaces on the left.
 let makeStrPadLeftHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let srcGet = localGet "$spl_src" strRef
-    let widthGet = localGet "$spl_w" i32
-    let laGet = localGet "$spl_la" i32
-    let padGet = localGet "$spl_pad" i32
-    let resGet = localGet "$spl_res" strRef
-    makeFunc "$strPadLeft" [("$spl_src", strRef); ("$spl_w", i32)] strRef (
-        WExpr.Let("$spl_la", arrayLen srcGet,
-        block_ "$spl_ret" strRef (
-            wasmIf (geS laGet widthGet)
-                (WExpr.Break("$spl_ret", Some srcGet))
-                (WExpr.Let("$spl_pad", sub widthGet laGet,
-                 WExpr.Let("$spl_res", arrayNew StringTypeIdx widthGet (i32Const 32) strRef,
-                    sequence [
-                        arrayCopy resGet padGet srcGet (i32Const 0) laGet
-                        resGet
-                    ]))))))
+    q "$strPadLeft"
+        <@ fun (src: WasmStr) (width: int) ->
+            let la = wsLen src
+            if la >= width then src
+            else
+                let res = wsCreateFill width 32
+                wsCopy res (width - la) src 0 la
+                res @>
 
 /// Runtime helper: $strPadRight(str, width) → pad with spaces on the right.
 let makeStrPadRightHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let srcGet = localGet "$spr_src" strRef
-    let widthGet = localGet "$spr_w" i32
-    let laGet = localGet "$spr_la" i32
-    let resGet = localGet "$spr_res" strRef
-    makeFunc "$strPadRight" [("$spr_src", strRef); ("$spr_w", i32)] strRef (
-        WExpr.Let("$spr_la", arrayLen srcGet,
-        block_ "$spr_ret" strRef (
-            wasmIf (geS laGet widthGet)
-                (WExpr.Break("$spr_ret", Some srcGet))
-                (WExpr.Let("$spr_res", arrayNew StringTypeIdx widthGet (i32Const 32) strRef,
-                    sequence [
-                        arrayCopy resGet (i32Const 0) srcGet (i32Const 0) laGet
-                        resGet
-                    ])))))
+    q "$strPadRight"
+        <@ fun (src: WasmStr) (width: int) ->
+            let la = wsLen src
+            if la >= width then src
+            else
+                let res = wsCreateFill width 32
+                wsCopy res 0 src 0 la
+                res @>
 
 /// Runtime helper: $strReplace(src, from, to) → replace all occurrences of `from` with `to`.
 let makeStrReplaceHelper () : WFuncDecl =
@@ -653,62 +554,21 @@ let makeFloatParseHelper () : WFuncDecl =
 /// Runtime helper: $strCompare(a, b) → i32  (-1 | 0 | 1)
 /// Lexicographic comparison of two WasmStr arrays (char by char, then by length).
 let makeStrCompareHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let aGet = localGet "$sc_a" strRef
-    let bGet = localGet "$sc_b" strRef
-    let iGet = localGet "$sc_i" i32
-    let laGet = localGet "$sc_la" i32
-    let lbGet = localGet "$sc_lb" i32
-    let caGet = localGet "$sc_ca" i32
-    let cbGet = localGet "$sc_cb" i32
-    let minLen la lb = wasmIf (ltS la lb) la lb
-    let charCompare =
-        WExpr.Let("$sc_ca", arrayGet aGet iGet i32,
-        WExpr.Let("$sc_cb", arrayGet bGet iGet i32,
-            wasmIf (gtS caGet cbGet)
-                (WExpr.Break("$sc_ret", Some (i32Const 1)))
-                (wasmIf (ltS caGet cbGet)
-                    (WExpr.Break("$sc_ret", Some (i32Const (-1))))
-                    WExpr.Nop)))
-    let loopBody =
-        wasmIf (geS iGet (minLen laGet lbGet))
-            (WExpr.Sequence [
-                wasmIf (gtS laGet lbGet) (WExpr.Break("$sc_ret", Some (i32Const 1))) WExpr.Nop
-                wasmIf (ltS laGet lbGet) (WExpr.Break("$sc_ret", Some (i32Const (-1)))) WExpr.Nop
-                WExpr.Break("$sc_ret", Some (i32Const 0))])
-            (WExpr.Sequence [
-                charCompare
-                localSet "$sc_i" (add iGet (i32Const 1))
-                continue_ "$sc_lp"])
-    let body =
-        WExpr.Let("$sc_la", arrayLen aGet,
-        WExpr.Let("$sc_lb", arrayLen bGet,
-            block_ "$sc_ret" i32 (
-                WExpr.LetMut("$sc_i", i32Const 0,
-                    WExpr.Sequence [
-                        loop "$sc_lp" loopBody
-                        i32Const 0     // unreachable fallthru, satisfies block type
-                    ]))))
-    makeFunc "$strCompare" [("$sc_a", strRef); ("$sc_b", strRef)] i32 body
+    q "$strCompare"
+        <@ fun (a: WasmStr) (b: WasmStr) ->
+            let la = wsLen a
+            let lb = wsLen b
+            let minLen = if la < lb then la else lb
+            let mutable i = 0
+            while i < minLen && wsGet a i = wsGet b i do i <- i + 1
+            if i = minLen then
+                if la > lb then 1 elif la < lb then -1 else 0
+            else
+                if wsGet a i > wsGet b i then 1 else -1 @>
 
 // ─────────────────────────────────────────────────────────────────
-// Tier 1 — char helpers (QuotationWalker-translated)
+// Tier 1 — char helpers
 // ─────────────────────────────────────────────────────────────────
-
-/// Type-map used when translating runtime quotations: strings map to StringTypeIdx.
-let private runtimeTypeMap : QTypeMap =
-    { StrTypeIdx = StringTypeIdx; ResolveCustom = fun _ -> None }
-
-/// Intrinsics used when translating runtime quotations.
-let private runtimeIntrinsics = standardIntrinsics StringTypeIdx
-
-/// Translate an inline quotation to a WFuncDecl and collect locals.
-/// The WFuncDecl returned by translateReflected has Locals = [];
-/// resolveLocals fills them in so the function is self-contained.
-let private q (name: string) (qexpr: Microsoft.FSharp.Quotations.Expr) : WFuncDecl =
-    translateReflected name runtimeTypeMap runtimeIntrinsics qexpr
-    |> resolveLocals
 
 /// Runtime helper: $charIsDigit(c) → 1 if '0'..'9' else 0.
 let makeCharIsDigitHelper () : WFuncDecl =

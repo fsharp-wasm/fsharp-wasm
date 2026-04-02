@@ -69,6 +69,26 @@ let wsLen (_s: WasmStr) : int = failwith "phantom intrinsic"
 [<WasmIntrinsic("$wasmStr_get")>]
 let wsGet (_s: WasmStr) (_i: int) : int = failwith "phantom intrinsic"
 
+/// Allocate a new zero-filled WasmStr of `n` chars.
+/// Translated to arrayNew StringTypeIdx n 0. Never called at runtime.
+[<WasmIntrinsic("$wasmStr_create")>]
+let wsCreate (_n: int) : WasmStr = WasmStr  // dummy — never executed
+
+/// Allocate a new WasmStr of `n` chars all filled with `fill`.
+/// Translated to arrayNew StringTypeIdx n fill. Never called at runtime.
+[<WasmIntrinsic("$wasmStr_createFill")>]
+let wsCreateFill (_n: int) (_fill: int) : WasmStr = WasmStr  // dummy — never executed
+
+/// Set character at index `i` in `s` to `v`.
+/// Translated to arraySet s i v. Never called at runtime.
+[<WasmIntrinsic("$wasmStr_set")>]
+let wsSet (_s: WasmStr) (_i: int) (_v: int) : unit = ()  // dummy — never executed
+
+/// Copy `len` chars from `src` starting at `srcOff` into `dst` starting at `dstOff`.
+/// Translated to array.copy. Never called at runtime.
+[<WasmIntrinsic("$wasmStr_copy")>]
+let wsCopy (_dst: WasmStr) (_dstOff: int) (_src: WasmStr) (_srcOff: int) (_len: int) : unit = ()  // dummy — never executed
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Type mapping — System.Type → WType
 // ─────────────────────────────────────────────────────────────────────────────
@@ -325,14 +345,19 @@ let translateReflected
 // Standard intrinsics map
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Build the standard intrinsics map for WasmGcRuntime.fs helpers.
+/// Build the standard intrinsics map for WasmGcRuntime.fs helpers.i as
 /// Pass `strTypeIdx = StringTypeIdx` (= 1) from WasmGcTypes.
 let standardIntrinsics (strTypeIdx: int) : Map<string, WExpr list -> WExpr> =
     let strRefTy = WType.Ref(strTypeIdx, false)
     Map.ofList [
-        // ── WasmStr member intrinsics ─────────────────────────────────────────
-        "$wasmStr_length", (function [s]       -> arrayLen s          | a -> failwithf "arity mismatch $wasmStr_length: got %d" a.Length)
-        "$wasmStr_get",    (function [s; i]    -> arrayGet s i WType.I32 | a -> failwithf "arity mismatch $wasmStr_get: got %d" a.Length)
+        // ── WasmStr read intrinsics ───────────────────────────────────────────
+        "$wasmStr_length",     (function [s]              -> arrayLen s                           | a -> failwithf "arity $wasmStr_length: got %d" a.Length)
+        "$wasmStr_get",        (function [s; i]           -> arrayGet s i WType.I32               | a -> failwithf "arity $wasmStr_get: got %d" a.Length)
+        // ── WasmStr write intrinsics (for Tier 1 string-building helpers) ─────
+        "$wasmStr_create",     (function [n]              -> arrayNew strTypeIdx n (i32Const 0) strRefTy    | a -> failwithf "arity $wasmStr_create: got %d" a.Length)
+        "$wasmStr_createFill", (function [n; fill]        -> arrayNew strTypeIdx n fill strRefTy  | a -> failwithf "arity $wasmStr_createFill: got %d" a.Length)
+        "$wasmStr_set",        (function [s; i; v]        -> arraySet s i v                       | a -> failwithf "arity $wasmStr_set: got %d" a.Length)
+        "$wasmStr_copy",       (function [dst;do_;src;so_;len] -> WExpr.ArrayCopy(dst,do_,src,so_,len) | a -> failwithf "arity $wasmStr_copy: got %d" a.Length)
         // ── Array ops ─────────────────────────────────────────────────────────
         "arrayLen",        (function [a]       -> arrayLen a          | a -> failwithf "arity mismatch arrayLen: got %d" a.Length)
         "arrayGet",        (function [a; i; _] -> arrayGet a i WType.I32 | a -> failwithf "arity mismatch arrayGet: got %d" a.Length)
