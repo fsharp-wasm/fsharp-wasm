@@ -110,6 +110,44 @@ let negF64 (_f: float) : float = failwith "phantom intrinsic"
 let intToF64 (_n: int) : float = failwith "phantom intrinsic"
 
 // ─────────────────────────────────────────────────────────────────────────────
+// StringBuilder phantom struct + struct intrinsics
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Phantom struct representing a WasmGC $StringBuilder.
+/// Layout: { data: ref $WasmStr; len: i32; cap: i32 }
+/// Never instantiated at runtime — only used in [<ReflectedDefinition>] quotations.
+[<Struct>]
+type SbStruct = SbStruct
+
+/// struct.new $StringBuilder [data; len; cap]
+[<WasmIntrinsic("$sb_new")>]
+let sbNew (_data: WasmStr) (_len: int) (_cap: int) : SbStruct = SbStruct
+
+/// struct.get $StringBuilder 0 → ref $WasmStr  (the data buffer)
+[<WasmIntrinsic("$sb_buf_get")>]
+let sbBuf (_sb: SbStruct) : WasmStr = WasmStr
+
+/// struct.set $StringBuilder 0  (replace data buffer)
+[<WasmIntrinsic("$sb_buf_set")>]
+let sbSetBuf (_sb: SbStruct) (_data: WasmStr) : unit = ()
+
+/// struct.get $StringBuilder 1 → i32  (current length)
+[<WasmIntrinsic("$sb_len_get")>]
+let sbLen (_sb: SbStruct) : int = 0
+
+/// struct.set $StringBuilder 1  (update length)
+[<WasmIntrinsic("$sb_len_set")>]
+let sbSetLen (_sb: SbStruct) (_len: int) : unit = ()
+
+/// struct.get $StringBuilder 2 → i32  (capacity)
+[<WasmIntrinsic("$sb_cap_get")>]
+let sbCap (_sb: SbStruct) : int = 0
+
+/// struct.set $StringBuilder 2  (update capacity)
+[<WasmIntrinsic("$sb_cap_set")>]
+let sbSetCap (_sb: SbStruct) (_cap: int) : unit = ()
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Type mapping — System.Type → WType
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -117,6 +155,8 @@ let intToF64 (_n: int) : float = failwith "phantom intrinsic"
 type QTypeMap = {
     /// Type index of the WasmStr array type (pre-registered at index StringTypeIdx).
     StrTypeIdx    : int
+    /// Type index of the StringBuilder GC struct (pre-registered at StringBuilderTypeIdx).
+    SbTypeIdx     : int
     /// Custom type resolver for project-specific struct types.
     /// Return None to let the walker raise an error for unknown types.
     ResolveCustom : System.Type -> WType option
@@ -131,6 +171,7 @@ let private toWType (tm: QTypeMap) (t: System.Type) : WType =
     elif t = typeof<char>                          then WType.I32  // chars are Unicode code-points
     elif t = typeof<unit>                          then WType.Void
     elif t = typeof<WasmStr>                       then WType.Ref(tm.StrTypeIdx, false)
+    elif t = typeof<SbStruct>                      then WType.Ref(tm.SbTypeIdx,  false)
     else
         match tm.ResolveCustom t with
         | Some wty -> wty
@@ -404,8 +445,9 @@ let translateReflected
 
 /// Build the standard intrinsics map for WasmGcRuntime.fs helpers.i as
 /// Pass `strTypeIdx = StringTypeIdx` (= 1) from WasmGcTypes.
-let standardIntrinsics (strTypeIdx: int) : Map<string, WExpr list -> WExpr> =
+let standardIntrinsics (strTypeIdx: int) (sbTypeIdx: int) : Map<string, WExpr list -> WExpr> =
     let strRefTy = WType.Ref(strTypeIdx, false)
+    let sbRefTy  = WType.Ref(sbTypeIdx,  false)
     Map.ofList [
         // ── WasmStr read intrinsics ───────────────────────────────────────────
         "$wasmStr_length",     (function [s]              -> arrayLen s                           | a -> failwithf "arity $wasmStr_length: got %d" a.Length)
@@ -434,8 +476,17 @@ let standardIntrinsics (strTypeIdx: int) : Map<string, WExpr list -> WExpr> =
         "$charToLower",         (function [c] -> WExpr.Call("$charToLower",         [c], WType.I32) | a -> failwithf "arity mismatch $charToLower: got %d" a.Length)
         "$charToUpper",         (function [c] -> WExpr.Call("$charToUpper",         [c], WType.I32) | a -> failwithf "arity mismatch $charToUpper: got %d" a.Length)
         // ── Float phantom intrinsics ────────────────────────────────────────────
-        "$f64_trunc_i32",  (function [f] -> WExpr.Unary(WUnaryOp.TruncF64S, f, WType.I32) | a -> failwithf "arity $f64_trunc_i32: got %d"  a.Length)
-        "$f64_abs",        (function [f] -> WExpr.Unary(WUnaryOp.Abs,      f, WType.F64) | a -> failwithf "arity $f64_abs: got %d"        a.Length)
-        "$f64_neg",        (function [f] -> WExpr.Unary(WUnaryOp.Neg,      f, WType.F64) | a -> failwithf "arity $f64_neg: got %d"        a.Length)
-        "$i32_to_f64",     (function [n] -> WExpr.Unary(WUnaryOp.ConvertI32S, n, WType.F64) | a -> failwithf "arity $i32_to_f64: got %d" a.Length)
+        "$f64_trunc_i32",  (function [f] -> WExpr.Unary(WUnaryOp.TruncF64S,  f, WType.I32) | a -> failwithf "arity $f64_trunc_i32: got %d"  a.Length)
+        "$f64_abs",        (function [f] -> WExpr.Unary(WUnaryOp.Abs,         f, WType.F64) | a -> failwithf "arity $f64_abs: got %d"        a.Length)
+        "$f64_neg",        (function [f] -> WExpr.Unary(WUnaryOp.Neg,         f, WType.F64) | a -> failwithf "arity $f64_neg: got %d"        a.Length)
+        "$i32_to_f64",     (function [n] -> WExpr.Unary(WUnaryOp.ConvertI32S, n, WType.F64) | a -> failwithf "arity $i32_to_f64: got %d"    a.Length)
+        // ── StringBuilder struct phantom intrinsics ──────────────────────────
+        // Layout: field 0 = data:WasmStr(ref), field 1 = len:i32, field 2 = cap:i32
+        "$sb_new",     (function [data; len; cap] -> WExpr.StructNew(sbTypeIdx, [data; len; cap], sbRefTy)  | a -> failwithf "arity $sb_new: got %d"     a.Length)
+        "$sb_buf_get", (function [sb]             -> WExpr.StructGet(sb, 0, strRefTy)                       | a -> failwithf "arity $sb_buf_get: got %d"  a.Length)
+        "$sb_buf_set", (function [sb; data]       -> WExpr.StructSet(sb, 0, data)                           | a -> failwithf "arity $sb_buf_set: got %d"  a.Length)
+        "$sb_len_get", (function [sb]             -> WExpr.StructGet(sb, 1, WType.I32)                      | a -> failwithf "arity $sb_len_get: got %d"  a.Length)
+        "$sb_len_set", (function [sb; len]        -> WExpr.StructSet(sb, 1, len)                            | a -> failwithf "arity $sb_len_set: got %d"  a.Length)
+        "$sb_cap_get", (function [sb]             -> WExpr.StructGet(sb, 2, WType.I32)                      | a -> failwithf "arity $sb_cap_get: got %d"  a.Length)
+        "$sb_cap_set", (function [sb; cap]        -> WExpr.StructSet(sb, 2, cap)                            | a -> failwithf "arity $sb_cap_set: got %d"  a.Length)
     ]

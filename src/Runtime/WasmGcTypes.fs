@@ -23,6 +23,10 @@ let StringTypeIdx = 1
 [<Literal>]
 let ListBaseTypeIdx = 2
 
+/// Type index 3 is always $StringBuilder — struct(data: mut ref $WasmStr, length: mut i32, capacity: mut i32).
+[<Literal>]
+let StringBuilderTypeIdx = 3
+
 // ─────────────────────────────────────────────────────────────────
 // Context — threaded through the translation
 // ─────────────────────────────────────────────────────────────────
@@ -131,6 +135,13 @@ type Ctx =
         typeDefs.Add({ Name = "$WasmStr"; Def = WTypeDef.Array(strElemType, true) })
         // Pre-register $ListBase = struct {} (index 2)
         typeDefs.Add({ Name = "$ListBase"; Def = WTypeDef.Struct([], None) })
+        // Pre-register $StringBuilder = struct { data: (mut ref $WasmStr), length: (mut i32), capacity: (mut i32) } (index 3)
+        typeDefs.Add({ Name = "$StringBuilder"
+                       Def = WTypeDef.Struct([
+                           { Name = "data";     Type = WType.Ref(StringTypeIdx, false); Mutable = true }
+                           { Name = "length";   Type = WType.I32;                       Mutable = true }
+                           { Name = "capacity"; Type = WType.I32;                       Mutable = true }
+                       ], None) })
         {
             Locals = Map.empty
             TypeDefs = typeDefs
@@ -285,6 +296,9 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     | Fable.Type.DeclaredType(entRef, genericArgs) when entRef.FullName = FSharpRefFullName ->
         let innerT = match genericArgs with | [t] -> mapTypeKnown ctx t | _ -> WType.I32
         WType.Ref(getOrAddRefCellType ctx innerT, false)
+    // StringBuilder: always maps to the pre-registered $StringBuilder struct
+    | Fable.Type.DeclaredType(entRef, _) when entRef.FullName = "System.Text.StringBuilder" ->
+        WType.Ref(StringBuilderTypeIdx, false)
     | Fable.Type.DeclaredType(entRef, genericArgs) ->
         // Try the generic instance key first (for on-demand registered DUs like Result<T,E>)
         if not genericArgs.IsEmpty then

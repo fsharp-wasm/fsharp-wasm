@@ -1107,6 +1107,20 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // BitOperations: LeadingZeroCount → Math.clz32 (intercepted here); TrailingZeroCount/PopCount come as LibCall
         | "trailingZeroCount", [arg], _ -> WExpr.Unary(WUnaryOp.Ctz,    arg, WType.I32)
         | "popCount",          [arg], _ -> WExpr.Unary(WUnaryOp.Popcnt, arg, WType.I32)
+        // ── StringBuilder — calls from ./System.Text.fs ───────────────────────────
+        | "StringBuilder_$ctor", _, _ ->
+            // new StringBuilder() / new StringBuilder(capacity)
+            let cap = match wArgs with | [c] -> c | _ -> WExpr.Const(WConst.I32 16)
+            WExpr.Call(ctx.UseHelper("$sbCreate"), [cap], WType.Ref(StringBuilderTypeIdx, false))
+        | sel, sb :: str :: _, _ when sel.StartsWith("StringBuilder__Append_") ->
+            // sb.Append(str) — returns sb (unit in F# use, but typed as ref $StringBuilder)
+            WExpr.Call(ctx.UseHelper("$sbAppend"), [sb; str], WType.Ref(StringBuilderTypeIdx, false))
+        | "StringBuilder__get_Length", [sb], _ ->
+            // sb.Length → struct.get field 1 (length)
+            WExpr.StructGet(sb, 1, WType.I32)
+        | sel, [sb], _ when sel.StartsWith("StringBuilder__ToString") ->
+            // sb.ToString() → $sbToString
+            WExpr.Call(ctx.UseHelper("$sbToString"), [sb], WType.Ref(StringTypeIdx, false))
         // String char access: String.getCharAtIndex(str, idx) → array.get $WasmStr
         | "getCharAtIndex", [str; idx], _ ->
             WExpr.ArrayGet(str, idx, WType.I32)
@@ -2068,7 +2082,11 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$mathLog",           WasmGcRuntime.makeMathLogHelper
                   "$mathSin",           WasmGcRuntime.makeMathSinHelper
                   "$mathCos",           WasmGcRuntime.makeMathCosHelper
-                  "$mathTan",           WasmGcRuntime.makeMathTanHelper ]
+                  "$mathTan",           WasmGcRuntime.makeMathTanHelper
+                  // ── StringBuilder helpers ─────────────────────────────────
+                  "$sbCreate",          WasmGcRuntime.makeStringBuilderCreateHelper
+                  "$sbAppend",          WasmGcRuntime.makeStringBuilderAppendHelper
+                  "$sbToString",        WasmGcRuntime.makeStringBuilderToStringHelper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then

@@ -1833,3 +1833,44 @@ let testPopcnt_seven () : int = System.Numerics.BitOperations.PopCount(7u)
 
 /// Test: PopCount(0xFFFFFFFFu) = 32 (all 32 bits set)
 let testPopcnt_allOnes () : int = System.Numerics.BitOperations.PopCount(0xFFFFFFFFu)
+
+// ─── StringBuilder ────────────────────────────────────────────────────────────
+let testSbLength () : int =
+    let sb = System.Text.StringBuilder()
+    sb.Append("hello") |> ignore
+    sb.Length  // 5
+
+let testSbAppendTwo () : int =
+    let sb = System.Text.StringBuilder()
+    sb.Append("foo") |> ignore
+    sb.Append("bar") |> ignore
+    sb.Length  // 6
+
+let testSbToStringLength () : int =
+    let sb = System.Text.StringBuilder()
+    sb.Append("abc") |> ignore
+    let s = sb.ToString()
+    s.Length  // 3
+
+let testSbGrow () : int =
+    // Force a buffer grow: initial capacity 16, write 20 chars
+    let sb = System.Text.StringBuilder()
+    for _ in 1 .. 20 do
+        sb.Append("x") |> ignore
+    sb.Length  // 20
+
+let testSbToStringContent () : int =
+    let sb = System.Text.StringBuilder()
+    sb.Append("hello") |> ignore
+    sb.Append(" world") |> ignore
+    let s = sb.ToString()
+    if s = "hello world" then 1 else 0
+
+let testSbChained () : int =
+    let sb = System.Text.StringBuilder()
+    sb.Append("a") |> ignore
+    sb.Append("b") |> ignore
+    sb.Append("c") |> ignore
+    sb.Append("d") |> ignore
+    sb.Append("e") |> ignore
+    sb.Length  // 5

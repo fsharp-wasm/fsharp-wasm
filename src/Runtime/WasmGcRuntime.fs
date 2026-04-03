@@ -13,12 +13,13 @@ open Fable.Transforms.WasmGc.WasmGcQuotationWalker
 // Quotation walker helpers — shared by all Tier 1 string/char helpers
 // ─────────────────────────────────────────────────────────────────
 
-/// Type-map used when translating runtime quotations: strings map to StringTypeIdx.
+/// Type-map used when translating runtime quotations: strings map to StringTypeIdx,
+/// StringBuilder struct maps to StringBuilderTypeIdx.
 let private runtimeTypeMap : QTypeMap =
-    { StrTypeIdx = StringTypeIdx; ResolveCustom = fun _ -> None }
+    { StrTypeIdx = StringTypeIdx; SbTypeIdx = StringBuilderTypeIdx; ResolveCustom = fun _ -> None }
 
 /// Intrinsics used when translating runtime quotations.
-let private runtimeIntrinsics = standardIntrinsics StringTypeIdx
+let private runtimeIntrinsics = standardIntrinsics StringTypeIdx StringBuilderTypeIdx
 
 /// Translate an inline quotation to a WFuncDecl and collect locals.
 /// The WFuncDecl returned by translateReflected has Locals = [];
@@ -643,6 +644,42 @@ let makeMathTanHelper () : WFuncDecl =
             let sinR = r * (1.0 + t * (-0.16666666666666666 + t * (0.008333333333333333 + t * (-0.0001984126984126984 + t * (2.7557319223985888e-6 + t * (-2.505210838544172e-8 + t * 1.6059043836821613e-10))))))
             let cosR = 1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-5 + t * (-2.7557319223985888e-7 + t * 2.08767569878681e-9)))))
             sinR / cosR @>
+
+// ─── StringBuilder runtime helpers (Tier 1 — phantom struct intrinsics) ──────
+
+/// $sbCreate(cap) → $StringBuilder  — allocate with given initial capacity.
+let makeStringBuilderCreateHelper () : WFuncDecl =
+    q "$sbCreate"
+        <@ fun (cap: int) ->
+            sbNew (wsCreateFill cap 0) 0 cap @>
+
+/// $sbAppend(sb, s) → $StringBuilder  — append string s, growing buffer if needed.
+let makeStringBuilderAppendHelper () : WFuncDecl =
+    q "$sbAppend"
+        <@ fun (sb: SbStruct) (s: WasmStr) ->
+            let oldLen = sbLen sb
+            let sLen   = wsLen s
+            let newLen = oldLen + sLen
+            let cap    = sbCap sb
+            if newLen > cap then
+                let doubleCap = cap * 2
+                let newCap    = if doubleCap > newLen then doubleCap else newLen
+                let newBuf    = wsCreateFill newCap 0
+                wsCopy newBuf 0 (sbBuf sb) 0 oldLen
+                sbSetBuf sb newBuf
+                sbSetCap sb newCap
+            wsCopy (sbBuf sb) oldLen s 0 sLen
+            sbSetLen sb newLen
+            sb @>
+
+/// $sbToString(sb) → $WasmStr  — extract exact-length string from the buffer.
+let makeStringBuilderToStringHelper () : WFuncDecl =
+    q "$sbToString"
+        <@ fun (sb: SbStruct) ->
+            let len = sbLen sb
+            let res = wsCreateFill len 0
+            wsCopy res 0 (sbBuf sb) 0 len
+            res @>
 
 /// After all functions are translated, fixup any ClosureApply nodes whose
 let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =

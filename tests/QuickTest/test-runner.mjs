@@ -558,6 +558,14 @@ check("ctz(1) = 0",              0,    exp.testCtz_one());
 check("popcnt(7) = 3",           3,    exp.testPopcnt_seven());
 check("popcnt(0xFFFFFFFF) = 32", 32,   exp.testPopcnt_allOnes());
 
+console.log("\n─── StringBuilder ─────────────────────────────────\n");
+check("sb length after 1 append",       5,  exp.testSbLength());
+check("sb length after 2 appends",      6,  exp.testSbAppendTwo());
+check("sb.ToString().Length",           3,  exp.testSbToStringLength());
+check("sb grow beyond initial cap",     20, exp.testSbGrow());
+check("sb toString content correct",    1,  exp.testSbToStringContent());
+check("sb 5 chained appends length",    5,  exp.testSbChained());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
