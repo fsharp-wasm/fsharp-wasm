@@ -42,7 +42,7 @@ Phase 7: Emission
 ```
 ┌─────────────┐    ┌───────────────────┐    ┌──────────────────────┐
 │ F# Source   │───▶│ FCS + Fable 5     │───▶│ WasmGcReplacements   │
-│ (.fs files) │    │ Parse/TypeCheck    │    │ BCL → inline WasmIR  │
+│ (.fs files) │    │ Parse/TypeCheck    │    │ BCL → inline WasmIR │
 └─────────────┘    └───────────────────┘    └──────────┬───────────┘
                                                        │
                                                        ▼
@@ -59,7 +59,7 @@ Phase 7: Emission
                                                        │
                                                   ┌────┴────┐
                                                   ▼         ▼
-                                              .wat       .wasm
+                                                .wat     .wasm
 ```
 
 ## Source Layout

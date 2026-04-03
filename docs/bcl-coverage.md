@@ -193,7 +193,7 @@ they produce no runtime library dependency.
 ## Operators
 
 | Operator                        | Status | Notes                |
-| ------------------------------- | ------ | -------------------- | ------------- |
+| ------------------------------- | ------ | -------------------- |
 | `+`, `-`, `*`, `/`, `%`         | ✅     | All numeric types    |
 | `**` (power)                    | ✅     | `float`              |
 | `=`, `<>`, `<`, `<=`, `>`, `>=` | ✅     | All comparable types |
@@ -202,7 +202,7 @@ they produce no runtime library dependency.
 | `<<<`, `>>>`                    | ✅     | Bit shifts           |
 | `@`                             | ✅     | List append          |
 | `::`                            | ✅     | List cons            |
-| `                               | >`     | ✅                   | Forward pipe  |
-| `<                              | `      | ✅                   | Backward pipe |
+| `v`                             | ✅     | Forward pipe         |
+| `<`                             | ✅     | Backward pipe        |
 | `>>`                            | ✅     | Function composition |
 | `<<`                            | ✅     | Backward composition |

@@ -78,17 +78,22 @@ use a bounded set of concrete type instantiations.
 **Cross-file fix (Sprint 10c):** Cross-file generic specialization required storing
 `(Compiler * MemberDecl)` pairs in the registry rather than string-keyed paths.
 
-## CE Builder Scope
+## Runtime Helper Tiers
 
-**Decision:** The `wasm { }` CE builder is used only in `WasmGcRuntime.fs`, not in `WasmGcReplacements.fs`.
+**Decision:** Runtime helper functions are written at three tiers of abstraction, chosen based on complexity:
 
-**Rationale:**
+- **Tier 1 — F# Quotations** (`q "$name" <@ fun params -> body @>`): Preferred for pure/straightforward helpers. The `WasmGcQuotationWalker` translates a `[<ReflectedDefinition>]` F# lambda directly into a `WFuncDecl`. Readable, type-checked by F#, and testable by inspection. Used in `WasmGcRuntime.fs` for all string helpers (26 functions as of Sprint 19c).
+- **Tier 2 — CE Builder** (`wasm { let! x = ... }`): For helpers that require labeled-break loops, non-local exits, or multi-phase algorithms that can't be expressed as simple quotations. Available in `WasmGcRuntime.fs`.
+- **Tier 3 — Raw WExpr**: Direct `WExpr` construction. Used in `WasmGcReplacements.fs` (BCL replacement code) where inline code generation — not function registration — is required.
 
-- `WasmGcReplacements.fs` contains 2444+ lines of BCL replacement code. Using CE there
-  would obscure the generated IR structure and make debugging harder.
-- `WasmGcRuntime.fs` defines helper functions where CE significantly improves readability.
-- The split keeps performance-critical code in direct `WExpr` form while allowing
-  the runtime layer to be written more naturally.
+**Quotation Walker capabilities (Sprint 19c):**
+`let`/`let mutable`, `while`, `for i = lo to hi`, `if/elif/else`, arithmetic (`+`, `-`, `*`, `/`, `%`) for both `int` (i32) and `float` (f64), comparisons (`=`, `<>`, `<`, `<=`, `>`, `>=`), boolean short-circuit (`&&`, `||`, `not`), bitwise operators (`&&&`, `|||`, `^^^`, `<<<`, `>>>`), unary negation (int and float), `abs`, `min`, `max`, `int`/`char` identity conversions, `float` (i32→f64), `wsLen`/`wsGet`/`wsSet`/`wsCreate`/`wsCreateFill`/`wsCopy` phantom intrinsics for WasmStr, float phantom intrinsics (`truncF64`, `absF64`, `negF64`, `intToF64`), and cross-helper calls via phantom functions.
+
+**Key implementation details:**
+
+- `SpecificCall <@ (+) @>` uses `GetGenericMethodDefinition()` — the type annotation in the pattern is irrelevant. Dispatch to `f64` vs `i32` variants is done by checking `a.Type = typeof<float>` at translation time.
+- Phantom cross-call functions (e.g. `private intToStr`, `private strConcat`) in `WasmGcRuntime.fs` enable quotations to reference other runtime helpers. The QW translates them as `WExpr.Call("$" + mi.Name, ...)`.
+- `WasmGcReplacements.fs` BCL replacements remain in Tier 3. They could register helper functions using Tier 1 in principle, but inline code generation (the common case there) requires direct WExpr construction.
 
 ## `return_call` for Tail Calls
 

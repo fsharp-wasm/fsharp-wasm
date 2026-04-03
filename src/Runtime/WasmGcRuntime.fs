@@ -27,6 +27,13 @@ let private q (name: string) (qexpr: Microsoft.FSharp.Quotations.Expr) : WFuncDe
     translateReflected name runtimeTypeMap runtimeIntrinsics qexpr
     |> resolveLocals
 
+// ─── Phantom functions for cross-runtime-helper calls inside quotations ───────
+// The QW translates these as WExpr.Call("$" + mi.Name, ...) — never called from F#.
+let private intToStr    (_n: int)                                    : WasmStr = WasmStr
+let private strConcat   (_a: WasmStr) (_b: WasmStr)                 : WasmStr = WasmStr
+let private strSubstring (_s: WasmStr) (_start: int) (_len: int)    : WasmStr = WasmStr
+let private strIndexOf  (_ha: WasmStr) (_ne: WasmStr)               : int     = 0
+
 // ─────────────────────────────────────────────────────────────────
 // Tier 1 — string runtime helpers (QuotationWalker-translated)
 // ─────────────────────────────────────────────────────────────────
@@ -160,121 +167,82 @@ let makeStrTrimEndHelper () : WFuncDecl =
 
 /// Runtime helper: $intToStr(n) → decimal string representation of an i32.
 let makeIntToStrHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let nGet   = localGet "$its_n"   i32
-    let negGet = localGet "$its_neg" i32
-    let vGet   = localGet "$its_v"   i32
-    let bufGet = localGet "$its_buf" strRef
-    let lenGet = localGet "$its_len" i32
-    let resGet = localGet "$its_res" strRef
-    let zeroStr   = WExpr.ArrayNewFixed(StringTypeIdx, [i32Const 48], strRef) // "0"
-    let minusPfx  = WExpr.ArrayNewFixed(StringTypeIdx, [i32Const 45], strRef) // "-"
-    makeFunc "$intToStr" [("$its_n", i32)] strRef (
-        block_ "$its_outer" strRef (
-            wasmIf (eq nGet (i32Const 0))
-                (WExpr.Break("$its_outer", Some zeroStr))
-                (WExpr.LetMut("$its_neg", i32Const 0,
-                 WExpr.LetMut("$its_v", nGet,
-                    sequence [
-                        wasmWhen (ltS nGet (i32Const 0))
-                            (sequence [
-                                localSet "$its_neg" (i32Const 1)
-                                localSet "$its_v" (sub (i32Const 0) nGet)
-                            ])
-                        WExpr.Let("$its_buf", arrayNew StringTypeIdx (i32Const 12) (i32Const 0) strRef,
-                        WExpr.LetMut("$its_len", i32Const 0,
-                            sequence [
-                                // Extract digits in reverse
-                                whileLoop "$its_ext" (ne vGet (i32Const 0))
-                                    (sequence [
-                                        arraySet bufGet lenGet (add (rem_ vGet (i32Const 10)) (i32Const 48))
-                                        localSet "$its_v" (div_ vGet (i32Const 10))
-                                        localSet "$its_len" (add lenGet (i32Const 1))
-                                    ])
-                                // Copy digits in correct order
-                                WExpr.Let("$its_res", arrayNew StringTypeIdx lenGet (i32Const 0) strRef,
-                                    sequence [
-                                        countLoop "$its_cpy" lenGet (fun iGet ->
-                                            arraySet resGet iGet
-                                                (arrayGet bufGet (sub (sub lenGet iGet) (i32Const 1)) i32))
-                                        wasmIf (ne negGet (i32Const 0))
-                                            (call "$strConcat" [minusPfx; resGet] strRef)
-                                            resGet
-                                    ])
-                            ]))
-                    ])))))
+    q "$intToStr"
+        <@ fun (n: int) ->
+            if n = 0 then wsCreateFill 1 48   // "0"
+            else
+                let mutable neg = 0
+                let mutable v = n
+                if n < 0 then
+                    neg <- 1
+                    v <- 0 - n
+                let buf = wsCreate 12
+                let mutable len = 0
+                while v <> 0 do
+                    wsSet buf len (v % 10 + 48)
+                    v <- v / 10
+                    len <- len + 1
+                let res = wsCreate len
+                for i = 0 to len - 1 do
+                    wsSet res i (wsGet buf (len - i - 1))
+                if neg <> 0 then
+                    let r2 = wsCreate (len + 1)
+                    wsSet r2 0 45   // '-'
+                    wsCopy r2 1 res 0 len
+                    r2
+                else res @>
 
 /// Runtime helper: $floatToStr(f) → decimal string representation of an f64.
 /// Produces up to 6 significant decimal digits with trailing zeros trimmed.
 /// Examples: 3.14 → "3.14", -2.5 → "-2.5", 42.0 → "42.0", 0.0 → "0".
 /// Limitation: integer part is truncated to i32 range (~±2.1×10⁹).
 let makeFloatToStrHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let f64 = WType.F64
-    let fG   = localGet "$fts_f"   f64
-    let faG  = localGet "$fts_fa"  f64
-    let ipG  = localGet "$fts_ip"  i32
-    let fiG  = localGet "$fts_fi"  i32
-    let fvG  = localGet "$fts_fv"  i32
-    let feG  = localGet "$fts_fe"  i32
-    let fbG  = localGet "$fts_fb"  strRef
-    let dfG  = localGet "$fts_df"  strRef
-    let isG  = localGet "$fts_is"  strRef
-    let resG = localGet "$fts_res" strRef
-    let c0 = i32Const 48
-    let divI x n = WExpr.Binary(WBinaryOp.DivS, x, i32Const n, i32)
-    let remI x n = WExpr.Binary(WBinaryOp.RemS, x, i32Const n, i32)
-    let toDigit x = add x c0
-    let litStr (s: string) =
-        WExpr.ArrayNewFixed(StringTypeIdx,
-            s |> Seq.map (fun c -> i32Const (int c)) |> Seq.toList, strRef)
-    let setDigit idx divisor =
-        sequence [
-            arraySet fbG (i32Const idx) (toDigit (divI fvG divisor))
-            localSet "$fts_fv" (remI fvG divisor)
-        ]
-    let buildWithFrac =
-        WExpr.Let("$fts_fb", arrayNew StringTypeIdx (i32Const 6) c0 strRef,
-        WExpr.LetMut("$fts_fv", fiG,
-        WExpr.LetMut("$fts_fe", i32Const 6,
-        sequence [
-            setDigit 0 100000; setDigit 1 10000; setDigit 2 1000
-            setDigit 3 100; setDigit 4 10
-            arraySet fbG (i32Const 5) (toDigit fvG)
-            // Trim trailing '0' chars but keep at least 1 digit
-            whileLoop "$fts_trim"
-                (wasmAnd (gtS feG (i32Const 1))
-                         (eq (arrayGet fbG (sub feG (i32Const 1)) i32) c0))
-                (localSet "$fts_fe" (sub feG (i32Const 1)))
-            WExpr.Let("$fts_df", arrayNew StringTypeIdx (add feG (i32Const 1)) c0 strRef,
-                sequence [
-                    arraySet dfG (i32Const 0) (i32Const 46) // '.'
-                    arrayCopy dfG (i32Const 1) fbG (i32Const 0) feG
-                    call "$strConcat" [isG; dfG] strRef
-                ])
-        ])))
-    let absExpr =
-        WExpr.If(WExpr.Compare(WCompareOp.LtS, fG, f64Const 0.0),
-            WExpr.Unary(WUnaryOp.Neg, fG, f64), fG, f64)
-    let fracPartMul =
-        mulf64 (subf64 faG (WExpr.Unary(WUnaryOp.ConvertI32S, ipG, f64))) (f64Const 1000000.0)
-    makeFunc "$floatToStr" [("$fts_f", f64)] strRef (
-        block_ "$fts_ret" strRef (
-            wasmIf (WExpr.Compare(WCompareOp.Eq, fG, f64Const 0.0))
-                (WExpr.Break("$fts_ret", Some (litStr "0")))
-                (WExpr.Let("$fts_fa", absExpr,
-                 WExpr.Let("$fts_ip", WExpr.Unary(WUnaryOp.TruncF64S, faG, i32),
-                 WExpr.Let("$fts_fi", WExpr.Unary(WUnaryOp.TruncF64S, fracPartMul, i32),
-                 WExpr.Let("$fts_is", call "$intToStr" [ipG] strRef,
-                 WExpr.Let("$fts_res",
-                    wasmIf (eq fiG (i32Const 0))
-                        (call "$strConcat" [isG; litStr ".0"] strRef)
-                        buildWithFrac,
-                    wasmIf (WExpr.Compare(WCompareOp.LtS, fG, f64Const 0.0))
-                        (call "$strConcat" [litStr "-"; resG] strRef)
-                        resG))))))))
+    q "$floatToStr"
+        <@ fun (f: float) ->
+            if f = 0.0 then wsCreateFill 1 48   // "0"
+            else
+                let fa = absF64 f
+                let ip = truncF64 fa
+                let fi = truncF64 ((fa - intToF64 ip) * 1000000.0)
+                let is = intToStr ip
+                let la = wsLen is
+                if fi = 0 then
+                    let dot0 = wsCreate (la + 2)
+                    wsCopy dot0 0 is 0 la
+                    wsSet dot0 la 46        // '.'
+                    wsSet dot0 (la + 1) 48  // '0'
+                    if f < 0.0 then
+                        let r = wsCreate (la + 3)
+                        wsSet r 0 45           // '-'
+                        wsCopy r 1 dot0 0 (la + 2)
+                        r
+                    else dot0
+                else
+                    let fb = wsCreate 6
+                    let mutable fv = fi
+                    wsSet fb 0 (fv / 100000 + 48)
+                    fv <- fv % 100000
+                    wsSet fb 1 (fv / 10000 + 48)
+                    fv <- fv % 10000
+                    wsSet fb 2 (fv / 1000 + 48)
+                    fv <- fv % 1000
+                    wsSet fb 3 (fv / 100 + 48)
+                    fv <- fv % 100
+                    wsSet fb 4 (fv / 10 + 48)
+                    fv <- fv % 10
+                    wsSet fb 5 (fv + 48)
+                    let mutable fe = 6
+                    while fe > 1 && wsGet fb (fe - 1) = 48 do fe <- fe - 1
+                    let res = wsCreate (la + 1 + fe)
+                    wsCopy res 0 is 0 la
+                    wsSet res la 46     // '.'
+                    wsCopy res (la + 1) fb 0 fe
+                    if f < 0.0 then
+                        let r = wsCreate (la + 2 + fe)
+                        wsSet r 0 45       // '-'
+                        wsCopy r 1 res 0 (la + 1 + fe)
+                        r
+                    else res @>
 
 /// Runtime helper: $strPadLeft(str, width) → pad with spaces on the left.
 let makeStrPadLeftHelper () : WFuncDecl =
@@ -298,47 +266,26 @@ let makeStrPadRightHelper () : WFuncDecl =
                 wsCopy res 0 src 0 la
                 res @>
 
-/// Runtime helper: $strReplace(src, from, to) → replace all occurrences of `from` with `to`.
+/// Runtime helper: $strReplace(src, from, repl) → replace all occurrences of `from` with `repl`.
 let makeStrReplaceHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32 = WType.I32
-    let srcGet  = localGet "$srep_src"  strRef
-    let fromGet = localGet "$srep_from" strRef
-    let toGet   = localGet "$srep_to"   strRef
-    let laGet   = localGet "$srep_la"   i32
-    let loGet   = localGet "$srep_lo"   i32
-    let posGet  = localGet "$srep_pos"  i32
-    let resGet  = localGet "$srep_res"  strRef
-    let jGet    = localGet "$srep_j"    i32
-    let srcTail = call "$strSubstring" [srcGet; posGet; sub laGet posGet] strRef
-    let emptyStr = WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
-    makeFunc "$strReplace" [("$srep_src", strRef); ("$srep_from", strRef); ("$srep_to", strRef)] strRef (
-        WExpr.Let("$srep_la", arrayLen srcGet,
-        WExpr.Let("$srep_lo", arrayLen fromGet,
-        block_ "$srep_ret" strRef (
-            wasmIf (eq loGet (i32Const 0))
-                (WExpr.Break("$srep_ret", Some srcGet))
-                (WExpr.LetMut("$srep_pos", i32Const 0,
-                 WExpr.LetMut("$srep_res", emptyStr,
-                    sequence [
-                        WExpr.Block("$srep_inner",
-                            WExpr.Loop("$srep_loop",
-                                WExpr.Let("$srep_j", call "$strIndexOf" [srcTail; fromGet] i32,
-                                    wasmIf (ltS jGet (i32Const 0))
-                                        (WExpr.Break("$srep_inner", None))
-                                        (sequence [
-                                            localSet "$srep_res" (call "$strConcat" [
-                                                resGet
-                                                call "$strSubstring" [srcGet; posGet; jGet] strRef
-                                            ] strRef)
-                                            localSet "$srep_res" (call "$strConcat" [resGet; toGet] strRef)
-                                            localSet "$srep_pos" (add posGet (add jGet loGet))
-                                            WExpr.Continue("$srep_loop", [])
-                                        ])),
-                                WType.Void),
-                            WType.Void)
-                        call "$strConcat" [resGet; srcTail] strRef
-                    ])))))))
+    q "$strReplace"
+        <@ fun (src: WasmStr) (frm: WasmStr) (repl: WasmStr) ->
+            let lo = wsLen frm
+            if lo = 0 then src
+            else
+                let la = wsLen src
+                let mutable pos = 0
+                let mutable acc = wsCreate 0
+                let mutable more = 1
+                while more = 1 do
+                    let j = strIndexOf (strSubstring src pos (la - pos)) frm
+                    if j < 0 then
+                        more <- 0
+                    else
+                        acc <- strConcat (strConcat acc (strSubstring src pos j)) repl
+                        pos <- pos + j + lo
+                strConcat acc (strSubstring src pos (la - pos)) @>
+
 /// Runtime helper: $strSplit(src, delim) → split src by delim, return array of strings.
 /// arrTypeIdx must be the WasmGC array type for (array (ref $WasmStr)).
 let makeStrSplitHelper (arrTypeIdx: int) () : WFuncDecl =
@@ -437,115 +384,68 @@ let makeStrJoinHelper (arrTypeIdx: int) () : WFuncDecl =
 
 /// Runtime helper: $parseInt(s) → parse decimal string to i32.
 /// Handles optional leading '-'. Returns 0 on empty or non-digit input.
+/// Runtime helper: $parseInt(s) → parse decimal string to i32.
+/// Handles optional leading '-'. Returns 0 on empty or invalid input.
 let makeIntParseHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32    = WType.I32
-    let sGet   = localGet "$ip_s"   strRef
-    let lenGet = localGet "$ip_len" i32
-    let iGet   = localGet "$ip_i"   i32
-    let negGet = localGet "$ip_neg" i32
-    let accGet = localGet "$ip_acc" i32
-    let chGet  = localGet "$ip_ch"  i32
-    makeFunc "$parseInt" [("$ip_s", strRef)] i32 (
-        WExpr.Let("$ip_len", arrayLen sGet,
-        block_ "$ip_ret" i32 (
-            wasmIf (eq lenGet (i32Const 0))
-                (WExpr.Break("$ip_ret", Some (i32Const 0)))
-                (WExpr.LetMut("$ip_i",   i32Const 0,
-                 WExpr.LetMut("$ip_neg", i32Const 0,
-                 WExpr.LetMut("$ip_acc", i32Const 0,
-                    sequence [
-                        // Check for leading '-'
-                        WExpr.Let("$ip_ch", arrayGet sGet (i32Const 0) i32,
-                            wasmWhen (eq chGet (i32Const 45)) // '-'
-                                (sequence [
-                                    localSet "$ip_neg" (i32Const 1)
-                                    localSet "$ip_i"   (i32Const 1)
-                                ]))
-                        // Accumulate digits
-                        whileLoop "$ip_loop" (ltS iGet lenGet)
-                            (WExpr.Let("$ip_ch", arrayGet sGet iGet i32,
-                                sequence [
-                                    wasmWhen (wasmOr
-                                            (ltS chGet (i32Const 48))  // < '0'
-                                            (gtS chGet (i32Const 57))) // > '9'
-                                        (WExpr.Break("$ip_ret", Some (i32Const 0)))
-                                    localSet "$ip_acc" (add (mul accGet (i32Const 10)) (sub chGet (i32Const 48)))
-                                    localSet "$ip_i" (add iGet (i32Const 1))
-                                ]))
-                        wasmIf (ne negGet (i32Const 0))
-                            (sub (i32Const 0) accGet)
-                            accGet
-                    ])))))))
+    q "$parseInt"
+        <@ fun (s: WasmStr) ->
+            let len = wsLen s
+            if len = 0 then 0
+            else
+                let mutable i = 0
+                let mutable neg = 0
+                let mutable acc = 0
+                let mutable valid = 1
+                if wsGet s 0 = 45 then   // '-'
+                    neg <- 1
+                    i <- 1
+                while valid = 1 && i < len do
+                    let ch = wsGet s i
+                    if ch < 48 || ch > 57 then
+                        valid <- 0
+                    else
+                        acc <- acc * 10 + ch - 48
+                        i <- i + 1
+                if valid = 0 then 0
+                elif neg <> 0 then 0 - acc
+                else acc @>
 
 /// Runtime helper: $parseFloat(s) → parse decimal string to f64.
-/// Handles optional leading '-' and one decimal point. Returns 0.0 on invalid.
+/// Handles optional leading '-' and one decimal point. Returns 0.0 on empty or invalid.
 let makeFloatParseHelper () : WFuncDecl =
-    let strRef = WType.Ref(StringTypeIdx, false)
-    let i32    = WType.I32
-    let f64    = WType.F64
-    let sGet   = localGet "$fp_s"    strRef
-    let lenGet = localGet "$fp_len"  i32
-    let iGet   = localGet "$fp_i"    i32
-    let negGet = localGet "$fp_neg"  i32
-    let intGet = localGet "$fp_int"  i32
-    let fracGet= localGet "$fp_frac" f64
-    let divGet = localGet "$fp_div"  f64
-    let chGet  = localGet "$fp_ch"   i32
-    let dotGet = localGet "$fp_dot"  i32
-    // Helpers to avoid duplicating the final result expression
-    let toF64 e  = WExpr.Unary(WUnaryOp.ConvertI32S, e, f64)
-    let negResult = WExpr.Unary(WUnaryOp.Neg, addf64 (toF64 intGet) fracGet, f64)
-    let posResult = addf64 (toF64 intGet) fracGet
-    // The main parsing body — extracted to keep nesting depth manageable
-    let innerBody =
-        WExpr.LetMut("$fp_i",    i32Const 0,
-        WExpr.LetMut("$fp_neg",  i32Const 0,
-        WExpr.LetMut("$fp_int",  i32Const 0,
-        WExpr.LetMut("$fp_frac", f64Const 0.0,
-        WExpr.LetMut("$fp_div",  f64Const 1.0,
-        WExpr.LetMut("$fp_dot",  i32Const 0,
-            sequence [
-                // Check for leading '-'
-                WExpr.Let("$fp_ch", arrayGet sGet (i32Const 0) i32,
-                    wasmWhen (eq chGet (i32Const 45)) // '-'
-                        (sequence [
-                            localSet "$fp_neg" (i32Const 1)
-                            localSet "$fp_i"   (i32Const 1)
-                        ]))
-                // Parse integer and fractional parts
-                whileLoop "$fp_loop" (ltS iGet lenGet)
-                    (WExpr.Let("$fp_ch", arrayGet sGet iGet i32,
-                        sequence [
-                            wasmWhen (eq chGet (i32Const 46)) // '.'
-                                (sequence [
-                                    localSet "$fp_dot" (i32Const 1)
-                                    localSet "$fp_i" (add iGet (i32Const 1))
-                                    WExpr.Continue("$fp_loop", [])
-                                ])
-                            wasmWhen (wasmOr (ltS chGet (i32Const 48)) (gtS chGet (i32Const 57)))
-                                (WExpr.Break("$fp_ret", Some (f64Const 0.0)))
-                            WExpr.Let("$fp_ch", sub chGet (i32Const 48),
-                                wasmIf (eq dotGet (i32Const 0))
-                                    // Integer part
-                                    (localSet "$fp_int" (add (mul intGet (i32Const 10)) chGet))
-                                    // Fractional part
-                                    (sequence [
-                                        localSet "$fp_div" (mulf64 divGet (f64Const 10.0))
-                                        localSet "$fp_frac"
-                                            (addf64 fracGet
-                                                (divf64 (WExpr.Unary(WUnaryOp.ConvertI32S, chGet, f64)) divGet))
-                                    ]))
-                            localSet "$fp_i" (add iGet (i32Const 1))
-                        ]))
-                wasmIf (ne negGet (i32Const 0)) negResult posResult
-            ]))))))
-    makeFunc "$parseFloat" [("$fp_s", strRef)] f64 (
-        WExpr.Let("$fp_len", arrayLen sGet,
-        block_ "$fp_ret" f64 (
-            wasmIf (eq lenGet (i32Const 0))
-                (WExpr.Break("$fp_ret", Some (f64Const 0.0)))
-                innerBody)))
+    q "$parseFloat"
+        <@ fun (s: WasmStr) ->
+            let len = wsLen s
+            if len = 0 then 0.0
+            else
+                let mutable i = 0
+                let mutable neg = 0
+                let mutable intPart = 0
+                let mutable frac = 0.0
+                let mutable div = 1.0
+                let mutable hasDot = 0
+                let mutable valid = 1
+                if wsGet s 0 = 45 then   // '-'
+                    neg <- 1
+                    i <- 1
+                while valid = 1 && i < len do
+                    let ch = wsGet s i
+                    if ch = 46 then   // '.'
+                        hasDot <- 1
+                        i <- i + 1
+                    elif ch < 48 || ch > 57 then
+                        valid <- 0
+                    elif hasDot = 0 then
+                        intPart <- intPart * 10 + ch - 48
+                        i <- i + 1
+                    else
+                        div <- div * 10.0
+                        frac <- frac + intToF64 (ch - 48) / div
+                        i <- i + 1
+                if valid = 0 then 0.0
+                else
+                    let result = intToF64 intPart + frac
+                    if neg <> 0 then negF64 result else result @>
 
 // ─────────────────────────────────────────────────────────────────
 

@@ -90,6 +90,26 @@ let wsSet (_s: WasmStr) (_i: int) (_v: int) : unit = ()  // dummy — never exec
 let wsCopy (_dst: WasmStr) (_dstOff: int) (_src: WasmStr) (_srcOff: int) (_len: int) : unit = ()  // dummy — never executed
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Float phantom intrinsics
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Truncate f64 to i32 (toward zero).  Translated to i32.trunc_f64_s.
+[<WasmIntrinsic("$f64_trunc_i32")>]
+let truncF64 (_f: float) : int = failwith "phantom intrinsic"
+
+/// Absolute value of f64.  Translated to f64.abs.
+[<WasmIntrinsic("$f64_abs")>]
+let absF64 (_f: float) : float = failwith "phantom intrinsic"
+
+/// f64 negation.  Translated to f64.neg.
+[<WasmIntrinsic("$f64_neg")>]
+let negF64 (_f: float) : float = failwith "phantom intrinsic"
+
+/// Convert i32 to f64 (signed).  Translated to f64.convert_i32_s.
+[<WasmIntrinsic("$i32_to_f64")>]
+let intToF64 (_n: int) : float = failwith "phantom intrinsic"
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Type mapping — System.Type → WType
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -217,14 +237,22 @@ let rec private tx (ctx: QCtx) (expr: Expr) : WExpr =
         | Some builder -> builder [tx ctx n]
         | None -> failwith "WasmQuotationWalker: Array.zeroCreate requires a 'ZeroCreate' entry in Intrinsics map (typeIdx-specific). Register it via standardIntrinsics."
 
-    // ── Arithmetic operators ──────────────────────────────────────────────────
-    | SpecificCall <@ (+)  @> (_, _, [a; b]) -> add  (tx ctx a) (tx ctx b)
-    | SpecificCall <@ (-)  @> (_, _, [a; b]) -> sub  (tx ctx a) (tx ctx b)
-    | SpecificCall <@ (*)  @> (_, _, [a; b]) -> mul  (tx ctx a) (tx ctx b)
-    | SpecificCall <@ (/)  @> (_, _, [a; b]) -> div_ (tx ctx a) (tx ctx b)
-    | SpecificCall <@ (%)  @> (_, _, [a; b]) -> rem_ (tx ctx a) (tx ctx b)
+    // ── Arithmetic operators ─────────────────────────────────────────────────r
+    // SpecificCall uses GetGenericMethodDefinition(), so the int-typed and float-typed
+    // annotations capture the same generic method.  Dispatch on a.Type at runtime.
+    | SpecificCall <@ (+) @> (_, _, [a; b]) ->
+        if a.Type = typeof<float> then addf64 (tx ctx a) (tx ctx b) else add  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (-) @> (_, _, [a; b]) ->
+        if a.Type = typeof<float> then subf64 (tx ctx a) (tx ctx b) else sub  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ ( * ) @> (_, _, [a; b]) ->
+        if a.Type = typeof<float> then mulf64 (tx ctx a) (tx ctx b) else mul  (tx ctx a) (tx ctx b)
+    | SpecificCall <@ ( / ) @> (_, _, [a; b]) ->
+        if a.Type = typeof<float> then divf64 (tx ctx a) (tx ctx b) else div_ (tx ctx a) (tx ctx b)
+    | SpecificCall <@ (%) @> (_, _, [a; b]) ->
+        rem_ (tx ctx a) (tx ctx b)
 
-    // ── Comparison operators ──────────────────────────────────────────────────
+    // ── Comparison operators ─────────────────────────────────────────────────
+    // Works for both int and float — WExpr.Compare is typed by its operands.
     | SpecificCall <@ (=)  @> (_, _, [a; b]) -> eq  (tx ctx a) (tx ctx b)
     | SpecificCall <@ (<>) @> (_, _, [a; b]) -> ne  (tx ctx a) (tx ctx b)
     | SpecificCall <@ (<)  @> (_, _, [a; b]) -> ltS (tx ctx a) (tx ctx b)
@@ -247,8 +275,31 @@ let rec private tx (ctx: QCtx) (expr: Expr) : WExpr =
     | SpecificCall <@ (>>>) @> (_, _, [a; b]) -> shrS (tx ctx a) (tx ctx b)
 
     // ── Type conversions (identity in WASM for our supported types) ───────────
-    | SpecificCall <@ int  @> (_, _, [a]) -> tx ctx a  // i32 → i32 nop
-    | SpecificCall <@ char @> (_, _, [a]) -> tx ctx a  // i32 → char nop
+    | SpecificCall <@ int     @> (_, _, [a]) -> tx ctx a  // i32 → i32 nop
+    | SpecificCall <@ char    @> (_, _, [a]) -> tx ctx a  // i32 → char nop
+    | SpecificCall <@ float   @> (_, _, [a]) ->           // i32 → f64
+        WExpr.Unary(WUnaryOp.ConvertI32S, tx ctx a, WType.F64)
+    | SpecificCall <@ float32 @> (_, _, [a]) ->           // i32 → f32
+        WExpr.Unary(WUnaryOp.ConvertI32S, tx ctx a, WType.F32)
+
+    // ── Unary negation and abs ────────────────────────────────────────────────
+    | SpecificCall <@ (( ~- ) : float -> float) @> (_, _, [a]) ->
+        WExpr.Unary(WUnaryOp.Neg, tx ctx a, WType.F64)
+    | SpecificCall <@ (~-) @> (_, _, [a]) ->       // i32 negation: 0 - x
+        sub (i32Const 0) (tx ctx a)
+    | SpecificCall <@ abs @> (_, _, [a]) ->
+        let wa = tx ctx a
+        WExpr.If(ltS wa (i32Const 0), sub (i32Const 0) wa, wa, WType.I32)
+
+    // ── min / max (i32) ────────────────────────────────────────────────────
+    | SpecificCall <@ min @> (_, _, [a; b]) ->
+        let wa = tx ctx a
+        let wb = tx ctx b
+        WExpr.If(ltS wa wb, wa, wb, WType.I32)
+    | SpecificCall <@ max @> (_, _, [a; b]) ->
+        let wa = tx ctx a
+        let wb = tx ctx b
+        WExpr.If(gtS wa wb, wa, wb, WType.I32)
 
     // ── WasmIntrinsic static calls ────────────────────────────────────────────
     // Methods tagged [<WasmIntrinsic("$name")>] are resolved to intrinsic builders.
@@ -376,4 +427,9 @@ let standardIntrinsics (strTypeIdx: int) : Map<string, WExpr list -> WExpr> =
         "$charIsLetterOrDigit", (function [c] -> WExpr.Call("$charIsLetterOrDigit", [c], WType.I32) | a -> failwithf "arity mismatch $charIsLetterOrDigit: got %d" a.Length)
         "$charToLower",         (function [c] -> WExpr.Call("$charToLower",         [c], WType.I32) | a -> failwithf "arity mismatch $charToLower: got %d" a.Length)
         "$charToUpper",         (function [c] -> WExpr.Call("$charToUpper",         [c], WType.I32) | a -> failwithf "arity mismatch $charToUpper: got %d" a.Length)
+        // ── Float phantom intrinsics ────────────────────────────────────────────
+        "$f64_trunc_i32",  (function [f] -> WExpr.Unary(WUnaryOp.TruncF64S, f, WType.I32) | a -> failwithf "arity $f64_trunc_i32: got %d"  a.Length)
+        "$f64_abs",        (function [f] -> WExpr.Unary(WUnaryOp.Abs,      f, WType.F64) | a -> failwithf "arity $f64_abs: got %d"        a.Length)
+        "$f64_neg",        (function [f] -> WExpr.Unary(WUnaryOp.Neg,      f, WType.F64) | a -> failwithf "arity $f64_neg: got %d"        a.Length)
+        "$i32_to_f64",     (function [n] -> WExpr.Unary(WUnaryOp.ConvertI32S, n, WType.F64) | a -> failwithf "arity $i32_to_f64: got %d" a.Length)
     ]
