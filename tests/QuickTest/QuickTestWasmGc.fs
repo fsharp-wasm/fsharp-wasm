@@ -1813,3 +1813,23 @@ let testMathTan_zero   () : int = int (System.Math.Tan(0.0))
 
 /// Test: Math.tan(π/4) ≈ 1 → rounded
 let testMathTan_45deg  () : int = int (System.Math.Round(System.Math.Tan(0.7853981633974483)))
+
+// ─── Bit manipulation (i32.clz / i32.ctz / i32.popcnt) ──────────────────────
+
+/// Test: LeadingZeroCount(1) = 31 (binary 1 has 31 leading zeros in 32-bit)
+let testClz_one () : int = System.Numerics.BitOperations.LeadingZeroCount(1u)
+
+/// Test: LeadingZeroCount(0x80000000u) = 0 (highest bit set)
+let testClz_highBit () : int = System.Numerics.BitOperations.LeadingZeroCount(0x80000000u)
+
+/// Test: TrailingZeroCount(8) = 3 (8 = 0b1000, 3 trailing zeros)
+let testCtz_eight () : int = System.Numerics.BitOperations.TrailingZeroCount(8u)
+
+/// Test: TrailingZeroCount(1) = 0 (lowest bit set)
+let testCtz_one () : int = System.Numerics.BitOperations.TrailingZeroCount(1u)
+
+/// Test: PopCount(7) = 3 (0b111 has 3 set bits)
+let testPopcnt_seven () : int = System.Numerics.BitOperations.PopCount(7u)
+
+/// Test: PopCount(0xFFFFFFFFu) = 32 (all 32 bits set)
+let testPopcnt_allOnes () : int = System.Numerics.BitOperations.PopCount(0xFFFFFFFFu)

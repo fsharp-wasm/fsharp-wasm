@@ -550,6 +550,14 @@ check("cos(π) rounded = -1",   -1,    exp.testMathCos_180deg());
 check("tan(0) = 0",             0,    exp.testMathTan_zero());
 check("tan(π/4) rounded = 1",   1,    exp.testMathTan_45deg());
 
+console.log("\n─── Bit ops (clz/ctz/popcnt) ─────────────────────\n");
+check("clz(1) = 31",             31,   exp.testClz_one());
+check("clz(0x80000000) = 0",     0,    exp.testClz_highBit());
+check("ctz(8) = 3",              3,    exp.testCtz_eight());
+check("ctz(1) = 0",              0,    exp.testCtz_one());
+check("popcnt(7) = 3",           3,    exp.testPopcnt_seven());
+check("popcnt(0xFFFFFFFF) = 32", 32,   exp.testPopcnt_allOnes());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

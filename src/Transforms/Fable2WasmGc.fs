@@ -1104,6 +1104,9 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         | "sin", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathSin"), [arg], WType.F64)
         | "cos", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathCos"), [arg], WType.F64)
         | "tan", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathTan"), [arg], WType.F64)
+        // BitOperations: LeadingZeroCount → Math.clz32 (intercepted here); TrailingZeroCount/PopCount come as LibCall
+        | "trailingZeroCount", [arg], _ -> WExpr.Unary(WUnaryOp.Ctz,    arg, WType.I32)
+        | "popCount",          [arg], _ -> WExpr.Unary(WUnaryOp.Popcnt, arg, WType.I32)
         // String char access: String.getCharAtIndex(str, idx) → array.get $WasmStr
         | "getCharAtIndex", [str; idx], _ ->
             WExpr.ArrayGet(str, idx, WType.I32)
@@ -1541,6 +1544,10 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "tan" ->
         WExpr.Call(ctx.UseHelper("$mathTan"), wArgs, WType.F64)
+    // BitOperations.LeadingZeroCount → Math.clz32 (GlobalCall "Math" route)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "clz32" ->
+        WExpr.Unary(WUnaryOp.Clz, List.head wArgs, WType.I32)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _) ->
         dispatchMathCall fi.Name wArgs ty
     // ── String instance methods: indexOf, startsWith, endsWith, substring ──────
