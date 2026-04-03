@@ -1723,3 +1723,45 @@ let testPownCube () : int = pown 5 3
 
 /// Test: pown 1 100 = 1
 let testPownOne () : int = pown 1 100
+
+// ── Math.Pow (float exponentiation) ───────────────────────────────────────
+
+/// Test: 2.0 ** 10.0 = 1024.0 → truncate to int
+let testPowF64_2_10 () : int = int (2.0 ** 10.0)
+
+/// Test: 3.0 ** 0.0 = 1.0
+let testPowF64_zero () : int = int (3.0 ** 0.0)
+
+/// Test: 5.0 ** 3.0 = 125.0
+let testPowF64_cube () : int = int (5.0 ** 3.0)
+
+/// Test: Math.Pow(2.0, 8.0) = 256.0
+let testMathPow () : int = int (System.Math.Pow(2.0, 8.0))
+
+// ── ref.test DU pattern matching ──────────────────────────────────────────
+
+type GeoShape =
+    | GeoCircle of radius: float
+    | GeoRect of w: float * h: float
+    | GeoDot
+
+/// Test: ref.test on data-carrying DU — GeoCircle branch.
+let testRefTestCircle () : int =
+    let s = GeoShape.GeoCircle 5.0
+    match s with
+    | GeoShape.GeoCircle r -> int r
+    | _ -> 0
+
+/// Test: ref.test on data-carrying DU — GeoRect branch.
+let testRefTestRect () : int =
+    let s = GeoShape.GeoRect(3.0, 4.0)
+    match s with
+    | GeoShape.GeoRect(w, h) -> int (w * h)
+    | _ -> 0
+
+/// Test: ref.test when last case has no fields (not enum-like; still a struct).
+let testRefTestDot () : int =
+    let s = GeoShape.GeoDot
+    match s with
+    | GeoShape.GeoDot -> 42
+    | _ -> 0

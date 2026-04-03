@@ -56,6 +56,7 @@ let mapSubExprs (f: WExpr -> WExpr) (expr: WExpr) : WExpr =
         WExpr.TryCatch(f b, catch', fin', t)
     | WExpr.Throw e -> WExpr.Throw(f e)
     | WExpr.RefIsNull obj -> WExpr.RefIsNull(f obj)
+    | WExpr.RefTest(obj, t) -> WExpr.RefTest(f obj, t)
     | WExpr.TailCall(fn, args, t) -> WExpr.TailCall(fn, List.map f args, t)
     | WExpr.TailCallRef(fn, args, ft, ct, cc, t) -> WExpr.TailCallRef(f fn, List.map f args, ft, ct, cc, t)
     // Atoms — nothing to map
@@ -88,6 +89,7 @@ let rec isPure (expr: WExpr) : bool =
     | WExpr.Sequence exprs -> List.forall isPure exprs
     | WExpr.Cast(obj, _) -> isPure obj
     | WExpr.RefIsNull obj -> isPure obj
+    | WExpr.RefTest(obj, _) -> isPure obj
     | _ -> false // conservative: calls, struct.new, assigns are impure
 
 // ─────────────────────────────────────────────────────────────────

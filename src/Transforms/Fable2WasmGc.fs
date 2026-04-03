@@ -953,8 +953,10 @@ and transformOperation (ctx: Ctx) (kind: OperationKind) (typ: Fable.Type) : WExp
         | BinaryAndBitwise ->
             WExpr.Binary(WBinaryOp.And, wLeft, wRight, ty)
         | BinaryExponent ->
-            // No native WASM exponent — emit as runtime call for now
-            WExpr.Call("$pow", [wLeft; wRight], ty)
+            // No native WASM exponent: route to $pown (i32) or $powF64 (f64).
+            match ty with
+            | WType.I32 -> WExpr.Call(ctx.UseHelper("$pown"),   [wLeft; wRight], WType.I32)
+            | _         -> WExpr.Call(ctx.UseHelper("$powF64"), [wLeft; wRight], WType.F64)
 
     | Logical(op, left, right) ->
         let wLeft = transformExpr ctx left
@@ -1511,10 +1513,13 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             eprintfn "[WasmGc] WARNING: unhandled char method '%s' — returning char unchanged" fi.Name
             wChar
     // ── Math.* (JS GlobalCall("Math", ...) from replacements) ─────
-    // ── Math.pow on int args → $pown (integer fast exponentiation) ────────────
+    // ── Math.pow → $pown (i32) or $powF64 (f64 repeated-squaring) ────────
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "pow" && ty = WType.I32 ->
         WExpr.Call(ctx.UseHelper("$pown"), wArgs, WType.I32)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "pow" && (ty = WType.F64 || ty = WType.F32) ->
+        WExpr.Call(ctx.UseHelper("$powF64"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _) ->
         dispatchMathCall fi.Name wArgs ty
     // ── String instance methods: indexOf, startsWith, endsWith, substring ──────
@@ -1638,7 +1643,17 @@ and transformTest (ctx: Ctx) (expr: Fable.Expr) (kind: TestKind) : WExpr =
     let wExpr = transformExpr ctx expr
     match kind with
     | UnionCaseTest tag ->
-        WExpr.Compare(WCompareOp.Eq, WExpr.TagOf(wExpr), WExpr.Const(WConst.I32 tag))
+        match exprWType wExpr with
+        | WType.Ref(_, _) ->
+            // Data-carrying DU: compare the stored tag field (field 0) against the expected tag.
+            // NOTE: ref.test cannot be used here because WASM GC uses isorecursive type
+            // equivalence — two subtypes with identical field structures (e.g. Result<int,int>
+            // where both Ok(int) and Error(int) produce the same struct layout) are considered
+            // the same type, so ref.test would incorrectly return 1 for the wrong case.
+            WExpr.Compare(WCompareOp.Eq, WExpr.TagOf(wExpr), WExpr.Const(WConst.I32 tag))
+        | _ ->
+            // Enum-like DU: the i32 value IS the tag.
+            WExpr.Compare(WCompareOp.Eq, wExpr, WExpr.Const(WConst.I32 tag))
     | OptionTest isSome ->
         // Use ref.is_null when the option is encoded as a nullable GC ref,
         // fall back to i32 == 0 / != 0 for the unresolved (mapType) fallback.
@@ -2019,7 +2034,8 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$charToLower",         WasmGcRuntime.makeCharToLowerHelper
                   "$charToUpper",         WasmGcRuntime.makeCharToUpperHelper
                   "$charIsLetterOrDigit", WasmGcRuntime.makeCharIsLetterOrDigitHelper
-                  "$pown",                WasmGcRuntime.makePownHelper ]
+                  "$pown",              WasmGcRuntime.makePownHelper
+                  "$powF64",             WasmGcRuntime.makePowF64Helper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then

@@ -519,6 +519,17 @@ check("pown 3 0 = 1", 1, exp.testPownZero());
 check("pown 5 3 = 125", 125, exp.testPownCube());
 check("pown 1 100 = 1", 1, exp.testPownOne());
 
+console.log("\n─── Math.Pow / ** float exponentiation ──────────\n");
+check("2.0 ** 10.0 = 1024", 1024, exp.testPowF64_2_10());
+check("3.0 ** 0.0 = 1",     1,    exp.testPowF64_zero());
+check("5.0 ** 3.0 = 125",   125,  exp.testPowF64_cube());
+check("Math.Pow(2,8) = 256", 256, exp.testMathPow());
+
+console.log("\n─── ref.test DU pattern matching ────────────────\n");
+check("Circle 5 → radius = 5",   5,  exp.testRefTestCircle());
+check("Rect 3 4 → w*h = 12",    12,  exp.testRefTestRect());
+check("Dot → 42",               42,  exp.testRefTestDot());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

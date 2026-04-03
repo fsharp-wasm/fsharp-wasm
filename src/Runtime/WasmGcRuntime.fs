@@ -531,6 +531,21 @@ let makePownHelper () : WFuncDecl =
                 e <- e >>> 1
             result @>
 
+/// Runtime helper: $powF64(base, exp) → float exponentiation via integer repeated squaring.
+/// exp is truncated to i32; non-integer exponents are approximated by truncation.
+/// Negative exponents return 1.0 (not supported without f64.div; document as limitation).
+let makePowF64Helper () : WFuncDecl =
+    q "$powF64"
+        <@ fun (x: float) (n: float) ->
+            let mutable result = 1.0
+            let mutable b = x
+            let mutable e = truncF64 n
+            while e > 0 do
+                if e &&& 1 <> 0 then result <- result * b
+                b <- b * b
+                e <- e >>> 1
+            result @>
+
 /// After all functions are translated, fixup any ClosureApply nodes whose
 let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =
     let funcTypeToClosureMap =

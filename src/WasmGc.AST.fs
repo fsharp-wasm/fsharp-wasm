@@ -150,6 +150,8 @@ type WExpr =
     | Cast of obj: WExpr * targetType: WType
     /// ref.is_null — test whether a nullable ref is null; result is i32 (1=null, 0=non-null)
     | RefIsNull of obj: WExpr
+    /// ref.test (ref $T) — type test; result is i32 (1 = is subtype, 0 = not)
+    | RefTest of obj: WExpr * targetType: WType
 
     // ── Closures (before closure conversion) ──────────────
     | Closure of funcName: string * captures: WExpr list * WType

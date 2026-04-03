@@ -45,7 +45,7 @@ let rec collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType)
                             | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _) ->
                                 args |> List.tryPick findType
                             | WExpr.StructGet(obj, _, _) | WExpr.ArrayLen obj
-                            | WExpr.Cast(obj, _) | WExpr.RefIsNull obj
+                            | WExpr.Cast(obj, _) | WExpr.RefIsNull obj | WExpr.RefTest(obj, _)
                             | WExpr.TagOf obj | WExpr.Loop(_, obj, _) | WExpr.Block(_, obj, _) ->
                                 findType obj
                             | WExpr.Unary(_, obj, _) -> findType obj
@@ -130,6 +130,8 @@ let rec collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType)
     | WExpr.ArrayNew(_, size, init, _) ->
         collectLocals paramNames size @ collectLocals paramNames init
     | WExpr.RefIsNull obj ->
+        collectLocals paramNames obj
+    | WExpr.RefTest(obj, _) ->
         collectLocals paramNames obj
     | WExpr.Cast(obj, _) ->
         collectLocals paramNames obj

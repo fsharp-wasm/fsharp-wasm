@@ -379,6 +379,16 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let objInstrs = emitExpr ctx obj
         objInstrs @ [Instr.RefIsNull]
 
+    | WExpr.RefTest(obj, targetType) ->
+        let objInstrs = emitExpr ctx obj
+        match targetType with
+        | WType.Ref(typeIdx, nullable) ->
+            let rt = { Nullable = nullable; HeapType = HeapType.TypeIdx typeIdx }
+            objInstrs @ [Instr.RefTest rt]
+        | _ ->
+            // Non-ref fallback: drop the value and push 1 (always matches)
+            objInstrs @ [Instr.Drop; Instr.I32Const 1]
+
     // ── Closures ──────────────────────────────────────────
     | WExpr.Closure(funcName, captures, closureRefType) ->
         // struct.new $closureTypeIdx (ref.func $funcName, cap0, cap1, ...)

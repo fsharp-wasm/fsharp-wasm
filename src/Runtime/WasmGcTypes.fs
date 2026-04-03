@@ -426,6 +426,7 @@ let rec exprWType (expr: WExpr) : WType =
     | WExpr.CallVirtual(_, _, _, _, _, _, t) -> t
     | WExpr.FuncRef _ -> WType.Ref(AnyFnTypeIdx, false)  // funcref is a Ref to AnyFn
     | WExpr.RefIsNull _ -> WType.I32
+    | WExpr.RefTest _ -> WType.I32
 
 /// Function type alias used to pass `transformExpr` into replacement modules.
 /// Breaking the mutual recursion via higher-order parameter.

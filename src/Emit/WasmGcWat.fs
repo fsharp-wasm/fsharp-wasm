@@ -222,6 +222,7 @@ let rec private exprType (expr: WExpr) : WType =
     | WExpr.TagOf _              -> WType.I32
     | WExpr.Cast(_, t)           -> t
     | WExpr.RefIsNull _          -> WType.I32
+    | WExpr.RefTest _            -> WType.I32
     | WExpr.Closure(_, _, t)     -> t
     | WExpr.ClosureApply(_, _, _, _, _, t) -> t
     | WExpr.TailCall(_, _, t)    -> t
@@ -632,6 +633,17 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         emit obj
         w "ref.is_null"
 
+    | WExpr.RefTest(obj, targetType) ->
+        emit obj
+        match targetType with
+        | WType.Ref(typeIdx, nullable) ->
+            let name = typeNames |> Map.tryFind typeIdx |> Option.defaultValue (sprintf "%d" typeIdx)
+            if nullable then
+                w $"ref.test (ref null {watId name})"
+            else
+                w $"ref.test (ref {watId name})"
+        | _ -> w "drop\ni32.const 1"  // non-ref: fallback always-true
+
     // ── Closures ──────────────────────────────────────────
     | WExpr.Closure(funcName, captures, closureRefType) ->
         let closureTypeIdx =
@@ -822,7 +834,7 @@ let private collectClosureFuncNames (funcs: WFuncDecl list) : string list =
         | WExpr.ArrayLen arr -> scan arr
         | WExpr.ArrayCopy(dst, dstOff, src, srcOff, len) ->
             scan dst; scan dstOff; scan src; scan srcOff; scan len
-        | WExpr.Cast(e, _) | WExpr.TagOf(e) | WExpr.RefIsNull(e) | WExpr.Throw(e) -> scan e
+        | WExpr.Cast(e, _) | WExpr.TagOf(e) | WExpr.RefIsNull(e) | WExpr.Throw(e) | WExpr.RefTest(e, _) -> scan e
         | WExpr.Loop(_, body, _) | WExpr.Block(_, body, _) -> scan body
         | WExpr.Break(_, Some e) -> scan e
         | WExpr.Continue(_, args) -> for a in args do scan a
