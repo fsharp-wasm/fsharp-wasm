@@ -1098,9 +1098,12 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // Route these through dispatchMathCall so they get proper WasmIR.
         | ("abs" | "min" | "max" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest"), _, _ ->
             dispatchMathCall importInfo.Selector wArgs ty
-        // Math.Exp(x) / Math.Log(x) — software polynomial implementations (no native WASM op)
+        // Math.Exp(x) / Math.Log(x) / Math.Sin(x) / Math.Cos(x) / Math.Tan(x) — software polynomial implementations (no native WASM trig ops)
         | "exp", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathExp"), [arg], WType.F64)
         | "log", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathLog"), [arg], WType.F64)
+        | "sin", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathSin"), [arg], WType.F64)
+        | "cos", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathCos"), [arg], WType.F64)
+        | "tan", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathTan"), [arg], WType.F64)
         // String char access: String.getCharAtIndex(str, idx) → array.get $WasmStr
         | "getCharAtIndex", [str; idx], _ ->
             WExpr.ArrayGet(str, idx, WType.I32)
@@ -1529,6 +1532,15 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "log" ->
         WExpr.Call(ctx.UseHelper("$mathLog"), wArgs, WType.F64)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "sin" ->
+        WExpr.Call(ctx.UseHelper("$mathSin"), wArgs, WType.F64)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "cos" ->
+        WExpr.Call(ctx.UseHelper("$mathCos"), wArgs, WType.F64)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "tan" ->
+        WExpr.Call(ctx.UseHelper("$mathTan"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _) ->
         dispatchMathCall fi.Name wArgs ty
     // ── String instance methods: indexOf, startsWith, endsWith, substring ──────
@@ -2046,7 +2058,10 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$pown",              WasmGcRuntime.makePownHelper
                   "$powF64",            WasmGcRuntime.makePowF64Helper
                   "$mathExp",           WasmGcRuntime.makeMathExpHelper
-                  "$mathLog",           WasmGcRuntime.makeMathLogHelper ]
+                  "$mathLog",           WasmGcRuntime.makeMathLogHelper
+                  "$mathSin",           WasmGcRuntime.makeMathSinHelper
+                  "$mathCos",           WasmGcRuntime.makeMathCosHelper
+                  "$mathTan",           WasmGcRuntime.makeMathTanHelper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then

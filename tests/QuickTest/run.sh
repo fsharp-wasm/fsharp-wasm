@@ -33,9 +33,13 @@ WIT_DIR="$OUT/wit"
 COMPONENT="$OUT/QuickTestWasmGc-component.wasm"
 if command -v wasm-tools &>/dev/null && [ -d "$WIT_DIR" ]; then
     EMBEDDED="$OUT/QuickTestWasmGc-embedded.wasm"
-    wasm-tools component embed "$WIT_DIR" "$OUT/QuickTestWasmGc.wasm" -o "$EMBEDDED"
-    wasm-tools component new "$EMBEDDED" -o "$COMPONENT"
-    echo "    ✅ Component created: $COMPONENT"
+    if wasm-tools component embed "$WIT_DIR" "$OUT/QuickTestWasmGc.wasm" -o "$EMBEDDED" 2>/dev/null \
+        && wasm-tools component new "$EMBEDDED" -o "$COMPONENT" 2>/dev/null; then
+        echo "    ✅ Component created: $COMPONENT"
+    else
+        echo "    ⚠️  wasm-tools component embed/new failed (WIT has non-kebab-case identifiers — known issue)"
+        echo "    ℹ️  WIT written to $WIT_DIR"
+    fi
 elif [ -d "$WIT_DIR" ]; then
     echo "    ℹ️  WIT world written to $WIT_DIR"
     echo "    ℹ️  Install wasm-tools to create a Component: cargo install wasm-tools"

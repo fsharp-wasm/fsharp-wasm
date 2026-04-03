@@ -602,6 +602,48 @@ let makeMathLogHelper () : WFuncDecl =
                 i     <- i + 1
             res * 2.0 + adj @>
 
+let makeMathSinHelper () : WFuncDecl =
+    q "$mathSin"
+        <@ fun (x: float) ->
+            let twoPi = 6.283185307179586
+            let pi    = 3.141592653589793
+            // Range-reduce to [-2π, 2π] then fine-tune to [-π, π]
+            let k     = intToF64 (truncF64 (x / twoPi))
+            let mutable r = x - twoPi * k
+            if r > pi  then r <- r - twoPi
+            if r < -pi then r <- r + twoPi
+            // 9-term Horner for sin(r): r*(1 - r²/6 + r⁴/120 - ...)
+            let t = r * r
+            r * (1.0 + t * (-0.16666666666666666 + t * (0.008333333333333333 + t * (-0.0001984126984126984 + t * (2.7557319223985888e-6 + t * (-2.505210838544172e-8 + t * (1.6059043836821613e-10 + t * (-7.647163731819816e-13)))))))) @>
+
+let makeMathCosHelper () : WFuncDecl =
+    q "$mathCos"
+        <@ fun (x: float) ->
+            let twoPi = 6.283185307179586
+            let pi    = 3.141592653589793
+            let k     = intToF64 (truncF64 (x / twoPi))
+            let mutable r = x - twoPi * k
+            if r > pi  then r <- r - twoPi
+            if r < -pi then r <- r + twoPi
+            // 8-term Horner for cos(r): 1 - r²/2 + r⁴/24 - ...
+            let t = r * r
+            1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-5 + t * (-2.7557319223985888e-7 + t * (2.08767569878681e-9 + t * (-1.1470745597729725e-11))))))) @>
+
+let makeMathTanHelper () : WFuncDecl =
+    q "$mathTan"
+        <@ fun (x: float) ->
+            let twoPi = 6.283185307179586
+            let pi    = 3.141592653589793
+            let k     = intToF64 (truncF64 (x / twoPi))
+            let mutable r = x - twoPi * k
+            if r > pi  then r <- r - twoPi
+            if r < -pi then r <- r + twoPi
+            // Compute sin and cos inline, return their ratio
+            let t    = r * r
+            let sinR = r * (1.0 + t * (-0.16666666666666666 + t * (0.008333333333333333 + t * (-0.0001984126984126984 + t * (2.7557319223985888e-6 + t * (-2.505210838544172e-8 + t * 1.6059043836821613e-10))))))
+            let cosR = 1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-5 + t * (-2.7557319223985888e-7 + t * 2.08767569878681e-9)))))
+            sinR / cosR @>
+
 /// After all functions are translated, fixup any ClosureApply nodes whose
 let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =
     let funcTypeToClosureMap =

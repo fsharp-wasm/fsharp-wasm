@@ -542,6 +542,14 @@ check("log(e) rounded = 1",      1,     exp.testMathLog_e());
 check("log(1024) trunc = 6",    6,     exp.testMathLog_1024());
 check("exp(log(100)+0.5) = 164", 164,  exp.testMathExpLogRoundtrip());
 
+console.log("\n─── Math.Sin/Cos/Tan ─────────────────────────────\n");
+check("sin(0) = 0",              0,    exp.testMathSin_zero());
+check("sin(π/2) rounded = 1",   1,    exp.testMathSin_90deg());
+check("cos(0) rounded = 1",     1,    exp.testMathCos_zero());
+check("cos(π) rounded = -1",   -1,    exp.testMathCos_180deg());
+check("tan(0) = 0",             0,    exp.testMathTan_zero());
+check("tan(π/4) rounded = 1",   1,    exp.testMathTan_45deg());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

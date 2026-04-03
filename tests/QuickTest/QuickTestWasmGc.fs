@@ -1793,3 +1793,23 @@ let testMathLog_1024 () : int = int (System.Math.Log(1024.0))
 
 /// Test: round-trip: int(exp(log(100)+0.5)) = 100 (within tolerance)
 let testMathExpLogRoundtrip () : int = int (System.Math.Exp(System.Math.Log(100.0) + 0.5))
+
+// ─── Math.Sin / Cos / Tan ─────────────────────────────────────────────────────
+
+/// Test: Math.sin(0) = 0
+let testMathSin_zero   () : int = int (System.Math.Sin(0.0))
+
+/// Test: Math.sin(π/2) ≈ 1 → rounded
+let testMathSin_90deg  () : int = int (System.Math.Round(System.Math.Sin(1.5707963267948966)))
+
+/// Test: Math.cos(0) = 1 (Horner evaluates to exactly 1.0)
+let testMathCos_zero   () : int = int (System.Math.Round(System.Math.Cos(0.0)))
+
+/// Test: Math.cos(π) ≈ -1 → rounded
+let testMathCos_180deg () : int = int (System.Math.Round(System.Math.Cos(3.141592653589793)))
+
+/// Test: Math.tan(0) = 0
+let testMathTan_zero   () : int = int (System.Math.Tan(0.0))
+
+/// Test: Math.tan(π/4) ≈ 1 → rounded
+let testMathTan_45deg  () : int = int (System.Math.Round(System.Math.Tan(0.7853981633974483)))
