@@ -1,6 +1,6 @@
 # Project Status
 
-> **As of Sprint 16a** — 337/337 QuickTests passing  
+> **As of Sprint 19e** — 377/377 QuickTests passing  
 > **Build:** `dotnet build src/Fable.WasmGc.fsproj` — 0 errors, 0 warnings  
 > **Toolchain:** `wasm-tools` v1.245+ validates all binary output
 
@@ -8,7 +8,7 @@
 
 | Test Suite             | Count   | Status         |
 | ---------------------- | ------- | -------------- |
-| QuickTest (unit tests) | 337     | ✅ All passing |
+| QuickTest (unit tests) | 377     | ✅ All passing |
 | Showcase (algorithms)  | 26      | ✅ All passing |
 | Component Embed        | 39      | ✅ All passing |
 | Component Linking      | 22      | ✅ All passing |
@@ -30,6 +30,7 @@
 | Global variables                      | ✅     | Sprint 2.5 |
 | Exception handling (basic `try/with`) | ✅     | Sprint 3   |
 | Math library (`System.Math.*`)        | ✅     | Sprint 2   |
+| `Math.Exp`, `Math.Log` (software)     | ✅     | Sprint 19e |
 | Type casts                            | ✅     | Sprint 2   |
 
 ### Type System
@@ -41,6 +42,7 @@
 | Discriminated Unions                            | ✅     | Sprint 4   |
 | Pattern matching (DUs, records, decision trees) | ✅     | Sprint 4   |
 | `br_on_cast` for pattern dispatch               | ✅     | Sprint 4   |
+| `WExpr.RefTest` AST node (`ref.test`)           | ✅     | Sprint 19d |
 | Structural equality                             | ✅     | Sprint 6   |
 | Nested records/DUs                              | ✅     | Sprint 4   |
 | Single-case DUs (zero-cost)                     | ✅     | Sprint 5   |

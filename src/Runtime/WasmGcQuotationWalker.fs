@@ -283,13 +283,19 @@ let rec private tx (ctx: QCtx) (expr: Expr) : WExpr =
         WExpr.Unary(WUnaryOp.ConvertI32S, tx ctx a, WType.F32)
 
     // ── Unary negation and abs ────────────────────────────────────────────────
+    // NOTE: Since Sprint 19c, SpecificCall matches on GetGenericMethodDefinition(),
+    // so <@ (~- : float->float) @> and <@ (~-) @> both resolve to the same generic def.
+    // Only the FIRST pattern fires — we must dispatch on the argument runtime type.
     | SpecificCall <@ (( ~- ) : float -> float) @> (_, _, [a]) ->
-        WExpr.Unary(WUnaryOp.Neg, tx ctx a, WType.F64)
-    | SpecificCall <@ (~-) @> (_, _, [a]) ->       // i32 negation: 0 - x
-        sub (i32Const 0) (tx ctx a)
+        let wa = tx ctx a
+        if   a.Type = typeof<float>   then WExpr.Unary(WUnaryOp.Neg, wa, WType.F64)
+        elif a.Type = typeof<float32> then WExpr.Unary(WUnaryOp.Neg, wa, WType.F32)
+        else sub (i32Const 0) wa   // i32 / i64 negation: 0 - x
     | SpecificCall <@ abs @> (_, _, [a]) ->
         let wa = tx ctx a
-        WExpr.If(ltS wa (i32Const 0), sub (i32Const 0) wa, wa, WType.I32)
+        if   a.Type = typeof<float>   then WExpr.Unary(WUnaryOp.Abs, wa, WType.F64)
+        elif a.Type = typeof<float32> then WExpr.Unary(WUnaryOp.Abs, wa, WType.F32)
+        else WExpr.If(ltS wa (i32Const 0), sub (i32Const 0) wa, wa, WType.I32)
 
     // ── min / max (i32) ────────────────────────────────────────────────────
     | SpecificCall <@ min @> (_, _, [a; b]) ->

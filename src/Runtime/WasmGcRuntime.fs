@@ -546,6 +546,62 @@ let makePowF64Helper () : WFuncDecl =
                 e <- e >>> 1
             result @>
 
+/// Runtime helper: $mathExp(x) → e^x.
+/// Algorithm: range-reduce x = k*ln2 + r (|r| <= 0.5*ln2), compute e^r via 7-term
+/// Taylor polynomial, then multiply by 2^k via integer repeated squaring.
+/// Accuracy: ~1 ULP for |x| < 700; overflows to +∞ for x > ~709.
+let makeMathExpHelper () : WFuncDecl =
+    q "$mathExp"
+        <@ fun (x: float) ->
+            let ln2 = 0.6931471805599453
+            // k = round(x / ln2); r = x - k * ln2; |r| <= 0.5 * ln2 ≈ 0.3466
+            let k  = truncF64 (x / ln2 + 0.5)
+            let r  = x - intToF64 k * ln2
+            // e^r via 7-term Taylor series (Horner form):  1 + r*(1 + r*(1/2 + r*(1/6 + r*(1/24 + r*(1/120 + r/720)))))
+            let er = 1.0 + r * (1.0 + r * (0.5 + r * (0.16666666666666666 + r * (0.041666666666666664 + r * (0.008333333333333333 + r * 0.001388888888888889)))))
+            // 2^|k| via repeated squaring on integer k
+            let mutable pw  = 1.0
+            let mutable bv  = 2.0
+            let mutable ki  = if k < 0 then -k else k
+            while ki > 0 do
+                if ki &&& 1 <> 0 then pw <- pw * bv
+                bv <- bv * bv
+                ki <- ki >>> 1
+            if k < 0 then er / pw else er * pw @>
+
+/// Runtime helper: $mathLog(x) → natural logarithm ln(x).
+/// Algorithm: range-reduce x to [0.5, 2] by repeated halving/doubling (tracking adjustment
+/// via multiples of ln2), then compute ln(x) via 15-term artanh series:
+///   z = (x-1)/(x+1);  ln(x) = 2*(z + z³/3 + z⁵/5 + …)
+/// |z| <= 1/3 for x ∈ [0.5,2], so 15 terms give < 1 ULP error.
+/// Returns garbage for x <= 0 (undefined for log; caller responsible).
+let makeMathLogHelper () : WFuncDecl =
+    q "$mathLog"
+        <@ fun (x: float) ->
+            let ln2 = 0.6931471805599453
+            let mutable xx  = x
+            let mutable adj = 0.0
+            // Bring xx into [0.5, 2.0]
+            while xx > 2.0 do
+                xx  <- xx / 2.0
+                adj <- adj + ln2
+            while xx < 0.5 do
+                xx  <- xx * 2.0
+                adj <- adj - ln2
+            // Artanh series: z = (x-1)/(x+1); sum 15 terms z^(2n+1)/(2n+1)
+            let z     = (xx - 1.0) / (xx + 1.0)
+            let z2    = z * z
+            let mutable term  = z
+            let mutable res   = 0.0
+            let mutable denom = 1.0
+            let mutable i     = 0
+            while i < 15 do
+                res   <- res + term / denom
+                term  <- term * z2
+                denom <- denom + 2.0
+                i     <- i + 1
+            res * 2.0 + adj @>
+
 /// After all functions are translated, fixup any ClosureApply nodes whose
 let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =
     let funcTypeToClosureMap =

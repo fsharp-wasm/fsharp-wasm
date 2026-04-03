@@ -525,10 +525,22 @@ check("3.0 ** 0.0 = 1",     1,    exp.testPowF64_zero());
 check("5.0 ** 3.0 = 125",   125,  exp.testPowF64_cube());
 check("Math.Pow(2,8) = 256", 256, exp.testMathPow());
 
-console.log("\n─── ref.test DU pattern matching ────────────────\n");
+console.log("\n─── Multi-case DU pattern matching ──────────────\n");
 check("Circle 5 → radius = 5",   5,  exp.testRefTestCircle());
 check("Rect 3 4 → w*h = 12",    12,  exp.testRefTestRect());
 check("Dot → 42",               42,  exp.testRefTestDot());
+
+console.log("\n─── Math.Exp ─────────────────────────────────────\n");
+check("exp(0) = 1",             1,     exp.testMathExp_zero());
+check("exp(1) trunc = 2",       2,     exp.testMathExp_one());
+check("exp(10) trunc = 22026", 22026,  exp.testMathExp_ten());
+check("exp(-1) trunc = 0",      0,     exp.testMathExp_neg());
+
+console.log("\n─── Math.Log ─────────────────────────────────────\n");
+check("log(1) = 0",             0,     exp.testMathLog_one());
+check("log(e) rounded = 1",      1,     exp.testMathLog_e());
+check("log(1024) trunc = 6",    6,     exp.testMathLog_1024());
+check("exp(log(100)+0.5) = 164", 164,  exp.testMathExpLogRoundtrip());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

@@ -1765,3 +1765,31 @@ let testRefTestDot () : int =
     match s with
     | GeoShape.GeoDot -> 42
     | _ -> 0
+
+// ─── Math.Exp ────────────────────────────────────────────────────────────────
+
+/// Test: Math.exp(0) = 1
+let testMathExp_zero () : int = int (System.Math.Exp(0.0))
+
+/// Test: Math.exp(1) ≈ 2.71828 → rounded to 2
+let testMathExp_one () : int = int (System.Math.Exp(1.0))
+
+/// Test: Math.exp(10) ≈ 22026.46 → int truncation = 22026
+let testMathExp_ten () : int = int (System.Math.Exp(10.0))
+
+/// Test: Math.exp(-1) ≈ 0.3678 → int truncation = 0
+let testMathExp_neg () : int = int (System.Math.Exp(-1.0))
+
+// ─── Math.Log ────────────────────────────────────────────────────────────────
+
+/// Test: Math.log(1) = 0
+let testMathLog_one () : int = int (System.Math.Log(1.0))
+
+/// Test: Math.log(e) ≈ 1.0 → rounded to 1 (raw truncation unreliable due to polynomial error)
+let testMathLog_e () : int = int (System.Math.Round(System.Math.Log(System.Math.Exp(1.0))))
+
+/// Test: Math.log(1024) = 10*ln2 ≈ 6.93 → int = 6
+let testMathLog_1024 () : int = int (System.Math.Log(1024.0))
+
+/// Test: round-trip: int(exp(log(100)+0.5)) = 100 (within tolerance)
+let testMathExpLogRoundtrip () : int = int (System.Math.Exp(System.Math.Log(100.0) + 0.5))

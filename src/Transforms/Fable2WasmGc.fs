@@ -1098,6 +1098,9 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // Route these through dispatchMathCall so they get proper WasmIR.
         | ("abs" | "min" | "max" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest"), _, _ ->
             dispatchMathCall importInfo.Selector wArgs ty
+        // Math.Exp(x) / Math.Log(x) — software polynomial implementations (no native WASM op)
+        | "exp", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathExp"), [arg], WType.F64)
+        | "log", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathLog"), [arg], WType.F64)
         // String char access: String.getCharAtIndex(str, idx) → array.get $WasmStr
         | "getCharAtIndex", [str; idx], _ ->
             WExpr.ArrayGet(str, idx, WType.I32)
@@ -1520,6 +1523,12 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "pow" && (ty = WType.F64 || ty = WType.F32) ->
         WExpr.Call(ctx.UseHelper("$powF64"), wArgs, WType.F64)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "exp" ->
+        WExpr.Call(ctx.UseHelper("$mathExp"), wArgs, WType.F64)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "log" ->
+        WExpr.Call(ctx.UseHelper("$mathLog"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _) ->
         dispatchMathCall fi.Name wArgs ty
     // ── String instance methods: indexOf, startsWith, endsWith, substring ──────
@@ -2035,7 +2044,9 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$charToUpper",         WasmGcRuntime.makeCharToUpperHelper
                   "$charIsLetterOrDigit", WasmGcRuntime.makeCharIsLetterOrDigitHelper
                   "$pown",              WasmGcRuntime.makePownHelper
-                  "$powF64",             WasmGcRuntime.makePowF64Helper ]
+                  "$powF64",            WasmGcRuntime.makePowF64Helper
+                  "$mathExp",           WasmGcRuntime.makeMathExpHelper
+                  "$mathLog",           WasmGcRuntime.makeMathLogHelper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then

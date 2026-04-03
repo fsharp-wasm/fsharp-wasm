@@ -4,8 +4,8 @@
 > It is intentionally free of fixed dates — this is an open-source project and timing
 > depends on contributors, sponsors, and community priorities.
 >
-> **Current state:** Sprint 16a complete — 337/337 tests passing, core F# → WasmGC pipeline
-> robust and production quality for value types, collections, closures, and module composition.
+> **Current state:** Sprint 19e complete — 377/377 tests passing, Math.Exp/Log software implementations,
+> `WExpr.RefTest` AST node for future `ref.test` optimization, all BCL P1 items complete.
 
 ---
 
@@ -62,12 +62,14 @@ This is the gateway to idiomatic F# compilation.
 
 Filling gaps in the supported .NET Base Class Library:
 
+- `Math.Exp`, `Math.Log` ✅ (Sprint 19e — software polynomial via Tier 1 quotations)
+- `Math.Pow(float, float)` ✅ (Sprint 19d — `$powF64` Tier 1 repeated squaring)
 - `Int32.TryParse` / `Double.TryParse` (returns `bool * T` without exceptions)
-- `Char.IsLetter`, `Char.IsDigit`, `Char.IsWhiteSpace`
-- `Math.Abs`, `Math.Min`, `Math.Max` for all numeric types (verify coverage)
-- `Array.map`, `Array.mapi`, `Array.fold`, `Array.sortBy`
-- `List.sortBy`, `List.distinctBy`, `List.groupBy`
-- `String.padLeft`, `String.padRight`, `String.substring`
+- `Char.IsLetter`, `Char.IsDigit`, `Char.IsWhiteSpace` ✅ (Sprint 18)
+- `Math.Abs`, `Math.Min`, `Math.Max` for all numeric types ✅ (Sprint 16b)
+- `Array.map`, `Array.mapi`, `Array.fold`, `Array.sortBy` ✅ (Sprint 17)
+- `List.sortBy`, `List.distinctBy`, `List.groupBy` ✅ (Sprint 17)
+- `String.padLeft`, `String.padRight`, `String.substring` ✅ (Sprint 19b)
 
 ---
 
