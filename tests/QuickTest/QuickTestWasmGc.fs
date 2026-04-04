@@ -2218,3 +2218,10 @@ let testResizeArrayIndex () : int =
     let xs = ResizeArray<int>()
     xs.Add(100); xs.Add(200); xs.Add(300)
     xs.[1]  // 200
+
+let testSeqPairwise () : int =
+    [1; 2; 3; 4; 5] |> Seq.pairwise |> Seq.map (fun (a, b) -> b - a) |> Seq.sum  // 4×1 = 4
+
+let testSeqCountBy () : int =
+    let result = [1; 2; 3; 4; 5; 6] |> Seq.countBy (fun x -> x % 2)
+    Seq.length result  // 2 groups: odd (1,3,5) and even (2,4,6)
