@@ -22,6 +22,16 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Update Fable submodule to correct branch
+        run: |
+          cd vendor/Fable
+          git fetch origin
+          git checkout feature/wasm-gc-backend
+          git pull origin feature/wasm-gc-backend
+          echo "Fable submodule is now at:"
+          git rev-parse HEAD
+          cd ../..
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
