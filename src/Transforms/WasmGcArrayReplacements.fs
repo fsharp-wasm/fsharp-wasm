@@ -608,6 +608,66 @@ let tryArrayInline
                                 resGet None))))
             | _ -> None
         | _ -> None
+    // ── Array.unzip arr — array of pairs → two arrays ─────────────────────
+    | "unzip" ->
+        match fableArgs with
+        | [arrArg] ->
+            match getArrElemT arrArg.Type with
+            | Some(Fable.Type.Tuple([ta; tb], _)) ->
+                let aT      = mapTypeKnown ctx ta
+                let bT      = mapTypeKnown ctx tb
+                let pairT   = mapTypeKnown ctx (Fable.Type.Tuple([ta; tb], false))
+                match pairT with
+                | WType.Ref(pairIdx, _) ->
+                    let aArrIdx = getOrAddArrayType ctx aT
+                    let bArrIdx = getOrAddArrayType ctx bT
+                    let aArrRefT = WType.Ref(aArrIdx, false)
+                    let bArrRefT = WType.Ref(bArrIdx, false)
+                    // Register result tuple type (arr<ta>, arr<tb>)
+                    let arrATupleWT = WType.Ref(aArrIdx, false)
+                    let arrBTupleWT = WType.Ref(bArrIdx, false)
+                    let _ = mapTypeKnown ctx (Fable.Type.Tuple([Fable.Type.Array(ta, Fable.ArrayKind.MutableArray); Fable.Type.Array(tb, Fable.ArrayKind.MutableArray)], false))
+                    let tupleKey = wTypesKey [arrATupleWT; arrBTupleWT]
+                    match ctx.TupleRegistry.TryGetValue(tupleKey) with
+                    | false, _ -> None
+                    | true, resultTupleIdx ->
+                    let resultTupleRefT = WType.Ref(resultTupleIdx, false)
+                    let pairArrIdx = getOrAddArrayType ctx pairT
+                    let pairArrRefT = WType.Ref(pairArrIdx, false)
+                    let wArr  = transform ctx arrArg
+                    let srcVar = "$aunz_src"
+                    let aVar   = "$aunz_a"
+                    let bVar   = "$aunz_b"
+                    let srcGet = WExpr.LocalGet(srcVar, pairArrRefT)
+                    let aGet   = WExpr.LocalGet(aVar,   aArrRefT)
+                    let bGet   = WExpr.LocalGet(bVar,   bArrRefT)
+                    let lenGet = WExpr.ArrayLen(srcGet)
+                    let zero = WExpr.Const(WConst.I32 0)
+                    let makeZeroFor wt =
+                        match wt with
+                        | WType.I64 -> WExpr.Const(WConst.I64 0L)
+                        | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
+                        | WType.F64 -> WExpr.Const(WConst.F64 0.0)
+                        | WType.Ref(i, _) -> WExpr.Const(WConst.Null(WType.Ref(i, true)))
+                        | _ -> zero
+                    Some(WExpr.Let(srcVar, wArr,
+                        WExpr.Let(aVar, WExpr.ArrayNew(aArrIdx, lenGet, makeZeroFor aT, aArrRefT),
+                            WExpr.Let(bVar, WExpr.ArrayNew(bArrIdx, lenGet, makeZeroFor bT, bArrRefT),
+                                    mkArrayLoop "aunz" pairT pairArrIdx srcGet []
+                                        (fun _elem idx ->
+                                            WExpr.Let("$aunz_p",
+                                                WExpr.ArrayGet(srcGet, idx, pairT),
+                                                WExpr.Sequence [
+                                                    WExpr.ArraySet(aGet, idx,
+                                                        WExpr.StructGet(WExpr.LocalGet("$aunz_p", pairT), 0, aT))
+                                                    WExpr.ArraySet(bGet, idx,
+                                                        WExpr.StructGet(WExpr.LocalGet("$aunz_p", pairT), 1, bT))
+                                                ]))
+                                        (WExpr.StructNew(resultTupleIdx, [aGet; bGet], resultTupleRefT))
+                                        None))))
+                | _ -> None
+            | _ -> None
+        | _ -> None
     // ── Array.map2 f arr1 arr2 — apply f to each pair, collecting results ──
     | "map2" ->
         match fableArgs with

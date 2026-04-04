@@ -653,6 +653,8 @@ check("Seq.filter even |> len → 3",    3, exp.testSeqFilter());
 check("Seq.fold sum → 15",            15, exp.testSeqFold());
 check("Seq.exists >3 → 1",             1, exp.testSeqExists());
 check("Seq.toList |> sum → 60",       60, exp.testSeqToList());
+check("List.unzip, sum xs+ys → 66",  66, exp.testListUnzip());
+check("Array.unzip, sum xs+ys → 21", 21, exp.testArrayUnzip());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

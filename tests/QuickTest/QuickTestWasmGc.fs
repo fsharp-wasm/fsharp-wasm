@@ -2183,3 +2183,13 @@ let testSeqExists () : int =
 let testSeqToList () : int =
     let xs : int list = [10; 20; 30]
     Seq.toList xs |> List.sum  // 60
+
+let testListUnzip () : int =
+    let pairs = [(1, 10); (2, 20); (3, 30)]
+    let (xs, ys) = List.unzip pairs
+    List.sum xs + List.sum ys  // 6 + 60 = 66
+
+let testArrayUnzip () : int =
+    let pairs = [|(1, 4); (2, 5); (3, 6)|]
+    let (xs, ys) = Array.unzip pairs
+    Array.sum xs + Array.sum ys  // 6 + 15 = 21

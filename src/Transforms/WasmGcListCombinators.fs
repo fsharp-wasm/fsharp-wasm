@@ -676,6 +676,93 @@ let tryListInitReplicateInline
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
+// List.unzip  ─ single pass + two reversal passes
+// ─────────────────────────────────────────────────────────────────
+
+/// `List.unzip : ('a * 'b) list → 'a list * 'b list`
+/// Single forward pass builds reversed acc lists; two reversal passes restore order.
+let tryListUnzipInline
+        (transform: TransformFn)
+        (ctx: Ctx)
+        (selector: string)
+        (fableArgs: Fable.Expr list)
+        (resultFableType: Fable.Type) : WExpr option =
+    match selector, fableArgs with
+    | "unzip", [listArg] ->
+        // Element of the input list must be a tuple with exactly 2 fields.
+        let inputElemFT = seqElemType listArg.Type
+        match inputElemFT with
+        | Some(Fable.Type.Tuple([ta; tb], _)) ->
+            match tryListTypeInfo ctx listArg,
+                  tryListTypeInfoFromElemType ctx ta,
+                  tryListTypeInfoFromElemType ctx tb with
+            | Some(pairT, pairConsIdx),
+              Some(aElemT, aConsIdx),
+              Some(bElemT, bConsIdx) ->
+                let wList = transform ctx listArg
+                let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
+                let null_list = WExpr.Const(WConst.Null listBaseRefT)
+                // Register the output tuple type (List<ta>, List<tb>).
+                let listAWT = mapTypeKnown ctx (Fable.Type.List(ta))
+                let listBWT = mapTypeKnown ctx (Fable.Type.List(tb))
+                let _ = mapTypeKnown ctx (Fable.Type.Tuple([Fable.Type.List(ta); Fable.Type.List(tb)], false))
+                let tupleKey = wTypesKey [listAWT; listBWT]
+                match ctx.TupleRegistry.TryGetValue(tupleKey) with
+                | false, _ -> None  // shouldn't happen after mapTypeKnown above
+                | true, resultTupleIdx ->
+                let pairNNRefT    = WType.Ref(pairConsIdx, false)
+                let resultTupleRefT = WType.Ref(resultTupleIdx, false)
+                let aRevAcc = "$unz_ar"
+                let bRevAcc = "$unz_br"
+                // Forward pass: build reversed acc lists from pairs.
+                let fwdLoop =
+                    mkListLoop "unzfwd" pairT pairConsIdx wList []
+                        (fun h ->
+                            WExpr.Let("$unz_h", h,
+                                WExpr.Sequence [
+                                    WExpr.Assign(aRevAcc,
+                                        WExpr.StructNew(aConsIdx,
+                                            [WExpr.StructGet(WExpr.LocalGet("$unz_h", pairT), 0, aElemT);
+                                             WExpr.LocalGet(aRevAcc, listBaseRefT)],
+                                            listBaseRefT))
+                                    WExpr.Assign(bRevAcc,
+                                        WExpr.StructNew(bConsIdx,
+                                            [WExpr.StructGet(WExpr.LocalGet("$unz_h", pairT), 1, bElemT);
+                                             WExpr.LocalGet(bRevAcc, listBaseRefT)],
+                                            listBaseRefT))
+                                ]))
+                        WExpr.Nop None
+                // Reversal pass for the 'a list.
+                let revA =
+                    mkListLoop "unzra" aElemT aConsIdx
+                        (WExpr.LocalGet(aRevAcc, listBaseRefT))
+                        [("$unz_ao", null_list)]
+                        (fun h -> WExpr.Assign("$unz_ao",
+                            WExpr.StructNew(aConsIdx,
+                                [h; WExpr.LocalGet("$unz_ao", listBaseRefT)],
+                                listBaseRefT)))
+                        (WExpr.LocalGet("$unz_ao", listBaseRefT)) None
+                // Reversal pass for the 'b list.
+                let revB =
+                    mkListLoop "unzrb" bElemT bConsIdx
+                        (WExpr.LocalGet(bRevAcc, listBaseRefT))
+                        [("$unz_bo", null_list)]
+                        (fun h -> WExpr.Assign("$unz_bo",
+                            WExpr.StructNew(bConsIdx,
+                                [h; WExpr.LocalGet("$unz_bo", listBaseRefT)],
+                                listBaseRefT)))
+                        (WExpr.LocalGet("$unz_bo", listBaseRefT)) None
+                Some(WExpr.LetMut(aRevAcc, null_list,
+                    WExpr.LetMut(bRevAcc, null_list,
+                        WExpr.Sequence [
+                            fwdLoop
+                            WExpr.StructNew(resultTupleIdx, [revA; revB], resultTupleRefT)
+                        ])))
+            | _ -> None
+        | _ -> None
+    | _ -> None
+
+// ─────────────────────────────────────────────────────────────────
 // List.take / List.skip / List.sort
 // ─────────────────────────────────────────────────────────────────
 
