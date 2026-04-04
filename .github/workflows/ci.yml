@@ -26,8 +26,8 @@ jobs:
         run: |
           cd vendor/Fable
           git fetch origin
-          git checkout feature/wasm-gc-backend
-          git pull origin feature/wasm-gc-backend
+          git checkout feature/wasmgc-backend
+          git pull origin feature/wasmgc-backend
           echo "Fable submodule is now at:"
           git rev-parse HEAD
           cd ../..
