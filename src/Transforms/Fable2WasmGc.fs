@@ -2062,15 +2062,80 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                             ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
                     ctx3)
         else
-            (ctx, classDecl.AttachedMembers)
-            ||> List.fold (fun c m ->
-                let func = transformMemberDecl c m |> resolveLocals
-                let func =
-                    if m.ImplementedSignatureRef.IsSome then
-                        let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
-                        { func with Name = qualName; Exported = false }
-                    else func
-                c.Functions.Add(func); c)
+            // Regular class, abstract class, or interface declaration.
+            // Interface declarations have no fields or implementations to emit.
+            if ent.IsInterface then ctx
+            else
+                // Regular/abstract class: emit a struct type from FSharpFields,
+                // then wire vtable for any interface implementations.
+                let typeIdx = ctx.TypeDefs.Count
+                let ctx' = ctx.WithTypeEntry(classDecl.Entity.FullName, typeIdx)
+                let fields =
+                    ent.FSharpFields
+                    |> List.map (fun f ->
+                        { Name = f.Name; Type = mapTypeKnown ctx' f.FieldType; Mutable = f.IsMutable })
+                ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(fields, None) })
+                // ── Synthesize constructor: takes field values, returns struct.new ──
+                // Fable's constructor body is OOP/JS-style (field sets); we replace
+                // it with a direct struct.new that matches the struct field layout.
+                let ctx'' =
+                    match classDecl.Constructor with
+                    | None -> ctx'
+                    | Some ctorDecl ->
+                        let ctorParams =
+                            ctorDecl.Args
+                            |> List.choose (fun a ->
+                                let ty = mapTypeKnown ctx' a.Type
+                                if ty = WType.Void then None else Some(a.Name, ty))
+                        let retTy = WType.Ref(typeIdx, false)
+                        // Build struct.new with constructor args in field order
+                        let fieldGetters =
+                            fields |> List.map (fun fd ->
+                                match ctorParams |> List.tryFind (fun (n, _) -> n = fd.Name) with
+                                | Some(name, ty) -> WExpr.LocalGet(name, ty)
+                                | None -> WExpr.Const(WConst.I32 0))
+                        let ctorBody = WExpr.StructNew(typeIdx, fieldGetters, retTy)
+                        let ctorFunc : WFuncDecl =
+                            { Name = ctorDecl.Name; Params = ctorParams; Result = retTy
+                              Locals = []; Body = ctorBody; Exported = false }
+                        ctx'.Functions.Add(ctorFunc); ctx'
+                let ctx'' =
+                    (ctx'', classDecl.AttachedMembers)
+                    ||> List.fold (fun c m ->
+                        let func = transformMemberDecl c m |> resolveLocals
+                        let func =
+                            if m.ImplementedSignatureRef.IsSome then
+                                let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
+                                { func with Name = qualName; Exported = false }
+                            else func
+                        c.Functions.Add(func); c)
+                // ── Vtable wiring for interface implementations ──────────────
+                let ifaceImpls =
+                    classDecl.AttachedMembers
+                    |> List.choose (fun m ->
+                        match m.ImplementedSignatureRef with
+                        | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)) ->
+                            let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
+                            match ctx''.Functions |> Seq.tryFindBack (fun f -> f.Name = qualName) with
+                            | Some func ->
+                                Some(ifaceEntityRef.FullName, ifaceMemberInfo.CompiledName,
+                                     qualName, func.Params |> List.map snd, func.Result)
+                            | None -> None
+                        | _ -> None)
+                let byIface = ifaceImpls |> List.groupBy (fun (ifaceName, _, _, _, _) -> ifaceName)
+                for (ifaceName, methods) in byIface do
+                    let methodSigs =
+                        methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
+                            let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
+                            methodName, nonSelfParams, retType)
+                    let vtableTypeIdx, boxTypeIdx = WasmGcVTable.getOrRegisterInterface ctx'' ifaceName methodSigs
+                    let _, _, funcTypeIndices, _ = ctx''.VTableRegistry.[ifaceName]
+                    let methodImpls =
+                        methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
+                            methodName, compiledFunc, compiledParams, retType)
+                    WasmGcVTable.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
+                        ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
+                ctx''
 
 /// Build the final WModule from accumulated ctx state.
 /// Call this once, on the last file in the project.

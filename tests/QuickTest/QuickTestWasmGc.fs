@@ -1739,6 +1739,31 @@ let testDuInterfacePoly () : int =
     let shapes : IShape list = [ ICircle 2 :> IShape; IRect(3, 4) :> IShape ]
     shapes |> List.sumBy (fun s -> s.Area())  // 4 + 12 = 16
 
+// ── Regular class implementing interface ──────────────────────────────────
+
+type ClassCircle(radius: int) =
+    interface IShape with
+        member _.Area() = radius * radius
+
+type ClassRect(width: int, height: int) =
+    interface IShape with
+        member _.Area() = width * height
+
+/// Regular class implementing interface — ClassCircle(5).Area() = 25
+let testClassCircleArea () : int =
+    let s : IShape = ClassCircle(5) :> IShape
+    s.Area()
+
+/// Regular class implementing interface — ClassRect(3,7).Area() = 21
+let testClassRectArea () : int =
+    let s : IShape = ClassRect(3, 7) :> IShape
+    s.Area()
+
+/// Mixed list: DU + regular class, both implementing IShape
+let testMixedShapes () : int =
+    let shapes : IShape list = [ ICircle 3 :> IShape; ClassRect(2, 6) :> IShape ]
+    shapes |> List.sumBy (fun s -> s.Area())  // 9 + 12 = 21
+
 // ── pown (integer exponentiation) ─────────────────────────────────────────
 
 /// Test: pown 2 10 = 1024
