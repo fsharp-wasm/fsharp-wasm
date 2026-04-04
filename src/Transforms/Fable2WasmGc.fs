@@ -14,7 +14,11 @@ open Fable.Transforms.WasmGc.WasmGcBuilder
 open Fable.Transforms.WasmGc.WasmGcRuntime
 open Fable.Transforms.WasmGc.WasmGcLocals
 open Fable.Transforms.WasmGc.WasmGcEquality
-open Fable.Transforms.WasmGc.WasmGcReplacements
+open Fable.Transforms.WasmGc.WasmGcOptionResult
+open Fable.Transforms.WasmGc.WasmGcListCombinators
+open Fable.Transforms.WasmGc.WasmGcListOps
+open Fable.Transforms.WasmGc.WasmGcArrayReplacements
+open Fable.Transforms.WasmGc.WasmGcMathMap
 
 /// Parse a printf-style format string into prefix parts and specifier chars.
 /// e.g. "Hello %s, you are %d!" → (["Hello "; ", you are "; "!"], ['s'; 'd'])
