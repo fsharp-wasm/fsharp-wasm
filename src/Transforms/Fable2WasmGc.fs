@@ -49,8 +49,75 @@ let private parseFormatString (fmt: string) : string list * char list =
     parts.Add(sb.ToString())
     List.ofSeq parts, List.ofSeq specs
 
+/// Zero WExpr for WasmGC array element initialization.
+let private zeroForElem (elemT: WType) : WExpr =
+    match elemT with
+    | WType.I64            -> WExpr.Const(WConst.I64 0L)
+    | WType.F32            -> WExpr.Const(WConst.F32 0.0f)
+    | WType.F64            -> WExpr.Const(WConst.F64 0.0)
+    | WType.Ref(ti, _)     -> WExpr.Const(WConst.Null(WType.Ref(ti, true)))
+    | _                    -> WExpr.Const(WConst.I32 0)
+
+/// Inline grow-and-set for ResizeArray.push.
+/// wRav: the ResizeArray struct ref.  wVal: value to append.
+let private resizeArrayPushInline (ctx: Ctx) (elemT: WType) (arrTypeIdx: int) (ravTypeIdx: int)
+                                   (wRav: WExpr) (wVal: WExpr) : WExpr =
+    let arrRefT   = WType.Ref(arrTypeIdx, true)
+    let arrNNRefT = WType.Ref(arrTypeIdx, false)
+    let ravRefT   = WType.Ref(ravTypeIdx, false)
+    let zero      = zeroForElem elemT
+    let ravVar    = "$rav_self"
+    let lenVar    = "$rav_len"
+    let dataVar   = "$rav_data"
+    let newCapVar = "$rav_newcap"
+    let newDatVar = "$rav_newdat"
+    let ravGet  k = WExpr.LocalGet(k, ravRefT)
+    let i32Get  k = WExpr.LocalGet(k, WType.I32)
+    let datGet  k = WExpr.LocalGet(k, arrNNRefT)
+    // When len = capacity, double the array and update the struct.
+    let growBlock =
+        WExpr.Let(newCapVar,
+            WExpr.Binary(WBinaryOp.Shl,
+                WExpr.ArrayLen(datGet dataVar),
+                WExpr.Const(WConst.I32 1), WType.I32),   // cap * 2  (shift left 1 = multiply by 2)
+            WExpr.Let(newDatVar,
+                WExpr.ArrayNew(arrTypeIdx, i32Get newCapVar, zero, arrNNRefT),
+                WExpr.Sequence [
+                    WExpr.ArrayCopy(datGet newDatVar, WExpr.Const(WConst.I32 0),
+                                    datGet dataVar,    WExpr.Const(WConst.I32 0),
+                                    i32Get lenVar)
+                    WExpr.StructSet(ravGet ravVar, 0, datGet newDatVar)
+                ]))
+    WExpr.Let(ravVar, wRav,
+        WExpr.Let(lenVar,  WExpr.StructGet(ravGet ravVar, 1, WType.I32),
+            WExpr.Let(dataVar, WExpr.Cast(WExpr.StructGet(ravGet ravVar, 0, arrRefT), arrNNRefT),
+                WExpr.Sequence [
+                    WExpr.If(WExpr.Compare(WCompareOp.GeU, i32Get lenVar, WExpr.ArrayLen(datGet dataVar)),
+                             growBlock, WExpr.Nop, WType.Void)
+                    // Re-read data (may have changed after grow)
+                    WExpr.ArraySet(WExpr.Cast(WExpr.StructGet(ravGet ravVar, 0, arrRefT), arrNNRefT),
+                                   i32Get lenVar, wVal)
+                    WExpr.StructSet(ravGet ravVar, 1,
+                        WExpr.Binary(WBinaryOp.Add, i32Get lenVar, WExpr.Const(WConst.I32 1), WType.I32))
+                ])))
+
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     match expr with
+    // ── Emit: ResizeArray.Add(x) emits "void ($0)" wrapping a .push() InstanceCall ──
+    | Fable.Expr.Emit(info, _, _)
+          when info.Macro = "void ($0)" ->
+        match info.CallInfo.Args with
+        | [Fable.Expr.Call(Fable.Expr.Get(ar, GetKind.FieldGet fi, _, _), pushInfo, _, _)]
+              when fi.Name = "push" &&
+                   (match ar.Type with | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) -> true | _ -> false) ->
+            match pushInfo.Args with
+            | [arg] ->
+                let elemFableType = match ar.Type with | Fable.Type.Array(t, _) -> t | _ -> Fable.Type.Any
+                let elemWT = mapTypeKnown ctx elemFableType
+                let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemWT
+                resizeArrayPushInline ctx elemWT arrTypeIdx ravTypeIdx (transformExpr ctx ar) (transformExpr ctx arg)
+            | _ -> WExpr.Nop
+        | _ -> WExpr.Nop
     // ── Constants ──────────────────────────────────────────
     | Fable.Expr.Value(kind, _) ->
         transformValue ctx kind
@@ -215,13 +282,46 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             let refTypeIdx = getOrAddRefCellType ctx innerWType
             WExpr.StructSet(wObj, 0, wVal)
         // F# array element assignment: arr.[i] <- v
+        // ResizeArray element assignment: rav.[i] <- v → array.set on data field
         | ExprSet idxExpr
               when (match _expr.Type with | Fable.Type.Array _ -> true | _ -> false) ->
-            let wArr = transformExpr ctx _expr
-            let wIdx = transformExpr ctx idxExpr
-            let wVal = transformExpr ctx value
-            WExpr.ArraySet(wArr, wIdx, wVal)
+            let isResizeArr = match _expr.Type with | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) -> true | _ -> false
+            if isResizeArr then
+                let elemFableType = match _expr.Type with | Fable.Type.Array(t, _) -> t | _ -> Fable.Type.Any
+                let elemT = mapTypeKnown ctx elemFableType
+                let (arrTypeIdx, _) = getOrAddResizeArrayType ctx elemT
+                let arrRefT = WType.Ref(arrTypeIdx, true)
+                let wRav = transformExpr ctx _expr
+                let wIdx = transformExpr ctx idxExpr
+                let wVal = transformExpr ctx value
+                WExpr.ArraySet(WExpr.Cast(WExpr.StructGet(wRav, 0, arrRefT), WType.Ref(arrTypeIdx, false)), wIdx, wVal)
+            else
+                let wArr = transformExpr ctx _expr
+                let wIdx = transformExpr ctx idxExpr
+                let wVal = transformExpr ctx value
+                WExpr.ArraySet(wArr, wIdx, wVal)
         | _ -> WExpr.Nop // TODO: expr set
+
+    // ── ResizeArray<T> — length and element access ────────────────────────
+    | Fable.Expr.Get(expr, GetKind.FieldGet fi, _, _)
+          when (fi.Name = "Length" || fi.Name = "length" || fi.Name = "Count" || fi.Name = "count")
+            && (match expr.Type with | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) -> true | _ -> false) ->
+        // ResizeArray.Count / .Length → struct field 1 (len)
+        let elemFableType = match expr.Type with | Fable.Type.Array(t, _) -> t | _ -> Fable.Type.Any
+        let elemWT = mapTypeKnown ctx elemFableType
+        let (_, ravTypeIdx) = getOrAddResizeArrayType ctx elemWT
+        WExpr.StructGet(transformExpr ctx expr, 1, WType.I32)
+
+    | Fable.Expr.Get(expr, GetKind.ExprGet idxExpr, typ, _)
+          when (match expr.Type with | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) -> true | _ -> false) ->
+        // ResizeArray.[i] → array.get on the struct's data field
+        let elemFableType = match expr.Type with | Fable.Type.Array(t, _) -> t | _ -> Fable.Type.Any
+        let elemWT = mapTypeKnown ctx elemFableType
+        let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemWT
+        let arrRefT = WType.Ref(arrTypeIdx, true)
+        WExpr.ArrayGet(WExpr.Cast(WExpr.StructGet(transformExpr ctx expr, 0, arrRefT),
+                                  WType.Ref(arrTypeIdx, false)),
+                       transformExpr ctx idxExpr, mapTypeKnown ctx typ)
 
     // ── Array length and indexing ──────────────────────────
     | Fable.Expr.Get(expr, GetKind.FieldGet fi, _, _)
@@ -819,6 +919,15 @@ and transformValue (ctx: Ctx) (kind: ValueKind) : WExpr =
                 WExpr.Const(WConst.Null(WType.Ref(optTypeIdx, true)))
     // ── List<T> ─────────────────────────────────────────────
     // ── F# arrays [|...|] and Array.create / Array.zeroCreate ────────────
+    // ResizeArray<T> grows: create a mutable struct { data: $Arr_T; len: i32 } with initial capacity 4.
+    | NewArray(Fable.NewArrayKind.ArrayValues _, elemType, Fable.ArrayKind.ResizeArray) ->
+        let elemT = mapTypeKnown ctx elemType
+        let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemT
+        let zero = zeroForElem elemT
+        WExpr.StructNew(ravTypeIdx,
+            [WExpr.ArrayNew(arrTypeIdx, WExpr.Const(WConst.I32 4), zero, WType.Ref(arrTypeIdx, false))
+             WExpr.Const(WConst.I32 0)],
+            WType.Ref(ravTypeIdx, false))
     | NewArray(Fable.NewArrayKind.ArrayValues exprs, elemType, _) ->
         let elemT = mapTypeKnown ctx elemType
         let arrTypeIdx = getOrAddArrayType ctx elemT

@@ -120,6 +120,9 @@ type Ctx =
         VTableImplRegistry: System.Collections.Generic.Dictionary<string * string, string>
         /// Accumulated vtable globals to emit in the final WModule.
         VTableGlobals: ResizeArray<WGlobalDecl>
+        /// ResizeArray element WType key → (arrTypeIdx, ravTypeIdx).
+        /// ravTypeIdx: index of struct { data: (mut ref? $Arr_T); len: (mut i32) }.
+        ResizeArrayRegistry: System.Collections.Generic.Dictionary<string, int * int>
     }
 
     static member Create(com: Compiler, ?stringMode: StringMode) =
@@ -174,6 +177,7 @@ type Ctx =
             VTableRegistry = System.Collections.Generic.Dictionary<string, int * int * int list * string list>()
             VTableImplRegistry = System.Collections.Generic.Dictionary<string * string, string>()
             VTableGlobals = new ResizeArray<WGlobalDecl>()
+            ResizeArrayRegistry = System.Collections.Generic.Dictionary<string, int * int>()
         }
 
     member this.WithLocal(name: string, ty: WType) =
@@ -285,6 +289,24 @@ let getOrAddArrayType (ctx: Ctx) (elemT: WType) : int =
         ctx.ArrayRegistry.[key] <- idx
         idx
 
+/// Register (if needed) a $ResizeArray_T struct:
+///   struct { data: (mut ref? $Arr_T); len: (mut i32) }
+/// Returns (arrTypeIdx, ravTypeIdx).
+let getOrAddResizeArrayType (ctx: Ctx) (elemT: WType) : int * int =
+    let key = wTypeKey elemT
+    match ctx.ResizeArrayRegistry.TryGetValue(key) with
+    | true, pair -> pair
+    | false, _ ->
+        let arrTypeIdx = getOrAddArrayType ctx elemT
+        let ravTypeIdx = ctx.TypeDefs.Count
+        ctx.TypeDefs.Add({ Name = $"$ResizeArray_{ravTypeIdx}"
+                           Def = WTypeDef.Struct([
+                               { Name = "data"; Type = WType.Ref(arrTypeIdx, true); Mutable = true }
+                               { Name = "len";  Type = WType.I32;                   Mutable = true }
+                           ], None) })
+        ctx.ResizeArrayRegistry.[key] <- (arrTypeIdx, ravTypeIdx)
+        (arrTypeIdx, ravTypeIdx)
+
 /// Type mapping that resolves declared (record/DU) types via the context's type registry.
 let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     match t with
@@ -374,6 +396,11 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
                     Some ListBaseTypeIdx) })
             ctx.ListRegistry.[key] <- typeIdx
         WType.Ref(ListBaseTypeIdx, true)
+    | Fable.Type.Array(elementType, Fable.ArrayKind.ResizeArray) ->
+        // ResizeArray<T> is backed by a growable struct { data; len }.
+        let elemT = mapTypeKnown ctx elementType
+        let (_, ravTypeIdx) = getOrAddResizeArrayType ctx elemT
+        WType.Ref(ravTypeIdx, false)
     | Fable.Type.Array(elementType, _) ->
         let elemT = mapTypeKnown ctx elementType
         WType.Ref(getOrAddArrayType ctx elemT, false)
