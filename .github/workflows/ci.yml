@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,11 +32,21 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.fsproj', '**/global.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
       - name: Install wasm-tools
+        continue-on-error: true
         run: |
-          curl -LO https://github.com/nickhutchinson/nickhutchinson.github.io/releases/latest/download/wasm-tools-x86_64-linux.tar.gz
-          tar xzf wasm-tools-x86_64-linux.tar.gz
-          sudo mv wasm-tools /usr/local/bin/
+          RELEASE_URL=$(curl -sSf https://api.github.com/repos/bytecodealliance/wasm-tools/releases/latest \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); a=[x['browser_download_url'] for x in d['assets'] if 'x86_64-linux' in x['name'] and x['name'].endswith('.tar.gz')]; print(a[0])")
+          curl -LO "$RELEASE_URL"
+          tar xzf wasm-tools-*.tar.gz
+          find . -maxdepth 2 -name wasm-tools -type f | head -1 | xargs -I{} sudo install -m755 {} /usr/local/bin/wasm-tools
           wasm-tools --version
 
       - name: Build

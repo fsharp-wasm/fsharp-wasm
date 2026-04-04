@@ -2,18 +2,31 @@
 
   <PropertyGroup>
     <AssemblyName>Fable.WasmGc</AssemblyName>
+    <PackageId>Fable.WasmGc</PackageId>
     <!--
       Targets net10.0 to match Fable.Compiler NuGet (net10.0).
       Source files are physically in this directory — no fork dependency.
     -->
     <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
     <OtherFlags>$(OtherFlags) --nowarn:3536 --nowarn:3261</OtherFlags>
     <DebugType>embedded</DebugType>
     <RootNamespace>Fable.Transforms.WasmGc</RootNamespace>
+    <Authors>fsharp-wasm contributors</Authors>
+    <Description>WasmGC backend for the Fable F# compiler.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/fsharp-wasm/fsharp-wasm</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/fsharp-wasm/fsharp-wasm</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <!--

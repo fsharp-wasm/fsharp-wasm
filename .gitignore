@@ -2,6 +2,7 @@
 .ionide/
 
 build/
+publish/
 node_modules/
 temp*/
 *.fs.js

@@ -3,6 +3,7 @@
 **Compile F# to WebAssembly GC — natively, without JavaScript.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml/badge.svg)](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![WasmGC](https://img.shields.io/badge/WebAssembly-GC-654FF0)](https://github.com/nickhutchinson/nickhutchinson.github.io/blob/master/nickhutchinson.github.io/nickhutchinson.github.io)
 
@@ -81,19 +82,34 @@ dotnet fable hello.fsproj --lang wasmgc
 
 ### Prerequisites
 
-- [.NET SDK 10.0+](https://dotnet.microsoft.com/download)
+- [.NET SDK 10.0+](https://dotnet.microsoft.com/download) (see `global.json`)
 - [Node.js 22+](https://nodejs.org/) (for running tests)
-- [wasm-tools](https://github.com/nickhutchinson/nickhutchinson.github.io/blob/master/nickhutchinson.github.io) (optional, for binary validation)
+- [`wasm-tools`](https://github.com/bytecodealliance/wasm-tools) (optional, for binary validation and Component Model)
 
-### Build
+### 1. Clone with submodule
 
 ```bash
-git clone https://github.com/nickhutchinson/nickhutchinson.github.io.git
+git clone --recursive https://github.com/fsharp-wasm/fsharp-wasm.git
 cd fsharp-wasm
+```
+
+If you already cloned without `--recursive`:
+
+```bash
+git submodule update --init --recursive
+```
+
+### 2. Build
+
+```bash
 dotnet build src/Fable.WasmGc.fsproj
 ```
 
-### Run Tests
+This builds:
+- The WasmGC backend (`Fable.WasmGc.fsproj`)
+- All required Fable projects from the vendored submodule (`Fable.Compiler`, `Fable.Cli`, etc.)
+
+### 3. Run tests
 
 ```bash
 # Unit tests (353 tests)
@@ -106,6 +122,18 @@ cd tests/Showcase && bash run.sh
 cd examples/component-embed && bash run.sh    # 39 tests
 cd examples/component-linking && bash run.sh  # 22 tests
 ```
+
+> **Note**: The test scripts run the compiler via `dotnet run --project vendor/Fable/src/Fable.Cli`
+> which automatically resolves the WasmGC backend from the parent repo.
+
+## Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml` and publishes GitHub Release assets for:
+- the platform-specific `Fable.Cli` compiler archives
+- a `Fable.WasmGc-net10.0.zip` build of the backend DLLs
+- a `Fable.WasmGc` NuGet package (`.nupkg`)
+
+NuGet upload is wired into the release workflow and stays skipped until the `NUGET_API_KEY` secret is configured.
 
 ### Compile Your Own F# Project
 

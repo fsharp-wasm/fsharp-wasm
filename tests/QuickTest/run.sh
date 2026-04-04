@@ -33,12 +33,12 @@ WIT_DIR="$OUT/wit"
 COMPONENT="$OUT/QuickTestWasmGc-component.wasm"
 if command -v wasm-tools &>/dev/null && [ -d "$WIT_DIR" ]; then
     EMBEDDED="$OUT/QuickTestWasmGc-embedded.wasm"
-    if wasm-tools component embed "$WIT_DIR" "$OUT/QuickTestWasmGc.wasm" -o "$EMBEDDED" 2>/dev/null \
-        && wasm-tools component new "$EMBEDDED" -o "$COMPONENT" 2>/dev/null; then
+    if wasm-tools component embed "$WIT_DIR" "$OUT/QuickTestWasmGc.wasm" -o "$EMBEDDED" 2>&1 \
+       && wasm-tools component new "$EMBEDDED" -o "$COMPONENT" 2>&1; then
         echo "    ✅ Component created: $COMPONENT"
     else
-        echo "    ⚠️  wasm-tools component embed/new failed (WIT has non-kebab-case identifiers — known issue)"
-        echo "    ℹ️  WIT written to $WIT_DIR"
+        echo "    ⚠️  Component Model wrapping failed (WIT may contain identifiers not yet valid in WIT syntax)"
+        echo "    ℹ️  WIT world written to $WIT_DIR"
     fi
 elif [ -d "$WIT_DIR" ]; then
     echo "    ℹ️  WIT world written to $WIT_DIR"
