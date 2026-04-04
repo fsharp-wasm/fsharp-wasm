@@ -1108,7 +1108,18 @@ let tryListTakeSkipSortInline
         let descending = selector = "sortDescending"
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->
-            let arrTypeIdx  = getOrAddArrayType ctx elemT
+            // Ref-typed elements require nullable array storage (array.new needs a defaultable init).
+            // We cast nullable→non-nullable on read, matching the sortWith pattern.
+            let (arrElemT, arrDefault) =
+                match elemT with
+                | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
+                | t -> t, makeNumericZero t
+            let readElem (arrExpr: WExpr) (idxExpr: WExpr) =
+                match elemT with
+                | WType.Ref(idx, false) ->
+                    WExpr.Cast(WExpr.ArrayGet(arrExpr, idxExpr, WType.Ref(idx, true)), WType.Ref(idx, false))
+                | _ -> WExpr.ArrayGet(arrExpr, idxExpr, elemT)
+            let arrTypeIdx  = getOrAddArrayType ctx arrElemT
             let arrRefT     = WType.Ref(arrTypeIdx, false)
             let wLst        = transform ctx listArg
             let lstVar      = "$lsrt_lst"
@@ -1155,16 +1166,24 @@ let tryListTakeSkipSortInline
                         ])
                     WExpr.Nop None
             // Pass 3: insertion sort in-place on arrVar
+            // For ref elements: use strCompare for strings; for numerics: direct LtS/GtS.
+            let cmpSeArrJ =
+                match elemT with
+                | WType.Ref(si, _) when si = StringTypeIdx ->
+                    let cmpRes = WExpr.Call(ctx.UseHelper("$strCompare"), [seGet; readElem arrGet sjGet], WType.I32)
+                    WExpr.Compare(ltOp, cmpRes, WExpr.Const(WConst.I32 0))
+                | _ ->
+                    WExpr.Compare(ltOp, seGet, readElem arrGet sjGet)
             let sjCond =
                 WExpr.If(WExpr.Compare(WCompareOp.GeS, sjGet, WExpr.Const(WConst.I32 0)),
-                    WExpr.Compare(ltOp, seGet, WExpr.ArrayGet(arrGet, sjGet, elemT)),
+                    cmpSeArrJ,
                     WExpr.Const(WConst.I32 0), WType.I32)
             let sjStep =
                 WExpr.Sequence [
                     WExpr.ArraySet(arrGet,
                         WExpr.Binary(WBinaryOp.Add, sjGet,
                             WExpr.Const(WConst.I32 1), WType.I32),
-                        WExpr.ArrayGet(arrGet, sjGet, elemT))
+                        WExpr.ArrayGet(arrGet, sjGet, arrElemT))
                     WExpr.Assign(sjVar,
                         WExpr.Binary(WBinaryOp.Sub, sjGet,
                             WExpr.Const(WConst.I32 1), WType.I32))
@@ -1174,7 +1193,7 @@ let tryListTakeSkipSortInline
                 WExpr.If(sjCond, sjStep, WExpr.Nop, WType.Void), WType.Void)
             let siStep =
                 WExpr.Sequence [
-                    WExpr.Let(seVar, WExpr.ArrayGet(arrGet, siGet, elemT),
+                    WExpr.Let(seVar, readElem arrGet siGet,
                         WExpr.LetMut(sjVar,
                             WExpr.Binary(WBinaryOp.Sub, siGet,
                                 WExpr.Const(WConst.I32 1), WType.I32),
@@ -1201,7 +1220,7 @@ let tryListTakeSkipSortInline
                     WExpr.Sequence [
                         WExpr.Assign(accVar,
                             WExpr.StructNew(consIdx,
-                                [WExpr.ArrayGet(arrGet, riGet, elemT); accGet],
+                                [readElem arrGet riGet; accGet],
                                 listBaseRefT))
                         WExpr.Assign(riVar,
                             WExpr.Binary(WBinaryOp.Sub, riGet,
@@ -1213,7 +1232,7 @@ let tryListTakeSkipSortInline
                 WExpr.Let(lenVar, countLen,
                     WExpr.Let(arrVar,
                         WExpr.ArrayNew(arrTypeIdx, lenGet,
-                            makeNumericZero elemT, arrRefT),
+                            arrDefault, arrRefT),
                         WExpr.Sequence [
                             fillArray
                             WExpr.LetMut(siVar, WExpr.Const(WConst.I32 1),

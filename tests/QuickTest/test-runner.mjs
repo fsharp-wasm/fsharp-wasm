@@ -629,6 +629,16 @@ check("Array.collect dup length = 6",     6, exp.testArrayCollectLength());
 check("Array.collect all-empty → 0",      0, exp.testArrayCollectEmpty());
 check("Array.collect singleton sum = 30", 30, exp.testArrayCollectSingleton());
 
+console.log("\n─── comparePrimitives / compare ───────────────────\n");
+check("compare int lt → -1",          -1, exp.testCompareIntLt());
+check("compare int eq → 0",            0, exp.testCompareIntEq());
+check("compare int gt → 1",            1, exp.testCompareIntGt());
+check("compare str lt → -1",          -1, exp.testCompareStrLt());
+check("compare str eq → 0",            0, exp.testCompareStrEq());
+check("compare str gt → 1",            1, exp.testCompareStrGt());
+check("List.sort int asc head = 1",    1, exp.testListSortIntAsc());
+check("List.sort str asc head=apple",  1, exp.testListSortStrAsc());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

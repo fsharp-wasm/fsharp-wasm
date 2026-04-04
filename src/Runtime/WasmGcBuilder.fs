@@ -384,6 +384,11 @@ let letMut (gen: LabelGen) (tag: string) (ty: WType) (init: WExpr) (body: WExpr 
 /// Implemented as eqz(ref.is_null e): returns 1 when e is not null.
 let refIsNotNull (e: WExpr) = WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull e, WType.I32)
 
+/// Try a sequence of option-returning thunks; return the first Some.
+/// Replaces the match...| None -> match...| None -> waterfall pattern.
+let tryFirst (fns: (unit -> WExpr option) list) : WExpr option =
+    fns |> List.tryPick (fun f -> f ())
+
 /// Helper zero-value for a numeric WType (used by buildListSort etc.)
 let makeNumericZero = function
     | WType.I32 -> i32Const 0

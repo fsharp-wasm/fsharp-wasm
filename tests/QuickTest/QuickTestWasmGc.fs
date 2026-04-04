@@ -2114,3 +2114,20 @@ let testArrayCollectSingleton () : int =
     let arr = [| 5; 10; 15 |]
     let result = Array.collect (fun x -> [| x |]) arr
     result.[0] + result.[1] + result.[2]  // 5+10+15 = 30
+
+// ─── comparePrimitives / compare ──────────────────────────────────────────────
+
+let testCompareIntLt () : int = compare 3 5      // -1
+let testCompareIntEq () : int = compare 7 7      // 0
+let testCompareIntGt () : int = compare 9 2      // 1
+let testCompareStrLt () : int = compare "abc" "abd"    // -1
+let testCompareStrEq () : int = compare "abc" "abc"    // 0
+let testCompareStrGt () : int = compare "abd" "abc"    // 1
+
+let testListSortIntAsc () : int =
+    let sorted = List.sort [3; 1; 4; 1; 5; 9; 2; 6]
+    List.head sorted  // min = 1
+
+let testListSortStrAsc () : int =
+    let sorted = List.sort ["cherry"; "apple"; "banana"]
+    if List.head sorted = "apple" then 1 else 0  // 1

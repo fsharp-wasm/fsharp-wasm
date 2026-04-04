@@ -10,10 +10,41 @@ open Fable.AST.WasmGc
 open Fable.Transforms.WasmGc.WasmGcTypes
 open Fable.Transforms.WasmGc.WasmGcFreeVars
 open Fable.Transforms.WasmGc.WasmGcLoopHelpers
+open Fable.Transforms.WasmGc.WasmGcBuilder
 open Fable.Transforms.WasmGc.WasmGcRuntime
 open Fable.Transforms.WasmGc.WasmGcLocals
 open Fable.Transforms.WasmGc.WasmGcEquality
 open Fable.Transforms.WasmGc.WasmGcReplacements
+
+/// Parse a printf-style format string into prefix parts and specifier chars.
+/// e.g. "Hello %s, you are %d!" → (["Hello "; ", you are "; "!"], ['s'; 'd'])
+/// %% is treated as a literal '%'.
+let private parseFormatString (fmt: string) : string list * char list =
+    let parts = System.Collections.Generic.List<string>()
+    let specs = System.Collections.Generic.List<char>()
+    let sb = System.Text.StringBuilder()
+    let mutable i = 0
+    while i < fmt.Length do
+        if fmt.[i] = '%' && i + 1 < fmt.Length then
+            let mutable j = i + 1
+            while j < fmt.Length && (System.Char.IsDigit(fmt.[j]) || fmt.[j] = '.' || fmt.[j] = '-' || fmt.[j] = '+' || fmt.[j] = ' ') do
+                j <- j + 1
+            if j < fmt.Length && fmt.[j] = '%' then
+                sb.Append('%') |> ignore
+                i <- j + 1
+            elif j < fmt.Length then
+                parts.Add(sb.ToString())
+                sb.Clear() |> ignore
+                specs.Add(fmt.[j])
+                i <- j + 1
+            else
+                i <- j
+        else
+            sb.Append(fmt.[i]) |> ignore
+            i <- i + 1
+    parts.Add(sb.ToString())
+    List.ofSeq parts, List.ofSeq specs
+
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     match expr with
     // ── Constants ──────────────────────────────────────────
@@ -400,32 +431,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             let emitLit (s: string) =
                 WExpr.ArrayNewFixed(StringTypeIdx,
                     s |> Seq.map (fun c -> WExpr.Const(WConst.I32(int c))) |> Seq.toList, strRef)
-            // Parse printf-style format string
-            let parts = System.Collections.Generic.List<string>()
-            let specs = System.Collections.Generic.List<char>()
-            let sb = System.Text.StringBuilder()
-            let mutable i = 0
-            while i < fmt.Length do
-                if fmt.[i] = '%' && i + 1 < fmt.Length then
-                    let mutable j = i + 1
-                    while j < fmt.Length && (System.Char.IsDigit(fmt.[j]) || fmt.[j] = '.' || fmt.[j] = '-' || fmt.[j] = '+' || fmt.[j] = ' ') do
-                        j <- j + 1
-                    if j < fmt.Length && fmt.[j] = '%' then
-                        sb.Append('%') |> ignore
-                        i <- j + 1
-                    elif j < fmt.Length then
-                        parts.Add(sb.ToString())
-                        sb.Clear() |> ignore
-                        specs.Add(fmt.[j])
-                        i <- j + 1
-                    else
-                        i <- j
-                else
-                    sb.Append(fmt.[i]) |> ignore
-                    i <- i + 1
-            parts.Add(sb.ToString())
-            let partsList = List.ofSeq parts
-            let specsList = List.ofSeq specs
+            let partsList, specsList = parseFormatString fmt
             let formatHole (spec: char) (ve: Fable.Expr) =
                 let wv  = transformExpr ctx ve
                 let wty = exprWType wv
@@ -1014,64 +1020,32 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             match info.ThisArg with
             | Some t -> transformExpr ctx t :: wArgs
             | None -> wArgs
-        // ── Higher-order list/option combinators — delegated to WasmGcReplacements ──
-        match tryListFoldInline transformExpr ctx importInfo.Selector info.Args with
-        | Some result -> result
-        | None ->
-        match tryListFoldBackInline transformExpr ctx importInfo.Selector info.Args typ with
-        | Some result -> result
-        | None ->
-        match tryListMapInline transformExpr ctx importInfo.Selector info.Args typ with
-        | Some result -> result
-        | None ->
-        match tryListCollectInline transformExpr ctx importInfo.Selector info.Args typ with
-        | Some result -> result
-        | None ->
-        match tryListChooseInline transformExpr ctx importInfo.Selector info.Args typ with
-        | Some result -> result
-        | None ->
-        match tryListInitReplicateInline transformExpr ctx importInfo.Selector info.Args typ with
-        | Some result -> result
-        | None ->
-        match tryListTakeSkipSortInline transformExpr ctx importInfo.Selector info.Args typ with
-        | Some result -> result
-        | None ->
-        match tryListSumByInline transformExpr ctx importInfo.Selector info.Args typ with
-        | Some result -> result
-        | None ->
-        match tryListMinMaxByInline transformExpr ctx importInfo.Selector info.Args with
-        | Some result -> result
-        | None ->
-        match tryListFilterInline transformExpr ctx importInfo.Selector info.Args with
-        | Some result -> result
-        | None ->
-        match tryListIterInline transformExpr ctx importInfo.Selector info.Args with
-        | Some result -> result
-        | None ->
-        match tryListExistsForAllInline transformExpr ctx importInfo.Selector info.Args with
-        | Some result -> result
-        | None ->
-        match tryOptionInline transformExpr ctx importInfo.Selector info.Args ty with
-        | Some result -> result
-        | None ->
-        match tryResultInline transformExpr ctx importInfo.Selector info.Args ty with
-        | Some result -> result
-        | None ->
-        // ── Array module primitives — delegated to WasmGcReplacements ──────────
-        match tryArrayInline transformExpr ctx importInfo.Selector info.Args wArgs typ with
-        | Some result -> result
-        | None ->
-        // ── General import handling (already-transformed args) ─────────────────────
-        // Inline arithmetic/logical operators that Fable routes through imports
-        // when no Replacements module handles them (WasmGc has none yet).
-        // ── List/Option operations — delegated to WasmGcReplacements ─────────────
-        match tryListPrimitiveInline ctx importInfo.Selector wArgs ty info.Args with
-        | Some result -> result
-        | None ->
-        match tryListTryHeadInline transformExpr ctx importInfo.Selector wArgs ty info.Args with
-        | Some result -> result
-        | None ->
-        match tryListTryFindInline transformExpr ctx importInfo.Selector info.Args ty with
+        // ── Higher-order list/option/array/result combinators — delegated to WasmGcReplacements ──
+        let sel = importInfo.Selector
+        let r =
+            tryFirst [
+                fun () -> tryListFoldInline          transformExpr ctx sel info.Args
+                fun () -> tryListFoldBackInline       transformExpr ctx sel info.Args typ
+                fun () -> tryListMapInline            transformExpr ctx sel info.Args typ
+                fun () -> tryListCollectInline        transformExpr ctx sel info.Args typ
+                fun () -> tryListChooseInline         transformExpr ctx sel info.Args typ
+                fun () -> tryListInitReplicateInline  transformExpr ctx sel info.Args typ
+                fun () -> tryListTakeSkipSortInline   transformExpr ctx sel info.Args typ
+                fun () -> tryListSumByInline          transformExpr ctx sel info.Args typ
+                fun () -> tryListMinMaxByInline       transformExpr ctx sel info.Args
+                fun () -> tryListFilterInline         transformExpr ctx sel info.Args
+                fun () -> tryListIterInline           transformExpr ctx sel info.Args
+                fun () -> tryListExistsForAllInline   transformExpr ctx sel info.Args
+                fun () -> tryOptionInline             transformExpr ctx sel info.Args ty
+                fun () -> tryResultInline             transformExpr ctx sel info.Args ty
+                // ── Array module primitives ────────────────────────────────────────────
+                fun () -> tryArrayInline              transformExpr ctx sel info.Args wArgs typ
+                // ── List/Option primitives ─────────────────────────────────────────────
+                fun () -> tryListPrimitiveInline      ctx sel wArgs ty info.Args
+                fun () -> tryListTryHeadInline        transformExpr ctx sel wArgs ty info.Args
+                fun () -> tryListTryFindInline        transformExpr ctx sel info.Args ty
+            ]
+        match r with
         | Some result -> result
         | None ->
         match importInfo.Selector, wArgs, ty with
@@ -1146,92 +1120,15 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         | "substring", [str; start], _ ->
             let len = WExpr.Binary(WBinaryOp.Sub, WExpr.ArrayLen str, start, WType.I32)
             WExpr.Call(ctx.UseHelper("$strSubstring"), [str; start; len], WType.Ref(StringTypeIdx, false))
-        // ── Char predicates and conversions (result type I32 distinguishes from string ops) ──
-        | "isDigit", [c], WType.I32 ->
-            let tmp = "$chd"
-            WExpr.Let(tmp, c,
-                WExpr.Binary(WBinaryOp.And,
-                    WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 48)),
-                    WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 57)),
-                    WType.I32))
-        | "isLetter", [c], WType.I32 ->
-            let tmp = "$chl"
-            WExpr.Let(tmp, c,
-                WExpr.Binary(WBinaryOp.Or,
-                    WExpr.Binary(WBinaryOp.And,
-                        WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 65)),
-                        WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 90)),
-                        WType.I32),
-                    WExpr.Binary(WBinaryOp.And,
-                        WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 97)),
-                        WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 122)),
-                        WType.I32),
-                    WType.I32))
-        | "isLetterOrDigit", [c], WType.I32 ->
-            let tmp = "$chlod"
-            WExpr.Let(tmp, c,
-                WExpr.Binary(WBinaryOp.Or,
-                    WExpr.Binary(WBinaryOp.And,
-                        WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 48)),
-                        WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 57)),
-                        WType.I32),
-                    WExpr.Binary(WBinaryOp.Or,
-                        WExpr.Binary(WBinaryOp.And,
-                            WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 65)),
-                            WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 90)),
-                            WType.I32),
-                        WExpr.Binary(WBinaryOp.And,
-                            WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 97)),
-                            WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 122)),
-                            WType.I32),
-                        WType.I32),
-                    WType.I32))
-        | "isUpper", [c], WType.I32 ->
-            let tmp = "$chup"
-            WExpr.Let(tmp, c,
-                WExpr.Binary(WBinaryOp.And,
-                    WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 65)),
-                    WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 90)),
-                    WType.I32))
-        | "isLower", [c], WType.I32 ->
-            let tmp = "$chlo"
-            WExpr.Let(tmp, c,
-                WExpr.Binary(WBinaryOp.And,
-                    WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 97)),
-                    WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 122)),
-                    WType.I32))
-        | "isWhiteSpace", [c], WType.I32 ->
-            let tmp = "$chws"
-            WExpr.Let(tmp, c,
-                WExpr.Binary(WBinaryOp.Or,
-                    WExpr.Compare(WCompareOp.Eq, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 32)),
-                    WExpr.Binary(WBinaryOp.And,
-                        WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 9)),
-                        WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 13)),
-                        WType.I32),
-                    WType.I32))
-        // Char.ToLower(c) → if A-Z then c+32 else c (result I32 distinguishes from string toLower)
-        | "toLower", [c], WType.I32 ->
-            let tmp = "$chcl"
-            WExpr.Let(tmp, c,
-                WExpr.If(
-                    WExpr.Binary(WBinaryOp.And,
-                        WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 65)),
-                        WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 90)),
-                        WType.I32),
-                    WExpr.Binary(WBinaryOp.Add, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 32), WType.I32),
-                    WExpr.LocalGet(tmp, WType.I32), WType.I32))
-        // Char.ToUpper(c) → if a-z then c-32 else c (result I32 distinguishes from string toUpper)
-        | "toUpper", [c], WType.I32 ->
-            let tmp = "$chcu"
-            WExpr.Let(tmp, c,
-                WExpr.If(
-                    WExpr.Binary(WBinaryOp.And,
-                        WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 97)),
-                        WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 122)),
-                        WType.I32),
-                    WExpr.Binary(WBinaryOp.Sub, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 32), WType.I32),
-                    WExpr.LocalGet(tmp, WType.I32), WType.I32))
+        // ── Char predicates and conversions — delegated to WasmGcRuntime helpers ──
+        | "isDigit",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsDigit"),        [c], WType.I32)
+        | "isLetter",        [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsLetter"),       [c], WType.I32)
+        | "isLetterOrDigit", [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsLetterOrDigit"),[c], WType.I32)
+        | "isUpper",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsUpper"),        [c], WType.I32)
+        | "isLower",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsLower"),        [c], WType.I32)
+        | "isWhiteSpace",    [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsWhitespace"),   [c], WType.I32)
+        | "toLower",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charToLower"),        [c], WType.I32)
+        | "toUpper",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charToUpper"),        [c], WType.I32)
         // String.toLower / toUpper / trim
         | ("toLower" | "toLowerInvariant"), [str], _ ->
             WExpr.Call(ctx.UseHelper("$strToLower"), [str], WType.Ref(StringTypeIdx, false))
@@ -1257,6 +1154,24 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // String.compare(a, b) / String.Compare(a, b) → $strCompare → i32 (-1 | 0 | 1)
         | ("compare" | "compareOrdinal" | "compareCurrentCulture"), [a; b], WType.I32 ->
             WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
+        // comparePrimitives(a, b) — Fable's generic primitive compare (Util.fs import).
+        // Result: -1 / 0 / 1.  Dispatches on runtime arg type.
+        | "comparePrimitives", [a; b], WType.I32 ->
+            let argTy = exprWType a
+            match argTy with
+            | WType.Ref(si, _) when si = StringTypeIdx ->
+                WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
+            | _ ->
+                let xv = "$cpx"
+                let yv = "$cpy"
+                WExpr.Let(xv, a, WExpr.Let(yv, b,
+                    WExpr.If(WExpr.Compare(WCompareOp.Eq,  WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
+                        WExpr.Const(WConst.I32 0),
+                        WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
+                            WExpr.Const(WConst.I32 -1),
+                            WExpr.Const(WConst.I32 1),
+                            WType.I32),
+                        WType.I32)))
         // toString for numbers (via LibCall path)
         | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx ->
             WExpr.Call(ctx.UseHelper("$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
@@ -1300,34 +1215,6 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             let emitLit (s: string) =
                 WExpr.ArrayNewFixed(StringTypeIdx,
                     s |> Seq.map (fun c -> WExpr.Const(WConst.I32(int c))) |> Seq.toList, strRef)
-            // Parse printf-style format string: split at %specs, return (prefix_parts, spec_chars)
-            let parseFormat (fmt: string) =
-                let parts = System.Collections.Generic.List<string>()
-                let specs = System.Collections.Generic.List<char>()
-                let sb = System.Text.StringBuilder()
-                let mutable i = 0
-                while i < fmt.Length do
-                    if fmt.[i] = '%' && i + 1 < fmt.Length then
-                        let mutable j = i + 1
-                        // skip optional flags, width, precision (e.g. "-10.2")
-                        while j < fmt.Length && (System.Char.IsDigit(fmt.[j]) || fmt.[j] = '.' || fmt.[j] = '-' || fmt.[j] = '+' || fmt.[j] = ' ') do
-                            j <- j + 1
-                        if j < fmt.Length && fmt.[j] = '%' then
-                            // %% → literal '%'
-                            sb.Append('%') |> ignore
-                            i <- j + 1
-                        elif j < fmt.Length then
-                            parts.Add(sb.ToString())
-                            sb.Clear() |> ignore
-                            specs.Add(fmt.[j])
-                            i <- j + 1
-                        else
-                            i <- j
-                    else
-                        sb.Append(fmt.[i]) |> ignore
-                        i <- i + 1
-                parts.Add(sb.ToString())
-                List.ofSeq parts, List.ofSeq specs
             // Convert one format hole value to a string WExpr
             let formatHole (spec: char) (ve: Fable.Expr) =
                 let wv  = transformExpr ctx ve
@@ -1368,7 +1255,7 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 eprintfn "[WasmGc] interpolate: unexpected arg shape — falling back to Nop"
                 WExpr.Nop
             | Some fmt ->
-                let parts, specs = parseFormat fmt
+                let parts, specs = parseFormatString fmt
                 let nSpecs = List.length specs
                 let holeParts =
                     [ for k in 0 .. nSpecs - 1 do
