@@ -499,6 +499,87 @@ let tryListCollectInline
                 Some revConcat
             | _ -> None
         | _ -> None
+    // List.partition pred xs → (trueList, falseList) as a tuple struct.
+    // Strategy: single pass collecting two reversed accumulators, then reverse each.
+    | "partition", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
+        match listArg.Type with
+        | Fable.Type.List(elemFableT) ->
+            match tryListTypeInfo ctx listArg with
+            | None -> None
+            | Some(elemT, consIdx) ->
+            // Register the tuple type (List<elemT> * List<elemT>)
+            let listFableT  = Fable.Type.List(elemFableT)
+            let tupleFableT = Fable.Type.Tuple([listFableT; listFableT], false)
+            let tupleWType  = mapTypeKnown ctx tupleFableT
+            let listWT      = mapTypeKnown ctx listFableT
+            let listKey     = wTypeKey listWT
+            let tupleIdx    =
+                let key = wTypesKey [listWT; listWT]
+                match ctx.TupleRegistry.TryGetValue(key) with
+                | true, idx -> idx
+                | _ -> failwith "List.partition: tuple not registered after mapTypeKnown"
+            let tupleRefT   = WType.Ref(tupleIdx, false)
+            let wList        = transform ctx listArg
+            let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
+            let null_list    = WExpr.Const(WConst.Null listBaseRefT)
+            let ctx'         = ctx.WithLocal(farg.Name, elemT)
+            let wPred        = transform ctx' fbody
+            let trueAcc  = "$part_tacc"
+            let falseAcc = "$part_facc"
+            let trueOut  = "$part_tout"
+            let falseOut = "$part_fout"
+            let accType  = listBaseRefT
+            // Single pass: build reversed true and false lists
+            let buildRevLists =
+                mkListLoop "part1" elemT consIdx wList
+                    [(trueAcc, null_list); (falseAcc, null_list)]
+                    (fun h ->
+                        WExpr.Let(farg.Name, h,
+                            WExpr.If(wPred,
+                                WExpr.Assign(trueAcc,
+                                    WExpr.StructNew(consIdx,
+                                        [h; WExpr.LocalGet(trueAcc, accType)],
+                                        listBaseRefT)),
+                                WExpr.Assign(falseAcc,
+                                    WExpr.StructNew(consIdx,
+                                        [h; WExpr.LocalGet(falseAcc, accType)],
+                                        listBaseRefT)),
+                                WType.Void)))
+                    WExpr.Nop None
+            // Reverse trueAcc
+            let revTrue =
+                mkListLoop "part2t" elemT consIdx
+                    (WExpr.LocalGet(trueAcc, listBaseRefT))
+                    [(trueOut, null_list)]
+                    (fun h -> WExpr.Assign(trueOut,
+                        WExpr.StructNew(consIdx,
+                            [h; WExpr.LocalGet(trueOut, accType)],
+                            listBaseRefT)))
+                    (WExpr.LocalGet(trueOut, listBaseRefT)) None
+            // Reverse falseAcc
+            let revFalse =
+                mkListLoop "part2f" elemT consIdx
+                    (WExpr.LocalGet(falseAcc, listBaseRefT))
+                    [(falseOut, null_list)]
+                    (fun h -> WExpr.Assign(falseOut,
+                        WExpr.StructNew(consIdx,
+                            [h; WExpr.LocalGet(falseOut, accType)],
+                            listBaseRefT)))
+                    (WExpr.LocalGet(falseOut, listBaseRefT)) None
+            Some(WExpr.LetMut(trueAcc, null_list,
+                WExpr.LetMut(falseAcc, null_list,
+                    WExpr.Sequence [
+                        buildRevLists
+                        WExpr.LetMut(trueOut, null_list,
+                            WExpr.LetMut(falseOut, null_list,
+                                WExpr.Let("$part_tf", revTrue,
+                                    WExpr.Let("$part_ff", revFalse,
+                                        WExpr.StructNew(tupleIdx,
+                                            [WExpr.LocalGet("$part_tf", listBaseRefT)
+                                             WExpr.LocalGet("$part_ff", listBaseRefT)],
+                                            tupleRefT)))))
+                    ])))
+        | _ -> None
     | _ -> None
 
 let tryListChooseInline
@@ -2918,6 +2999,162 @@ let tryArrayInline
                                 ])))))
             | None -> None
         | _ -> None
+    // ── Array.choose f arr — apply f, keep Some values, unwrap ──────────────
+    // Strategy: two-pass.  Pass 1 counts matching elements.
+    //           Pass 2 fills a freshly-allocated result array.
+    | "choose" ->
+        let tryFnAndArr () =
+            match fableArgs with
+            | [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); arrArg]
+            | [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); arrArg; _]
+            | [_; (Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); arrArg] ->
+                Some(farg, fbody, arrArg)
+            | _ -> None
+        match tryFnAndArr () with
+        | None -> None
+        | Some(farg, fbody, arrArg) ->
+        match getArrElemT arrArg.Type with
+        | None -> None
+        | Some inElemFableT ->
+        let outElemFableT =
+            match resultFableType with
+            | Fable.Type.Array(t, _) -> t
+            | _ -> Fable.Type.Any
+        let inElemT    = mapTypeKnown ctx inElemFableT
+        let outElemT   = mapTypeKnown ctx outElemFableT
+        let inArrIdx   = getOrAddArrayType ctx inElemT
+        let outArrIdx  = getOrAddArrayType ctx outElemT
+        let inArrRefT  = WType.Ref(inArrIdx, false)
+        let outArrRefT = WType.Ref(outArrIdx, false)
+        let wArr       = transform ctx arrArg
+        let ctx'       = ctx.WithLocal(farg.Name, inElemT)
+        let wBody      = transform ctx' fbody
+        let wBodyT     = mapTypeKnown ctx fbody.Type     // Option struct type
+        match wBodyT with
+        | WType.Ref(optTypeIdx, _) ->
+            let optNullT   = WType.Ref(optTypeIdx, true)
+            let optNonNull = WType.Ref(optTypeIdx, false)
+            let srcVar    = "$acho_src"
+            let cntVar    = "$acho_cnt"
+            let resVar    = "$acho_res"
+            let widxVar   = "$acho_wi"
+            let srcGet    = WExpr.LocalGet(srcVar, inArrRefT)
+            let resGet    = WExpr.LocalGet(resVar, outArrRefT)
+            // Pass 1: count Somes
+            let countLoop =
+                mkArrayLoop "achocnt" inElemT inArrIdx srcGet
+                    [(cntVar, WExpr.Const(WConst.I32 0))]
+                    (fun elem _idx ->
+                        WExpr.Let(farg.Name, elem,
+                            WExpr.Let("$acho_opt", wBody,
+                                WExpr.If(
+                                    WExpr.RefIsNull(WExpr.LocalGet("$acho_opt", optNullT)),
+                                    WExpr.Nop,
+                                    WExpr.Assign(cntVar, WExpr.Binary(WBinaryOp.Add,
+                                        WExpr.LocalGet(cntVar, WType.I32),
+                                        WExpr.Const(WConst.I32 1), WType.I32)),
+                                    WType.Void))))
+                    (WExpr.LocalGet(cntVar, WType.I32)) None
+            // Pass 2: fill result
+            let fillLoop =
+                mkArrayLoop "achofil" inElemT inArrIdx srcGet
+                    [(widxVar, WExpr.Const(WConst.I32 0))]
+                    (fun elem _idx ->
+                        WExpr.Let(farg.Name, elem,
+                            WExpr.Let("$acho_opt2", wBody,
+                                WExpr.If(
+                                    WExpr.RefIsNull(WExpr.LocalGet("$acho_opt2", optNullT)),
+                                    WExpr.Nop,
+                                    WExpr.Sequence [
+                                        WExpr.ArraySet(resGet,
+                                            WExpr.LocalGet(widxVar, WType.I32),
+                                            WExpr.StructGet(
+                                                WExpr.Cast(WExpr.LocalGet("$acho_opt2", optNullT), optNonNull),
+                                                0, outElemT))
+                                        WExpr.Assign(widxVar, WExpr.Binary(WBinaryOp.Add,
+                                            WExpr.LocalGet(widxVar, WType.I32),
+                                            WExpr.Const(WConst.I32 1), WType.I32))
+                                    ],
+                                    WType.Void))))
+                    resGet None
+            Some(WExpr.Let(srcVar, wArr,
+                WExpr.Let("$acho_count", countLoop,
+                    WExpr.Let(resVar,
+                        WExpr.ArrayNew(outArrIdx,
+                            WExpr.LocalGet("$acho_count", WType.I32),
+                            makeZero outElemT, outArrRefT),
+                        fillLoop))))
+        | _ -> None
+    // ── Array.collect f arr — apply f (returns array), concatenate results ───
+    // Strategy: build intermediate list of sub-arrays, compute total length,
+    //           allocate result, copy each sub-array in.
+    | "collect" ->
+        let tryFnAndArr () =
+            match fableArgs with
+            | [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); arrArg]
+            | [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); arrArg; _] ->
+                Some(farg, fbody, arrArg)
+            | _ -> None
+        match tryFnAndArr () with
+        | None -> None
+        | Some(farg, fbody, arrArg) ->
+        match getArrElemT arrArg.Type with
+        | None -> None
+        | Some inElemFableT ->
+        let outElemFableT =
+            match resultFableType with
+            | Fable.Type.Array(t, _) -> t
+            | _ -> Fable.Type.Any
+        let inElemT    = mapTypeKnown ctx inElemFableT
+        let outElemT   = mapTypeKnown ctx outElemFableT
+        let inArrIdx   = getOrAddArrayType ctx inElemT
+        let outArrIdx  = getOrAddArrayType ctx outElemT
+        let inArrRefT  = WType.Ref(inArrIdx, false)
+        let outArrRefT = WType.Ref(outArrIdx, false)
+        let wArr       = transform ctx arrArg
+        let ctx'       = ctx.WithLocal(farg.Name, inElemT)
+        let wBody      = transform ctx' fbody
+        // Pass 1: compute total output length
+        let srcVar    = "$acol_src"
+        let resVar    = "$acol_res"
+        let totVar    = "$acol_tot"
+        let outVar    = "$acol_out"
+        let subVar    = "$acol_sub"
+        let srcGet    = WExpr.LocalGet(srcVar, inArrRefT)
+        let resGet    = WExpr.LocalGet(resVar, outArrRefT)
+        let totGet    = WExpr.LocalGet(totVar, WType.I32)
+        let outGet    = WExpr.LocalGet(outVar, WType.I32)
+        let subRefT   = outArrRefT   // sub-arrays have same element type
+        let subGet    = WExpr.LocalGet(subVar, subRefT)
+        let countLoop =
+            mkArrayLoop "acolcnt" inElemT inArrIdx srcGet
+                [(totVar, WExpr.Const(WConst.I32 0))]
+                (fun elem _idx ->
+                    WExpr.Let(farg.Name, elem,
+                        WExpr.Let(subVar, wBody,
+                            WExpr.Assign(totVar, WExpr.Binary(WBinaryOp.Add,
+                                totGet, WExpr.ArrayLen(subGet), WType.I32)))))
+                totGet None
+        let fillLoop =
+            mkArrayLoop "acolfil" inElemT inArrIdx srcGet
+                [(outVar, WExpr.Const(WConst.I32 0))]
+                (fun elem _idx ->
+                    WExpr.Let(farg.Name, elem,
+                        WExpr.Let(subVar, wBody,
+                            WExpr.Sequence [
+                                WExpr.ArrayCopy(resGet, outGet, subGet,
+                                    WExpr.Const(WConst.I32 0),
+                                    WExpr.ArrayLen(subGet))
+                                WExpr.Assign(outVar, WExpr.Binary(WBinaryOp.Add,
+                                    outGet, WExpr.ArrayLen(subGet), WType.I32))
+                            ])))
+                resGet None
+        Some(WExpr.Let(srcVar, wArr,
+            WExpr.Let("$acol_count", countLoop,
+                WExpr.Let(resVar,
+                    WExpr.ArrayNew(outArrIdx, WExpr.LocalGet("$acol_count", WType.I32),
+                        makeZero outElemT, outArrRefT),
+                    fillLoop))))
     | _ -> None
 // These arrive as Get(arr, FieldGet "filter/some/every/forEach") as callee
 // ─────────────────────────────────────────────────────────────────

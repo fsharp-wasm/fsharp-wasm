@@ -609,6 +609,26 @@ check("atan2(1,  0) × 1e6 ≈ 1570796",  1570796,  exp.testAtan2PosY());
 check("atan2(-1, 0) × 1e6 ≈ -1570796", -1570796, exp.testAtan2NegY());
 check("atan2(-1,-1) × 1e6 ≈ -2356194", -2356194, exp.testAtan2Q3());
 
+console.log("\n─── List.partition ────────────────────────────────\n");
+check("partition counts (evens=3 odds=3)", 33, exp.testListPartitionCounts());
+check("partition evens sum = 12",          12, exp.testListPartitionEvens());
+check("partition odds sum = 9",             9, exp.testListPartitionOdds());
+check("partition empty → 0",               0, exp.testListPartitionEmpty());
+check("partition all-true → 30",          30, exp.testListPartitionAllTrue());
+check("partition order preserved (first even = 2)", 2, exp.testListPartitionOrder());
+
+console.log("\n─── Array.choose ──────────────────────────────────\n");
+check("Array.choose even×10 sum = 60",   60, exp.testArrayChooseBasic());
+check("Array.choose length = 3",          3, exp.testArrayChooseLength());
+check("Array.choose all-None length = 0", 0, exp.testArrayChooseEmpty());
+check("Array.choose all-Some sum = 36",  36, exp.testArrayChooseAllSome());
+
+console.log("\n─── Array.collect ─────────────────────────────────\n");
+check("Array.collect [x;x*10] sum = 66", 66, exp.testArrayCollectBasic());
+check("Array.collect dup length = 6",     6, exp.testArrayCollectLength());
+check("Array.collect all-empty → 0",      0, exp.testArrayCollectEmpty());
+check("Array.collect singleton sum = 30", 30, exp.testArrayCollectSingleton());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

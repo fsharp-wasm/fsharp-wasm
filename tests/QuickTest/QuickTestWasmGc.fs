@@ -2042,3 +2042,75 @@ let testAtan2NegY () : int =
 let testAtan2Q3 () : int =
     // atan2(-1, -1) ≈ -3π/4 ≈ -2.356194
     roundTo6 (System.Math.Atan2(-1.0, -1.0))  // -2356194
+
+// ─── List.partition ──────────────────────────────────────────────────────────
+
+let testListPartitionCounts () : int =
+    // Evens vs odds in [1..6]
+    let evens, odds = List.partition (fun x -> x % 2 = 0) [1;2;3;4;5;6]
+    List.length evens * 10 + List.length odds  // 3 evens, 3 odds → 33
+
+let testListPartitionEvens () : int =
+    let evens, _ = List.partition (fun x -> x % 2 = 0) [1;2;3;4;5;6]
+    List.sum evens  // 2+4+6 = 12
+
+let testListPartitionOdds () : int =
+    let _, odds = List.partition (fun x -> x % 2 = 0) [1;2;3;4;5;6]
+    List.sum odds  // 1+3+5 = 9
+
+let testListPartitionEmpty () : int =
+    let a, b = List.partition (fun x -> x > 0) ([] : int list)
+    List.length a + List.length b  // 0
+
+let testListPartitionAllTrue () : int =
+    let a, b = List.partition (fun x -> x > 0) [1;2;3]
+    List.length a * 10 + List.length b  // 3 true, 0 false → 30
+
+let testListPartitionOrder () : int =
+    // Verify order is preserved: evens [2;4;6], check first element = 2
+    let evens, _ = List.partition (fun x -> x % 2 = 0) [1;2;3;4;5;6]
+    List.head evens  // 2
+
+// ─── Array.choose ────────────────────────────────────────────────────────────
+
+let testArrayChooseBasic () : int =
+    let arr = [| 1; 2; 3; 4; 5 |]
+    let result = Array.choose (fun x -> if x % 2 = 0 then Some(x * 10) else None) arr
+    Array.sum result  // 20 + 40 = 60
+
+let testArrayChooseLength () : int =
+    let arr = [| 1; 2; 3; 4; 5; 6 |]
+    let result = Array.choose (fun x -> if x > 3 then Some x else None) arr
+    Array.length result  // 4, 5, 6 → length 3
+
+let testArrayChooseEmpty () : int =
+    let arr = [| 1; 2; 3 |]
+    let result = Array.choose (fun _x -> None : int option) arr
+    Array.length result  // 0
+
+let testArrayChooseAllSome () : int =
+    let arr = [| 1; 2; 3 |]
+    let result = Array.choose (fun x -> Some(x + 10)) arr
+    result.[0] + result.[1] + result.[2]  // 11+12+13 = 36
+
+// ─── Array.collect ───────────────────────────────────────────────────────────
+
+let testArrayCollectBasic () : int =
+    let arr = [| 1; 2; 3 |]
+    let result = Array.collect (fun x -> [| x; x * 10 |]) arr
+    Array.sum result  // (1+10)+(2+20)+(3+30) = 11+22+33 = 66
+
+let testArrayCollectLength () : int =
+    let arr = [| 1; 2; 3 |]
+    let result = Array.collect (fun x -> [| x; x |]) arr
+    Array.length result  // 3 * 2 = 6
+
+let testArrayCollectEmpty () : int =
+    let arr = [| 1; 2; 3 |]
+    let result = Array.collect (fun _x -> [||] : int[]) arr
+    Array.length result  // 0
+
+let testArrayCollectSingleton () : int =
+    let arr = [| 5; 10; 15 |]
+    let result = Array.collect (fun x -> [| x |]) arr
+    result.[0] + result.[1] + result.[2]  // 5+10+15 = 30
