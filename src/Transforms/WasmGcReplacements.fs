@@ -568,6 +568,9 @@ let private makeNumericZero (elemT: WType) =
     | WType.I64 -> WExpr.Const(WConst.I64 0L)
     | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
     | WType.F64 -> WExpr.Const(WConst.F64 0.0)
+    | WType.Ref(idx, _) ->
+        // For GC reference element types, array.new requires ref.null of the element type.
+        WExpr.Const(WConst.Null(WType.Ref(idx, true)))
     | _         -> WExpr.Const(WConst.I32 0)
 
 /// `List.foldBack f list state` — right fold.
@@ -1144,6 +1147,159 @@ let tryListTakeSkipSortInline
                                     ]))
                         ]))))
         | None -> None
+    // List.sortWith cmp xs — sort using a user-provided 2-arg comparator.
+    // Strategy: list → array; insertion sort using inlined comparator call; rebuild.
+    | "sortWith", (cmpArg :: listArg :: _) ->
+        // Unpack the comparator into (arg1, arg2, body):
+        // Fable may represent 'fun a b -> ...' as Lambda(a,Lambda(b,body)) or Delegate([a;b],body)
+        let cmpParts =
+            match cmpArg with
+            | Fable.Expr.Lambda(arg1, Fable.Expr.Lambda(arg2, body, _), _) ->
+                Some(arg1, arg2, body)
+            | Fable.Expr.Lambda(arg1, Fable.Expr.Delegate([arg2], body, _, _), _) ->
+                Some(arg1, arg2, body)
+            | Fable.Expr.Delegate([arg1; arg2], body, _, _) ->
+                Some(arg1, arg2, body)
+            | Fable.Expr.Delegate([arg1], Fable.Expr.Lambda(arg2, body, _), _, _) ->
+                Some(arg1, arg2, body)
+            | _ -> None
+        match cmpParts with
+        | None -> None
+        | Some(farg1, farg2, fbody) ->
+        match tryListTypeInfo ctx listArg with
+        | None -> None
+        | Some(elemT, consIdx) ->
+        // For sorting, we need an array. Ref-typed elements require nullable array storage
+        // to allow array.new with a null default; we cast back to non-nullable on read.
+        let (arrElemT, arrDefault) =
+            match elemT with
+            | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
+            | t -> t, makeNumericZero t
+        let readElem arrExpr idxExpr =
+            match elemT with
+            | WType.Ref(idx, false) ->
+                WExpr.Cast(WExpr.ArrayGet(arrExpr, idxExpr, arrElemT), WType.Ref(idx, false))
+            | _ -> WExpr.ArrayGet(arrExpr, idxExpr, elemT)
+        let arrTypeIdx = getOrAddArrayType ctx arrElemT
+        let arrRefT    = WType.Ref(arrTypeIdx, false)
+        let s   = mkListShape elemT consIdx
+        // Compile comparator body with both args in scope
+        let ctx'  = ctx.WithLocal(farg1.Name, elemT)
+        let ctx'' = ctx'.WithLocal(farg2.Name, elemT)
+        let wCmp  = transform ctx'' fbody   // result: i32 (negative/zero/positive)
+        let wLst  = transform ctx listArg
+        let lstVar    = "$lsw_lst"
+        let arrVar    = "$lsw_arr"
+        let lenVar    = "$lsw_len"
+        let iVar      = "$lsw_i"
+        let jVar      = "$lsw_j"
+        let eVar      = "$lsw_e"
+        let riVar     = "$lsw_ri"
+        let accVar    = "$lsw_acc"
+        let siLoopLabel = "$lsw_sil"
+        let sjLoopLabel = "$lsw_sjl"
+        let riLoopLabel = "$lsw_ril"
+        let lstGet    = WExpr.LocalGet(lstVar, s.BaseTy)
+        let arrGet    = WExpr.LocalGet(arrVar, arrRefT)
+        let lenGet    = WExpr.LocalGet(lenVar, WType.I32)
+        let iGet      = WExpr.LocalGet(iVar, WType.I32)
+        let jGet      = WExpr.LocalGet(jVar, WType.I32)
+        let eGet      = WExpr.LocalGet(eVar, elemT)
+        let riGet     = WExpr.LocalGet(riVar, WType.I32)
+        let accGet    = WExpr.LocalGet(accVar, s.BaseTy)
+        // Inline comparator: let-bind both args, then evaluate body
+        let inlineCmp aExpr bExpr =
+            WExpr.Let(farg1.Name, aExpr,
+                WExpr.Let(farg2.Name, bExpr,
+                    wCmp))
+        let countLen =
+            mkListLoop "lswlen" elemT consIdx lstGet
+                [("$lswlen_c", WExpr.Const(WConst.I32 0))]
+                (fun _ -> WExpr.Assign("$lswlen_c",
+                    WExpr.Binary(WBinaryOp.Add,
+                        WExpr.LocalGet("$lswlen_c", WType.I32),
+                        WExpr.Const(WConst.I32 1), WType.I32)))
+                (WExpr.LocalGet("$lswlen_c", WType.I32)) None
+        let fillArray =
+            mkListLoop "lswfill" elemT consIdx lstGet
+                [("$lswfill_i", WExpr.Const(WConst.I32 0))]
+                (fun h ->
+                    WExpr.Sequence [
+                        WExpr.ArraySet(arrGet, WExpr.LocalGet("$lswfill_i", WType.I32), h)
+                        WExpr.Assign("$lswfill_i",
+                            WExpr.Binary(WBinaryOp.Add,
+                                WExpr.LocalGet("$lswfill_i", WType.I32),
+                                WExpr.Const(WConst.I32 1), WType.I32))
+                    ])
+                WExpr.Nop None
+        // j-loop: shift elements right while cmp(arr[j], e) > 0
+        let sjCond =
+            WExpr.If(WExpr.Compare(WCompareOp.GeS, jGet, WExpr.Const(WConst.I32 0)),
+                WExpr.Compare(WCompareOp.GtS,
+                    inlineCmp (readElem arrGet jGet) eGet,
+                    WExpr.Const(WConst.I32 0)),
+                WExpr.Const(WConst.I32 0), WType.I32)
+        let sjStep =
+            WExpr.Sequence [
+                WExpr.ArraySet(arrGet,
+                    WExpr.Binary(WBinaryOp.Add, jGet, WExpr.Const(WConst.I32 1), WType.I32),
+                    readElem arrGet jGet)
+                WExpr.Assign(jVar,
+                    WExpr.Binary(WBinaryOp.Sub, jGet, WExpr.Const(WConst.I32 1), WType.I32))
+                WExpr.Continue(sjLoopLabel, [])
+            ]
+        let sjLoop = WExpr.Loop(sjLoopLabel,
+            WExpr.If(sjCond, sjStep, WExpr.Nop, WType.Void), WType.Void)
+        let siStep =
+            WExpr.Sequence [
+                WExpr.Let(eVar, readElem arrGet iGet,
+                    WExpr.LetMut(jVar,
+                        WExpr.Binary(WBinaryOp.Sub, iGet, WExpr.Const(WConst.I32 1), WType.I32),
+                        WExpr.Sequence [
+                            sjLoop
+                            WExpr.ArraySet(arrGet,
+                                WExpr.Binary(WBinaryOp.Add, jGet,
+                                    WExpr.Const(WConst.I32 1), WType.I32),
+                                eGet)
+                        ]))
+                WExpr.Assign(iVar,
+                    WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
+                WExpr.Continue(siLoopLabel, [])
+            ]
+        let siLoop = WExpr.Loop(siLoopLabel,
+            WExpr.If(WExpr.Compare(WCompareOp.LtS, iGet, lenGet),
+                siStep, WExpr.Nop, WType.Void),
+            WType.Void)
+        let riLoopBody =
+            WExpr.If(
+                WExpr.Compare(WCompareOp.GeS, riGet, WExpr.Const(WConst.I32 0)),
+                WExpr.Sequence [
+                    WExpr.Assign(accVar,
+                        WExpr.StructNew(consIdx,
+                            [readElem arrGet riGet; accGet],
+                            listBaseRefT))
+                    WExpr.Assign(riVar,
+                        WExpr.Binary(WBinaryOp.Sub, riGet, WExpr.Const(WConst.I32 1), WType.I32))
+                    WExpr.Continue(riLoopLabel, [])
+                ],
+                WExpr.Nop, WType.Void)
+        Some(WExpr.Let(lstVar, wLst,
+            WExpr.Let(lenVar, countLen,
+                WExpr.Let(arrVar,
+                    WExpr.ArrayNew(arrTypeIdx, lenGet, arrDefault, arrRefT),
+                    WExpr.Sequence [
+                        fillArray
+                        WExpr.LetMut(iVar, WExpr.Const(WConst.I32 1),
+                            WExpr.Sequence [siLoop])
+                        WExpr.LetMut(riVar,
+                            WExpr.Binary(WBinaryOp.Sub, lenGet,
+                                WExpr.Const(WConst.I32 1), WType.I32),
+                            WExpr.LetMut(accVar, s.Nil,
+                                WExpr.Sequence [
+                                    WExpr.Loop(riLoopLabel, riLoopBody, WType.Void)
+                                    accGet
+                                ]))
+                    ]))))
     // List.flatten xss / List.concat xss — flatten list-of-lists using listFold combinators.
     // Two nested listFolds + one final listRev restores order.
     | ("flatten" | "concat"), (listArg :: _) ->

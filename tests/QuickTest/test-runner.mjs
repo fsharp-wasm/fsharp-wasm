@@ -523,6 +523,11 @@ check("ClassCircle(5).Area() = 25",              25, exp.testClassCircleArea());
 check("ClassRect(3,7).Area() = 21",              21, exp.testClassRectArea());
 check("ICircle(3) + ClassRect(2,6) = 21",        21, exp.testMixedShapes());
 
+console.log("\n─── List.sortWith ────────────────────────────────\n");
+check("sortWith asc head = 1",  1, exp.testSortWith());
+check("sortWith desc head = 4", 4, exp.testSortWithDesc());
+check("sortWith ints head = 1", 1, exp.testSortWithInts());
+
 console.log("\n─── pown (integer exponentiation) ───────────────\n");
 check("pown 2 10 = 1024", 1024, exp.testPown2_10());
 check("pown 3 0 = 1", 1, exp.testPownZero());

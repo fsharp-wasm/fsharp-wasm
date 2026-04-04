@@ -1764,6 +1764,26 @@ let testMixedShapes () : int =
     let shapes : IShape list = [ ICircle 3 :> IShape; ClassRect(2, 6) :> IShape ]
     shapes |> List.sumBy (fun s -> s.Area())  // 9 + 12 = 21
 
+// ── List.sortWith ─────────────────────────────────────────────────────────
+
+type SWItem = { SWVal: int }
+
+/// sortWith ascending comparator: head of sorted [3;1;4;2] should be 1
+let testSortWith () : int =
+    let items = [ { SWVal = 3 }; { SWVal = 1 }; { SWVal = 4 }; { SWVal = 2 } ]
+    let sorted = List.sortWith (fun a b -> if a.SWVal < b.SWVal then -1 elif a.SWVal > b.SWVal then 1 else 0) items
+    (List.head sorted).SWVal  // 1
+
+/// sortWith descending comparator: head of sorted [3;1;4;2] should be 4
+let testSortWithDesc () : int =
+    let items = [ { SWVal = 3 }; { SWVal = 1 }; { SWVal = 4 }; { SWVal = 2 } ]
+    let sorted = List.sortWith (fun a b -> if b.SWVal < a.SWVal then -1 elif b.SWVal > a.SWVal then 1 else 0) items
+    (List.head sorted).SWVal  // 4
+
+/// sortWith on ints: head should be 1
+let testSortWithInts () : int =
+    List.sortWith (fun a b -> if a < b then -1 elif a > b then 1 else 0) [5; 3; 1; 4; 2] |> List.head  // 1
+
 // ── pown (integer exponentiation) ─────────────────────────────────────────
 
 /// Test: pown 2 10 = 1024
