@@ -2193,3 +2193,28 @@ let testArrayUnzip () : int =
     let pairs = [|(1, 4); (2, 5); (3, 6)|]
     let (xs, ys) = Array.unzip pairs
     Array.sum xs + Array.sum ys  // 6 + 15 = 21
+
+// ── Sprint 23d: more Seq, string, let mutable ────────────────────────────────
+
+let testSeqSumBy () : int =
+    [1; 2; 3; 4; 5] |> Seq.sumBy (fun x -> x * 2)  // 30
+
+let testLetMutable () : int =
+    let mutable x = 10
+    x <- x + 5
+    x <- x * 2
+    x  // 30
+
+let testLetMutableLoop () : int =
+    let mutable sum = 0
+    for i in 1..10 do
+        sum <- sum + i
+    sum  // 55
+
+let testSeqInit () : int =
+    Seq.init 5 (fun i -> i * i) |> Seq.sum  // 0+1+4+9+16 = 30
+
+let testResizeArrayIndex () : int =
+    let xs = ResizeArray<int>()
+    xs.Add(100); xs.Add(200); xs.Add(300)
+    xs.[1]  // 200

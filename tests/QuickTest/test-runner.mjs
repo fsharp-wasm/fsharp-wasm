@@ -656,6 +656,13 @@ check("Seq.toList |> sum → 60",       60, exp.testSeqToList());
 check("List.unzip, sum xs+ys → 66",  66, exp.testListUnzip());
 check("Array.unzip, sum xs+ys → 21", 21, exp.testArrayUnzip());
 
+console.log("\n─── Sprint 23d: more Seq, mutable, ResizeArray ─────");
+check("Seq.sumBy ×2 → 30",           30, exp.testSeqSumBy());
+check("let mutable, mutations → 30",  30, exp.testLetMutable());
+check("mutable + for loop → 55",      55, exp.testLetMutableLoop());
+check("Seq.init 0..4 squares → 30",   30, exp.testSeqInit());
+check("ResizeArray.[1] → 200",        200, exp.testResizeArrayIndex());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

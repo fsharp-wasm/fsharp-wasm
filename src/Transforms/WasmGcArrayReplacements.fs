@@ -71,7 +71,34 @@ let tryArrayInline
             let elemT = mapTypeKnown ctx elemFableT
             let wArr = if arrWArgIdx = 0 then w0 else w1
             let wIdx = if idxWArgIdx = 0 then w0 else w1
-            Some(WExpr.ArrayGet(wArr, wIdx, elemT))
+            // ResizeArray indexing: extract data field before calling array.get
+            let wArrFinal =
+                match arrFableArg.Type with
+                | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) ->
+                    let (arrTypeIdx, _) = getOrAddResizeArrayType ctx elemT
+                    let arrRefT = WType.Ref(arrTypeIdx, true)
+                    WExpr.Cast(WExpr.StructGet(wArr, 0, arrRefT), WType.Ref(arrTypeIdx, false))
+                | _ -> wArr
+            Some(WExpr.ArrayGet(wArrFinal, wIdx, elemT))
+        | _ -> None
+    // ResizeArray.[idx] <- v → Array.setItem(ar, idx, value)
+    | "setItem" ->
+        match fableArgs with
+        | [arrArg; _; _] ->
+            match getArrElemT arrArg.Type with
+            | Some elemFableT ->
+                let elemT = mapTypeKnown ctx elemFableT
+                match wArgs with
+                | [wArr; wIdx; wVal] ->
+                    match arrArg.Type with
+                    | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) ->
+                        let (arrTypeIdx, _) = getOrAddResizeArrayType ctx elemT
+                        let arrRefT = WType.Ref(arrTypeIdx, true)
+                        Some(WExpr.ArraySet(WExpr.Cast(WExpr.StructGet(wArr, 0, arrRefT), WType.Ref(arrTypeIdx, false)), wIdx, wVal))
+                    | _ ->
+                        Some(WExpr.ArraySet(wArr, wIdx, wVal))
+                | _ -> None
+            | None -> None
         | _ -> None
     // Array.set
     | "set" ->

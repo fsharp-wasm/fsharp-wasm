@@ -584,8 +584,8 @@ let tryListInitReplicateInline
     let null_list    = WExpr.Const(WConst.Null listBaseRefT)
     match selector, fableArgs with
     // List.init n f — Fable uses selector "initialize" (CompiledName), also accept "init"
-    // Guard: only when result is a List type (Array.init is handled by tryArrayInline)
-    | ("init" | "initialize"), _ when (match resultFableType with | Fable.Type.List _ -> true | _ -> false) ->
+    // Guard: result is List or seq/IEnumerable (DeclaredType), not raw Array (handled by tryArrayInline)
+    | ("init" | "initialize"), _ when seqElemType resultFableType |> Option.isSome ->
         let tryInitArgs () =
             match fableArgs with
             | [lenArg; (Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _))]
@@ -597,9 +597,9 @@ let tryListInitReplicateInline
         | None -> None
         | Some(nArg, farg, fbody) ->
         let resultElemFableT =
-            match resultFableType with
-            | Fable.Type.List(t) -> t
-            | _ -> fbody.Type
+            match seqElemType resultFableType with
+            | Some t -> t
+            | None   -> fbody.Type
         match tryListTypeInfoFromElemType ctx resultElemFableT with
         | None -> None
         | Some(elemT, consIdx) ->
