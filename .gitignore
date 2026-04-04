@@ -236,3 +236,4 @@ Cargo.lock
 tests/React/Components.Copied.fs
 
 output/
+docs/internal/
