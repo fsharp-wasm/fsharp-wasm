@@ -639,6 +639,13 @@ check("compare str gt → 1",            1, exp.testCompareStrGt());
 check("List.sort int asc head = 1",    1, exp.testListSortIntAsc());
 check("List.sort str asc head=apple",  1, exp.testListSortStrAsc());
 
+console.log("\n─── Sprint 22b: Map<int,int> standard F# API ───");
+check("Map.find 2 → 20",              20, exp.testStdMapFind());
+check("Map.tryFind 20 → 200",        200, exp.testStdMapTryFind());
+check("Map.tryFind miss → 0",          0, exp.testStdMapTryFindMissing());
+check("Map.containsKey 5 → 1",         1, exp.testStdMapContainsKey());
+check("Map.add+find → 20",            20, exp.testStdMapAdd());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

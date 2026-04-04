@@ -2131,3 +2131,30 @@ let testListSortIntAsc () : int =
 let testListSortStrAsc () : int =
     let sorted = List.sort ["cherry"; "apple"; "banana"]
     if List.head sorted = "apple" then 1 else 0  // 1
+
+// ─── Sprint 22b: standard F# Map<int,int> via Fable IComparer intercept ──────
+
+// Map.ofList + Map.find (find uses KnownFuncsByPath → Map_find with correct retTy)
+let testStdMapFind () : int =
+    let m = Map.ofList [(1, 10); (2, 20); (3, 30)]
+    Map.find 2 m  // 20
+
+// Map.ofList + Map.tryFind → Some → defaultValue
+let testStdMapTryFind () : int =
+    let m = Map.ofList [(10, 100); (20, 200)]
+    Map.tryFind 20 m |> Option.defaultValue 0  // 200
+
+// Map.tryFind missing key → None → 0
+let testStdMapTryFindMissing () : int =
+    let m = Map.ofList [(1, 1); (2, 2)]
+    Map.tryFind 99 m |> Option.defaultValue 0  // 0
+
+// Map.containsKey
+let testStdMapContainsKey () : int =
+    let m = Map.ofList [(5, 50); (6, 60)]
+    if Map.containsKey 5 m then 1 else 0  // 1
+
+// Map.add on top of ofList
+let testStdMapAdd () : int =
+    let m = Map.ofList [(1, 10)] |> Map.add 2 20
+    Map.find 2 m  // 20

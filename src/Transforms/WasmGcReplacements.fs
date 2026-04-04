@@ -3411,3 +3411,38 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
     | _ ->
         eprintfn "[WasmGc] WARNING: unhandled Math call '%s' — emitting I32 0" name
         WExpr.Const(WConst.I32 0)
+
+// ─────────────────────────────────────────────────────────────────
+// Map module intercept
+// ─────────────────────────────────────────────────────────────────
+/// Intercept standard F# `Map.*` calls that come through Fable's `mapModule`
+/// replacement. Two operations get an extra IComparer argument appended by
+/// Fable's `injectArg`:
+///   - `Map.ofList [pairs...]`  → `LibCall("Map", "ofList", [list; comparer])`
+///   - `Map.empty`              → `LibCall("Map", "empty",  [comparer])`
+/// We drop the comparer (it's emitted as Nop anyway) and call the compiled
+/// fable-library function directly, using the actual return type from KnownFuncs
+/// to avoid the `FSharpMap<int,int>` → `I32` fallback in mapTypeKnown.
+///
+/// All other Map operations (`add`, `find`, `tryFind`, `containsKey`) receive
+/// NO injected comparer, so they route correctly via KnownFuncsByPath as long
+/// as the actual return type is used (see the fixed fallback in Fable2WasmGc).
+let tryMapInline
+        (ctx: Ctx)
+        (importStem: string)
+        (selector: string)
+        (wArgs: WExpr list) : WExpr option =
+    if importStem <> "Map" then None
+    else
+    match selector, wArgs with
+    // Map.ofList [pairs; _comparer] — drop injected comparer, call Map_ofList(list)
+    | "ofList", [wList; _comparer] ->
+        match Map.tryFind "Map_ofList" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Map_ofList", [wList], retTy))
+        | None -> None
+    // Map.empty [_comparer] — drop injected comparer, call Map_empty()
+    | "empty", [_comparer] ->
+        match Map.tryFind "Map_empty" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Map_empty", [], retTy))
+        | None -> None
+    | _ -> None

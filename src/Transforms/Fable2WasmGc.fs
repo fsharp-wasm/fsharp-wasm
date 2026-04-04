@@ -1022,6 +1022,7 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             | None -> wArgs
         // ── Higher-order list/option/array/result combinators — delegated to WasmGcReplacements ──
         let sel = importInfo.Selector
+        let importStem = System.IO.Path.GetFileNameWithoutExtension(importInfo.Path)
         let r =
             tryFirst [
                 fun () -> tryListFoldInline          transformExpr ctx sel info.Args
@@ -1038,6 +1039,8 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 fun () -> tryListExistsForAllInline   transformExpr ctx sel info.Args
                 fun () -> tryOptionInline             transformExpr ctx sel info.Args ty
                 fun () -> tryResultInline             transformExpr ctx sel info.Args ty
+                // ── Map module: drop injected IComparer for ofList/empty ───────────────
+                fun () -> tryMapInline               ctx importStem sel wArgs
                 // ── Array module primitives ────────────────────────────────────────────
                 fun () -> tryArrayInline              transformExpr ctx sel info.Args wArgs typ
                 // ── List/Option primitives ─────────────────────────────────────────────
@@ -1351,7 +1354,7 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$parseFloat"), [str], WType.F64), WType.F32)
         // Fallback: if the selector names a function compiled from a library
         // file earlier in this project (in ctx.KnownFuncs), emit a direct call.
-        // This handles same-project cross-file calls (e.g. MapModule.add).
+        // This handles same-project cross-file calls (e.g. Map.add → Map_add).
         | selector, _, _ ->
             // Use the import path to find the module-qualified function name.
             // importInfo.Path = e.g. "../fable-library-wasmgc/Map.fs" → stem = "Map"
@@ -1361,7 +1364,14 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 | Some qualName -> qualName
                 | None -> selector  // fallback to short name (handles non-library or unknown)
             match Map.tryFind actualName ctx.KnownFuncs with
-            | Some _ -> WExpr.Call(actualName, wArgs, ty)
+            | Some (_, retTy) ->
+                // Use the actual compiled return type (retTy) rather than the Fable-annotated
+                // type (ty). This is critical for generic collection types like Map<int,int>
+                // whose Fable type maps to I32 (unknown DeclaredType) but whose WasmGC
+                // return type is Ref(MapBaseTypeIdx, false). Using the wrong type here causes
+                // local variables to be typed incorrectly, breaking downstream lookups.
+                let effectiveTy = if retTy = WType.Void then ty else retTy
+                WExpr.Call(actualName, wArgs, effectiveTy)
             | None ->
             // ── External Wasm FFI — [<Import("name","module")>] on nativeOnly ──────────
             // When the path has no .fs extension and no fable-library, treat as a Wasm import.

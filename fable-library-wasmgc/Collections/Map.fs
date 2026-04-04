@@ -51,3 +51,19 @@ let rec containsKey (key: int) (tree: MapNode) : bool =
         if key < k then containsKey key l
         elif key > k then containsKey key r
         else true
+
+/// Return value for key; 0 if not found (KeyNotFoundException not yet supported).
+let find (key: int) (tree: MapNode) : int =
+    match tryFind key tree with
+    | Some v -> v
+    | None   -> 0   // TODO: raise KeyNotFoundException in a future sprint
+
+/// Build a map from a list of (key, value) pairs.
+/// The IComparer argument injected by Fable is dropped at the call site in
+/// tryMapInline (WasmGcReplacements.fs); this function receives only the list.
+let rec private ofListAcc (acc: MapNode) (pairs: (int * int) list) : MapNode =
+    match pairs with
+    | [] -> acc
+    | (k, v) :: rest -> ofListAcc (add k v acc) rest
+
+let ofList (pairs: (int * int) list) : MapNode = ofListAcc Empty pairs
