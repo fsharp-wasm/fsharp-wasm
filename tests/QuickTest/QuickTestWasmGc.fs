@@ -2251,3 +2251,20 @@ let (|Even|Odd|) n = if n % 2 = 0 then Even else Odd
 let testActivePattern () : int =
     let classify n = match n with Even -> 0 | Odd -> 1
     [1; 2; 3; 4; 5] |> List.sumBy classify  // 1+0+1+0+1 = 3
+
+// ── Sprint 23f: string ops, sprintf, more collections ────────────────────────
+
+let testStringConcat () : int =
+    let s = "hello" + " " + "world"
+    String.length s  // 11
+
+let testStringInterp () : int =
+    let name = "Alice"
+    let s = $"Hello {name}!"
+    String.length s  // 12
+
+let testSeqDistinct () : int =
+    [1; 2; 2; 3; 3; 3; 4] |> Seq.distinct |> Seq.length  // 4
+
+let testListDistinctBy () : int =
+    [1; 2; 3; 4; 5; 6] |> List.distinctBy (fun x -> x % 3) |> List.length  // 3

@@ -670,6 +670,12 @@ check("List.groupBy 2 groups → 2",         2, exp.testListGroupBy());
 check("Recursive DU eval → 25",           25, exp.testRecursiveDU());
 check("Active pattern classify → 3",       3, exp.testActivePattern());
 
+console.log("\n─── Sprint 23f: string ops, more collections ─────");
+check("string concat length → 11",        11, exp.testStringConcat());
+check("string interp length → 12",        12, exp.testStringInterp());
+check("Seq.distinct 4 distinct → 4",       4, exp.testSeqDistinct());
+check("List.distinctBy 3 groups → 3",      3, exp.testListDistinctBy());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
