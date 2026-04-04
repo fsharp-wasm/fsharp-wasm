@@ -566,6 +566,14 @@ check("sb grow beyond initial cap",     20, exp.testSbGrow());
 check("sb toString content correct",    1,  exp.testSbToStringContent());
 check("sb 5 chained appends length",    5,  exp.testSbChained());
 
+console.log("\n─── Math.Atan2 ────────────────────────────────────\n");
+check("atan2(0,  1) × 1e6 = 0",        0,        exp.testAtan2Origin());
+check("atan2(1,  1) × 1e6 ≈ 785398",   785398,   exp.testAtan2PosX());
+check("atan2(0, -1) × 1e6 ≈ 3141593",  3141593,  exp.testAtan2NegX());
+check("atan2(1,  0) × 1e6 ≈ 1570796",  1570796,  exp.testAtan2PosY());
+check("atan2(-1, 0) × 1e6 ≈ -1570796", -1570796, exp.testAtan2NegY());
+check("atan2(-1,-1) × 1e6 ≈ -2356194", -2356194, exp.testAtan2Q3());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

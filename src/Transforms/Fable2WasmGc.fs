@@ -1101,9 +1101,10 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // Math.Exp(x) / Math.Log(x) / Math.Sin(x) / Math.Cos(x) / Math.Tan(x) — software polynomial implementations (no native WASM trig ops)
         | "exp", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathExp"), [arg], WType.F64)
         | "log", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathLog"), [arg], WType.F64)
-        | "sin", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathSin"), [arg], WType.F64)
-        | "cos", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathCos"), [arg], WType.F64)
-        | "tan", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathTan"), [arg], WType.F64)
+        | "sin",  [arg],        _ -> WExpr.Call(ctx.UseHelper("$mathSin"),  [arg],       WType.F64)
+        | "cos",  [arg],        _ -> WExpr.Call(ctx.UseHelper("$mathCos"),  [arg],       WType.F64)
+        | "tan",  [arg],        _ -> WExpr.Call(ctx.UseHelper("$mathTan"),  [arg],       WType.F64)
+        | "atan2", [y; x],      _ -> WExpr.Call(ctx.UseHelper("$mathAtan2"), [y; x],     WType.F64)
         // BitOperations: LeadingZeroCount → Math.clz32 (intercepted here); TrailingZeroCount/PopCount come as LibCall
         | "trailingZeroCount", [arg], _ -> WExpr.Unary(WUnaryOp.Ctz,    arg, WType.I32)
         | "popCount",          [arg], _ -> WExpr.Unary(WUnaryOp.Popcnt, arg, WType.I32)
@@ -1558,6 +1559,9 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "tan" ->
         WExpr.Call(ctx.UseHelper("$mathTan"), wArgs, WType.F64)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "atan2" ->
+        WExpr.Call(ctx.UseHelper("$mathAtan2"), wArgs, WType.F64)
     // BitOperations.LeadingZeroCount → Math.clz32 (GlobalCall "Math" route)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "clz32" ->
@@ -2083,6 +2087,7 @@ let buildWModule (ctx: Ctx) : WModule =
                   "$mathSin",           WasmGcRuntime.makeMathSinHelper
                   "$mathCos",           WasmGcRuntime.makeMathCosHelper
                   "$mathTan",           WasmGcRuntime.makeMathTanHelper
+                  "$mathAtan2",         WasmGcRuntime.makeMathAtan2Helper
                   // ── StringBuilder helpers ─────────────────────────────────
                   "$sbCreate",          WasmGcRuntime.makeStringBuilderCreateHelper
                   "$sbAppend",          WasmGcRuntime.makeStringBuilderAppendHelper

@@ -645,6 +645,39 @@ let makeMathTanHelper () : WFuncDecl =
             let cosR = 1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-5 + t * (-2.7557319223985888e-7 + t * 2.08767569878681e-9)))))
             sinR / cosR @>
 
+let makeMathAtan2Helper () : WFuncDecl =
+    q "$mathAtan2"
+        <@ fun (y: float) (x: float) ->
+            let pi       = 3.141592653589793
+            let halfPi   = 1.5707963267948966
+            if y = 0.0 then
+                if x >= 0.0 then 0.0 else pi
+            elif x = 0.0 then
+                if y > 0.0 then halfPi else -halfPi
+            else
+                let absX    = if x < 0.0 then -x else x
+                let absY    = if y < 0.0 then -y else  y
+                let swapped = absY > absX
+                let t       = if swapped then absX / absY else absY / absX
+                // Range-reduce to [0, tan(π/8)] ≈ [0, 0.4142] via
+                // atan(t) = π/4 + atan((t-1)/(t+1)) when t > tan(π/8)
+                let k       = 0.41421356237309515
+                let pi4     = 0.7853981633974483
+                let mutable a    = t
+                let mutable adj  = 0.0
+                if t > k then
+                    a    <- (t - 1.0) / (t + 1.0)
+                    adj  <- pi4
+                // 6-term Taylor for atan(a), |a| ≤ 0.4142 — error < 1e-7
+                let a2  = a * a
+                let poly = a * (1.0 + a2 * (-0.3333333333333333 + a2 * (0.2 - a2 * (0.14285714285714285 - a2 * (0.1111111111111111 - a2 * 0.09090909090909091)))))
+                let a0   = adj + poly
+                // Undo swap: atan(absY/absX) = π/2 − atan(absX/absY) when swapped
+                let a1   = if swapped then halfPi - a0 else a0
+                // Quadrant correction for x < 0
+                let a2r  = if x < 0.0 then pi - a1 else a1
+                if y < 0.0 then -a2r else a2r @>
+
 // ─── StringBuilder runtime helpers (Tier 1 — phantom struct intrinsics) ──────
 
 /// $sbCreate(cap) → $StringBuilder  — allocate with given initial capacity.

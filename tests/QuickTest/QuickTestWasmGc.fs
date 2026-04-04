@@ -1874,3 +1874,32 @@ let testSbChained () : int =
     sb.Append("d") |> ignore
     sb.Append("e") |> ignore
     sb.Length  // 5
+
+// ─── Math.Atan2 ───────────────────────────────────────────────────────────────
+// We compare floats rounded to 6 decimal places to avoid fp noise.
+let private roundTo6 (x: float) : int =
+    int (System.Math.Round(x * 1_000_000.0))
+
+let testAtan2Origin () : int =
+    // atan2(0, 1) = 0
+    roundTo6 (System.Math.Atan2(0.0, 1.0))  // 0
+
+let testAtan2PosX () : int =
+    // atan2(1, 1) ≈ π/4 ≈ 0.785398
+    roundTo6 (System.Math.Atan2(1.0, 1.0))  // 785398
+
+let testAtan2NegX () : int =
+    // atan2(0, -1) = π ≈ 3.141593
+    roundTo6 (System.Math.Atan2(0.0, -1.0))  // 3141593
+
+let testAtan2PosY () : int =
+    // atan2(1, 0) = π/2 ≈ 1.570796
+    roundTo6 (System.Math.Atan2(1.0, 0.0))  // 1570796
+
+let testAtan2NegY () : int =
+    // atan2(-1, 0) = -π/2 ≈ -1.570796
+    roundTo6 (System.Math.Atan2(-1.0, 0.0))  // -1570796
+
+let testAtan2Q3 () : int =
+    // atan2(-1, -1) ≈ -3π/4 ≈ -2.356194
+    roundTo6 (System.Math.Atan2(-1.0, -1.0))  // -2356194
