@@ -662,6 +662,8 @@ check("let mutable, mutations → 30",  30, exp.testLetMutable());
 check("mutable + for loop → 55",      55, exp.testLetMutableLoop());
 check("Seq.init 0..4 squares → 30",   30, exp.testSeqInit());
 check("ResizeArray.[1] → 200",        200, exp.testResizeArrayIndex());
+check("Seq.pairwise diffs → 4",          4, exp.testSeqPairwise());
+check("Seq.countBy 2 groups → 2",         2, exp.testSeqCountBy());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

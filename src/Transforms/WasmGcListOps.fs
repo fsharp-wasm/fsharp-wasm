@@ -764,7 +764,11 @@ let tryListPrimitiveInline
     | "length", [wList] when ty = WType.I32 ->
         let innerElemFableType =
             match fableArgs with
-            | [a] -> (match a.Type with | Fable.Type.List(t) -> t | _ -> Fable.Type.Any)
+            | [a] ->
+                match a.Type with
+                | Fable.Type.List(t)               -> t
+                | Fable.Type.DeclaredType(_, [t])  -> t
+                | _                                -> Fable.Type.Any
             | _ -> Fable.Type.Any
         let innerElemWType = mapTypeKnown ctx innerElemFableType
         let elemKey = wTypeKey innerElemWType

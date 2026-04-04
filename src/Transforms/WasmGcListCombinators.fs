@@ -679,6 +679,209 @@ let tryListInitReplicateInline
 // List.unzip  ─ single pass + two reversal passes
 // ─────────────────────────────────────────────────────────────────
 
+/// `Seq.pairwise : seq<'a> → seq<'a * 'a>`
+/// Forward pass builds a reversed list of (prev,cur) pairs while tracking prev.
+/// Reverse pass restores order.
+let tryListPairwiseInline
+        (transform: TransformFn)
+        (ctx: Ctx)
+        (selector: string)
+        (fableArgs: Fable.Expr list)
+        (resultFableType: Fable.Type) : WExpr option =
+    match selector, fableArgs with
+    | "pairwise", [listArg] ->
+        let inputElemFT =
+            match seqElemType listArg.Type with
+            | Some t -> t
+            | None   -> Fable.Type.Any
+        match tryListTypeInfo ctx listArg with
+        | None -> None
+        | Some(elemWT, inConsIdx) ->
+        // Register the output pair tuple and list types
+        let pairFT   = Fable.Type.Tuple([inputElemFT; inputElemFT], false)
+        let pairWT   = mapTypeKnown ctx pairFT           // Ref(tupleIdx, false)
+        let _        = mapTypeKnown ctx (Fable.Type.List(pairFT))
+        match tryListTypeInfoFromElemType ctx pairFT with
+        | None -> None
+        | Some(_, outConsIdx) ->
+        let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
+        let inNNRefT     = WType.Ref(inConsIdx, false)
+        let tupleIdx     = match pairWT with | WType.Ref(i, _) -> i | _ -> 0
+        let tupleRefT    = WType.Ref(tupleIdx, false)
+        let null_list    = WExpr.Const(WConst.Null listBaseRefT)
+        let wList        = transform ctx listArg
+        let inp  = "$pw_inp"
+        let nnin = "$pw_nn"
+        let prev = "$pw_prev"
+        let acc  = "$pw_acc"
+        let it   = "$pw_it"
+        let out  = "$pw_out"
+        // Forward loop: starting from the TAIL of the input.
+        // Body: cons (prev, cur) onto acc; update prev.
+        let fwdBody h =
+            WExpr.Let(it, h,
+                WExpr.Sequence [
+                    WExpr.Assign(acc,
+                        WExpr.StructNew(outConsIdx,
+                            [WExpr.StructNew(tupleIdx,
+                                [WExpr.LocalGet(prev, elemWT);
+                                 WExpr.LocalGet(it, elemWT)],
+                                tupleRefT);
+                             WExpr.LocalGet(acc, listBaseRefT)],
+                            listBaseRefT))
+                    WExpr.Assign(prev, WExpr.LocalGet(it, elemWT))
+                ])
+        // Reverse the accumulated (reversed) pair list
+        let revLoop =
+            mkListLoop "pwrev" pairWT outConsIdx
+                (WExpr.LocalGet(acc, listBaseRefT))
+                [(out, null_list)]
+                (fun h -> WExpr.Assign(out,
+                    WExpr.StructNew(outConsIdx,
+                        [h; WExpr.LocalGet(out, listBaseRefT)],
+                        listBaseRefT)))
+                (WExpr.LocalGet(out, listBaseRefT)) None
+        // Outer structure: null-check input, extract head as prev, walk tail
+        let body =
+            WExpr.Let(inp, wList,
+                WExpr.If(
+                    WExpr.RefIsNull(WExpr.LocalGet(inp, listBaseRefT)),
+                    null_list,
+                    WExpr.Let(nnin, WExpr.Cast(WExpr.LocalGet(inp, listBaseRefT), inNNRefT),
+                        WExpr.LetMut(prev,
+                            WExpr.StructGet(WExpr.LocalGet(nnin, inNNRefT), 0, elemWT),
+                            WExpr.LetMut(acc, null_list,
+                                WExpr.Sequence [
+                                    mkListLoop "pwfwd" elemWT inConsIdx
+                                        (WExpr.StructGet(WExpr.LocalGet(nnin, inNNRefT), 1, listBaseRefT))
+                                        [] fwdBody WExpr.Nop None
+                                    revLoop
+                                ]))),
+                    listBaseRefT))
+        Some body
+    | _ -> None
+
+/// `Seq.countBy : ('a → 'key) → seq<'a> → seq<'key * int>`
+/// For I32-compatible keys (bool, int): uses parallel I32 arrays to accumulate counts.
+/// Returns a list of (key, count) in first-occurrence order.
+let tryListCountByInline
+        (transform: TransformFn)
+        (ctx: Ctx)
+        (selector: string)
+        (fableArgs: Fable.Expr list)
+        (resultFableType: Fable.Type) : WExpr option =
+    match selector, fableArgs with
+    | "countBy", ((Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)) :: listArg :: _) ->
+        // Only handle I32 key types (bool, int, enum, char)
+        let keyWT = mapTypeKnown ctx fbody.Type
+        if keyWT <> WType.I32 then None
+        else
+        match tryListTypeInfo ctx listArg with
+        | None -> None
+        | Some(elemWT, inConsIdx) ->
+        // Output pair type: (key * int)
+        let intFT  = Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)
+        let pairFT = Fable.Type.Tuple([fbody.Type; intFT], false)
+        let pairWT = mapTypeKnown ctx pairFT
+        let _      = mapTypeKnown ctx (Fable.Type.List(pairFT))
+        match tryListTypeInfoFromElemType ctx pairFT with
+        | None -> None
+        | Some(_, outConsIdx) ->
+        let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
+        let null_list    = WExpr.Const(WConst.Null listBaseRefT)
+        let tupleIdx     = match pairWT with | WType.Ref(i, _) -> i | _ -> 0
+        let tupleRefT    = WType.Ref(tupleIdx, false)
+        let zero32       = WExpr.Const(WConst.I32 0)
+        let one32        = WExpr.Const(WConst.I32 1)
+        let capacity     = 64
+        let i32ArrIdx    = getOrAddArrayType ctx WType.I32
+        let i32ArrRefT   = WType.Ref(i32ArrIdx, false)
+        let keysVar = "$cntb_keys"
+        let cntsVar = "$cntb_cnts"
+        let nVar    = "$cntb_n"
+        let kVar    = "$cntb_k"
+        let iVar    = "$cntb_i"
+        let outVar  = "$cntb_out"
+        let wList   = transform ctx listArg
+        let ctx'    = ctx.WithLocal(farg.Name, elemWT)
+        let kGet    = WExpr.LocalGet(kVar, WType.I32)
+        let nGet    = WExpr.LocalGet(nVar, WType.I32)
+        let iGet    = WExpr.LocalGet(iVar, WType.I32)
+        let keysGet = WExpr.LocalGet(keysVar, i32ArrRefT)
+        let cntsGet = WExpr.LocalGet(cntsVar, i32ArrRefT)
+        // Inner scan loop: search keys[0..n-1] for k
+        let scanLoop =
+            WExpr.Sequence [
+                WExpr.Assign(iVar, zero32)
+                WExpr.Loop("$cntb_scan",
+                    WExpr.If(
+                        WExpr.Compare(WCompareOp.LtS, iGet, nGet),
+                        WExpr.If(
+                            WExpr.Compare(WCompareOp.Eq, WExpr.ArrayGet(keysGet, iGet, WType.I32), kGet),
+                            // Found at i: increment, done
+                            WExpr.ArraySet(cntsGet, iGet,
+                                WExpr.Binary(WBinaryOp.Add, WExpr.ArrayGet(cntsGet, iGet, WType.I32), one32, WType.I32)),
+                            // Not found at i: i++, continue
+                            WExpr.Sequence [
+                                WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, one32, WType.I32))
+                                WExpr.Continue("$cntb_scan", [])
+                            ],
+                            WType.Void),
+                        // i >= n: add new entry
+                        WExpr.Sequence [
+                            WExpr.ArraySet(keysGet, nGet, kGet)
+                            WExpr.ArraySet(cntsGet, nGet, one32)
+                            WExpr.Assign(nVar, WExpr.Binary(WBinaryOp.Add, nGet, one32, WType.I32))
+                        ],
+                        WType.Void),
+                    WType.Void)
+            ]
+        // Forward walk over input: compute key, scan/update
+        let fwdLoop =
+            mkListLoop "cntbfwd" elemWT inConsIdx wList []
+                (fun h ->
+                    WExpr.Sequence [
+                        WExpr.Assign(kVar, WExpr.Let(farg.Name, h, transform ctx' fbody))
+                        scanLoop
+                    ])
+                WExpr.Nop None
+        // Build result list in first-occurrence order:
+        // Walk i from n-1 down to 0, consing (keys[i], cnts[i]) pairs
+        let buildResult =
+            WExpr.LetMut(iVar,
+                WExpr.Binary(WBinaryOp.Sub, nGet, one32, WType.I32),
+                WExpr.LetMut(outVar, null_list,
+                    WExpr.Sequence [
+                        WExpr.Loop("$cntb_build",
+                            WExpr.If(
+                                WExpr.Compare(WCompareOp.GeS, iGet, zero32),
+                                WExpr.Sequence [
+                                    WExpr.Assign(outVar,
+                                        WExpr.StructNew(outConsIdx,
+                                            [WExpr.StructNew(tupleIdx,
+                                                [WExpr.ArrayGet(keysGet, iGet, WType.I32);
+                                                 WExpr.ArrayGet(cntsGet, iGet, WType.I32)],
+                                                tupleRefT);
+                                             WExpr.LocalGet(outVar, listBaseRefT)],
+                                            listBaseRefT))
+                                    WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Sub, iGet, one32, WType.I32))
+                                    WExpr.Continue("$cntb_build", [])
+                                ],
+                                WExpr.Nop, WType.Void),
+                            WType.Void)
+                        WExpr.LocalGet(outVar, listBaseRefT)
+                    ]))
+        let body =
+            WExpr.Let(keysVar,
+                WExpr.ArrayNew(i32ArrIdx, WExpr.Const(WConst.I32 capacity), zero32, i32ArrRefT),
+                WExpr.Let(cntsVar,
+                    WExpr.ArrayNew(i32ArrIdx, WExpr.Const(WConst.I32 capacity), zero32, i32ArrRefT),
+                    WExpr.LetMut(nVar, zero32,
+                        WExpr.LetMut(kVar, zero32,
+                            WExpr.Sequence [fwdLoop; buildResult]))))
+        Some body
+    | _ -> None
+
 /// `List.unzip : ('a * 'b) list → 'a list * 'b list`
 /// Single forward pass builds reversed acc lists; two reversal passes restore order.
 let tryListUnzipInline

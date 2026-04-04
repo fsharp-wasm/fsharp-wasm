@@ -1151,6 +1151,8 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 fun () -> tryListIterInline           transformExpr ctx sel info.Args
                 fun () -> tryListExistsForAllInline   transformExpr ctx sel info.Args
                 fun () -> tryListUnzipInline          transformExpr ctx sel info.Args typ
+                fun () -> tryListPairwiseInline       transformExpr ctx sel info.Args typ
+                fun () -> tryListCountByInline        transformExpr ctx sel info.Args typ
                 fun () -> tryOptionInline             transformExpr ctx sel info.Args ty
                 fun () -> tryResultInline             transformExpr ctx sel info.Args ty
                 // ── Map module: drop injected IComparer for ofList/empty ───────────────
