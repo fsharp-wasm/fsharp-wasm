@@ -1154,6 +1154,8 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 fun () -> tryListPairwiseInline       transformExpr ctx sel info.Args typ
                 fun () -> tryListCountByInline        transformExpr ctx sel info.Args typ
                 fun () -> tryListGroupByInline        transformExpr ctx sel info.Args typ
+                fun () -> tryListDistinctInline       transformExpr ctx sel info.Args typ
+                fun () -> tryListDistinctByInline     transformExpr ctx sel info.Args typ
                 fun () -> tryOptionInline             transformExpr ctx sel info.Args ty
                 fun () -> tryResultInline             transformExpr ctx sel info.Args ty
                 // ── Map module: drop injected IComparer for ofList/empty ───────────────
@@ -1404,14 +1406,22 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         | "printf", (str :: _), _ -> str  // with format holes, best-effort pass-through
         | "toConsoleError", [str], _ ->
             WExpr.Call("consolePrint", [str], WType.Void)
-        // String concat: String.concat([str1; str2; ...]) → fold $strConcat
-        // hasSpread=true so args[0] may be an array; handle simple 2-arg case
-        | "concat", [WExpr.ArrayNewFixed(_, [a; b], _)], _ ->
+        // String concat: fold any N strings via $strConcat
+        // hasSpread=true causes Fable to wrap args into ArrayNewFixed; handle both forms.
+        | "concat", [WExpr.ArrayNewFixed(_, items, _)], _ ->
             let strRef = WType.Ref(StringTypeIdx, false)
-            WExpr.Call(ctx.UseHelper("$strConcat"), [a; b], strRef)
-        | "concat", [a; b], _ ->
+            let foldConcat ss =
+                match ss with
+                | [] -> WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
+                | [s] -> s
+                | h :: t -> t |> List.fold (fun acc s -> WExpr.Call(ctx.UseHelper("$strConcat"), [acc; s], strRef)) h
+            foldConcat items
+        | "concat", args, _ when not (List.isEmpty args) ->
             let strRef = WType.Ref(StringTypeIdx, false)
-            WExpr.Call(ctx.UseHelper("$strConcat"), [a; b], strRef)
+            match args with
+            | [s] -> s
+            | h :: t -> t |> List.fold (fun acc s -> WExpr.Call(ctx.UseHelper("$strConcat"), [acc; s], strRef)) h
+            | [] -> WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
         // ── BigInt/Int64 conversion helpers ─────────────────────────────────────
         // In WasmGC, I64 is native, so BigInt intermediaries become no-ops or simple converts.
         // fromInt32(x : I32) → I64   →  i64.extend_i32_s

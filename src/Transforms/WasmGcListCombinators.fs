@@ -1037,6 +1037,194 @@ let tryListGroupByInline
     | _ -> None
 
 
+/// `Seq.distinct : seq<'a> → seq<'a>`
+/// Keeps the first occurrence of each element. I32 elements only.
+let tryListDistinctInline
+        (transform: TransformFn)
+        (ctx: Ctx)
+        (selector: string)
+        (fableArgs: Fable.Expr list)
+        (resultFableType: Fable.Type) : WExpr option =
+    match selector, fableArgs with
+    | "distinct", (listArg :: _) ->
+        let elemFT = match seqElemType listArg.Type with Some t -> t | None -> Fable.Type.Any
+        let elemWT = mapTypeKnown ctx elemFT
+        if elemWT <> WType.I32 then None
+        else
+        match tryListTypeInfo ctx listArg with
+        | None -> None
+        | Some(_, inConsIdx) ->
+        match tryListTypeInfoFromElemType ctx elemFT with
+        | None -> None
+        | Some(_, outConsIdx) ->
+        let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
+        let null_list    = WExpr.Const(WConst.Null listBaseRefT)
+        let zero32       = WExpr.Const(WConst.I32 0)
+        let one32        = WExpr.Const(WConst.I32 1)
+        let capacity     = 64
+        let i32ArrIdx    = getOrAddArrayType ctx WType.I32
+        let i32ArrRefT   = WType.Ref(i32ArrIdx, false)
+        let seenVar = "$dst_seen"
+        let nVar    = "$dst_n"
+        let iVar    = "$dst_i"
+        let eVar    = "$dst_e"
+        let revVar  = "$dst_rev"
+        let outVar  = "$dst_out"
+        let nGet    = WExpr.LocalGet(nVar, WType.I32)
+        let iGet    = WExpr.LocalGet(iVar, WType.I32)
+        let eGet    = WExpr.LocalGet(eVar, WType.I32)
+        let seenGet = WExpr.LocalGet(seenVar, i32ArrRefT)
+        let revGet  = WExpr.LocalGet(revVar, listBaseRefT)
+        let outGet  = WExpr.LocalGet(outVar, listBaseRefT)
+        let wList   = transform ctx listArg
+        // Inner scan: walk seen[0..n-1] for e; after loop iVar = n if new, < n if seen
+        let scanLoop =
+            WExpr.Sequence [
+                WExpr.Assign(iVar, zero32)
+                WExpr.Loop("$dst_scan",
+                    WExpr.If(
+                        WExpr.Compare(WCompareOp.LtS, iGet, nGet),
+                        WExpr.If(
+                            WExpr.Compare(WCompareOp.Eq, WExpr.ArrayGet(seenGet, iGet, WType.I32), eGet),
+                            WExpr.Nop,  // found: leave iVar < n
+                            WExpr.Sequence [
+                                WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, one32, WType.I32))
+                                WExpr.Continue("$dst_scan", [])
+                            ],
+                            WType.Void),
+                        WExpr.Nop, WType.Void),
+                    WType.Void)
+            ]
+        // Forward walk: cons new elements (reversed order) into revVar
+        let fwdLoop =
+            mkListLoop "dstfwd" elemWT inConsIdx wList []
+                (fun h ->
+                    WExpr.Sequence [
+                        WExpr.Assign(eVar, h)
+                        scanLoop
+                        WExpr.If(
+                            WExpr.Compare(WCompareOp.Eq, iGet, nGet),  // i == n → new
+                            WExpr.Sequence [
+                                WExpr.ArraySet(seenGet, nGet, eGet)
+                                WExpr.Assign(nVar, WExpr.Binary(WBinaryOp.Add, nGet, one32, WType.I32))
+                                WExpr.Assign(revVar, WExpr.StructNew(outConsIdx, [eGet; revGet], listBaseRefT))
+                            ],
+                            WExpr.Nop, WType.Void)
+                    ])
+                WExpr.Nop None
+        // Reverse revVar → outVar (restores first-occurrence order)
+        let revLoop =
+            mkListLoop "dstrev" WType.I32 outConsIdx revGet
+                [(outVar, null_list)]
+                (fun h ->
+                    WExpr.Assign(outVar, WExpr.StructNew(outConsIdx, [h; outGet], listBaseRefT)))
+                outGet None
+        let body =
+            WExpr.Let(seenVar,
+                WExpr.ArrayNew(i32ArrIdx, WExpr.Const(WConst.I32 capacity), zero32, i32ArrRefT),
+                WExpr.LetMut(nVar, zero32,
+                    WExpr.LetMut(iVar, zero32,
+                        WExpr.LetMut(eVar, zero32,
+                            WExpr.LetMut(revVar, null_list,
+                                WExpr.Sequence [fwdLoop; revLoop])))))
+        Some body
+    | _ -> None
+
+/// `List.distinctBy : ('a → 'key) → 'a list → 'a list`
+/// Keeps first occurrence of each I32-compatible key. Element type may be any.
+let tryListDistinctByInline
+        (transform: TransformFn)
+        (ctx: Ctx)
+        (selector: string)
+        (fableArgs: Fable.Expr list)
+        (resultFableType: Fable.Type) : WExpr option =
+    match selector, fableArgs with
+    | "List_distinctBy", ((Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)) :: listArg :: _) ->
+        let keyWT = mapTypeKnown ctx fbody.Type
+        if keyWT <> WType.I32 then None
+        else
+        match tryListTypeInfo ctx listArg with
+        | None -> None
+        | Some(elemWT, inConsIdx) ->
+        let elemFT = match seqElemType listArg.Type with Some t -> t | None -> Fable.Type.Any
+        match tryListTypeInfoFromElemType ctx elemFT with
+        | None -> None
+        | Some(_, outConsIdx) ->
+        let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
+        let null_list    = WExpr.Const(WConst.Null listBaseRefT)
+        let zero32       = WExpr.Const(WConst.I32 0)
+        let one32        = WExpr.Const(WConst.I32 1)
+        let capacity     = 64
+        let i32ArrIdx    = getOrAddArrayType ctx WType.I32
+        let i32ArrRefT   = WType.Ref(i32ArrIdx, false)
+        let seenVar = "$dstby_seen"
+        let nVar    = "$dstby_n"
+        let kVar    = "$dstby_k"
+        let iVar    = "$dstby_i"
+        let revVar  = "$dstby_rev"
+        let outVar  = "$dstby_out"
+        let nGet    = WExpr.LocalGet(nVar, WType.I32)
+        let iGet    = WExpr.LocalGet(iVar, WType.I32)
+        let kGet    = WExpr.LocalGet(kVar, WType.I32)
+        let seenGet = WExpr.LocalGet(seenVar, i32ArrRefT)
+        let revGet  = WExpr.LocalGet(revVar, listBaseRefT)
+        let outGet  = WExpr.LocalGet(outVar, listBaseRefT)
+        let wList   = transform ctx listArg
+        let ctx'    = ctx.WithLocal(farg.Name, elemWT)
+        // Inner scan: walk seenKeys[0..n-1] for k; iVar = n if new
+        let scanLoop =
+            WExpr.Sequence [
+                WExpr.Assign(iVar, zero32)
+                WExpr.Loop("$dstby_scan",
+                    WExpr.If(
+                        WExpr.Compare(WCompareOp.LtS, iGet, nGet),
+                        WExpr.If(
+                            WExpr.Compare(WCompareOp.Eq, WExpr.ArrayGet(seenGet, iGet, WType.I32), kGet),
+                            WExpr.Nop,  // found
+                            WExpr.Sequence [
+                                WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, one32, WType.I32))
+                                WExpr.Continue("$dstby_scan", [])
+                            ],
+                            WType.Void),
+                        WExpr.Nop, WType.Void),
+                    WType.Void)
+            ]
+        // Forward walk: compute key, if new key cons element (reversed) into revVar
+        let fwdLoop =
+            mkListLoop "dstbyfwd" elemWT inConsIdx wList []
+                (fun h ->
+                    WExpr.Let(farg.Name, h,
+                        WExpr.Sequence [
+                            WExpr.Assign(kVar, transform ctx' fbody)
+                            scanLoop
+                            WExpr.If(
+                                WExpr.Compare(WCompareOp.Eq, iGet, nGet),
+                                WExpr.Sequence [
+                                    WExpr.ArraySet(seenGet, nGet, kGet)
+                                    WExpr.Assign(nVar, WExpr.Binary(WBinaryOp.Add, nGet, one32, WType.I32))
+                                    WExpr.Assign(revVar, WExpr.StructNew(outConsIdx, [WExpr.LocalGet(farg.Name, elemWT); revGet], listBaseRefT))
+                                ],
+                                WExpr.Nop, WType.Void)
+                        ]))
+                WExpr.Nop None
+        // Reverse revVar → outVar
+        let revLoop =
+            mkListLoop "dstbyrev" elemWT outConsIdx revGet
+                [(outVar, null_list)]
+                (fun h ->
+                    WExpr.Assign(outVar, WExpr.StructNew(outConsIdx, [h; outGet], listBaseRefT)))
+                outGet None
+        let body =
+            WExpr.Let(seenVar,
+                WExpr.ArrayNew(i32ArrIdx, WExpr.Const(WConst.I32 capacity), zero32, i32ArrRefT),
+                WExpr.LetMut(nVar, zero32,
+                    WExpr.LetMut(kVar, zero32,
+                        WExpr.LetMut(iVar, zero32,
+                            WExpr.LetMut(revVar, null_list,
+                                WExpr.Sequence [fwdLoop; revLoop])))))
+        Some body
+    | _ -> None
+
 /// Single forward pass builds reversed acc lists; two reversal passes restore order.
 let tryListUnzipInline
         (transform: TransformFn)
