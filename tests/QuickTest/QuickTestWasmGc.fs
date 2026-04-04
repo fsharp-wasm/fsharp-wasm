@@ -1798,6 +1798,22 @@ let testArraySortWithDesc () : int =
     let sorted = Array.sortWith (fun a b -> if b < a then -1 elif b > a then 1 else 0) arr
     sorted.[0]  // 4
 
+// ── List.zip ──────────────────────────────────────────────────────────────
+
+/// Test: List.zip [1;2;3] [10;20;30] |> List.head = (1, 10), sum = 11
+let testListZip () : int =
+    let xs = [1; 2; 3]
+    let ys = [10; 20; 30]
+    let zipped = List.zip xs ys
+    let (a, b) = List.head zipped
+    a + b  // 11
+
+/// Test: List.zip ['a';'b';'c'] [1;2;3] length = 3
+let testListZipLen () : int =
+    let xs = ['a'; 'b'; 'c']
+    let ys = [1; 2; 3]
+    List.zip xs ys |> List.length  // 3
+
 // ── pown (integer exponentiation) ─────────────────────────────────────────
 
 /// Test: pown 2 10 = 1024

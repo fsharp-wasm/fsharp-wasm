@@ -1328,6 +1328,91 @@ let tryListTakeSkipSortInline
                     listFold gen s innerList acc s.BaseTy
                         (fun acc2 elem -> s.Cons elem acc2))
         Some(listRev gen s revResult)
+    // List.zip xs ys — combine two lists into a list of pairs.
+    // Strategy: walk both lists in parallel, cons tuples, then reverse.
+    | "zip", (xsArg :: ysArg :: _) ->
+        // Get element types of both input lists
+        let xsElemFableT =
+            match xsArg.Type with | Fable.Type.List t -> Some t | _ -> None
+        let ysElemFableT =
+            match ysArg.Type with | Fable.Type.List t -> Some t | _ -> None
+        match xsElemFableT, ysElemFableT with
+        | None, _ | _, None -> None
+        | Some xElemFT, Some yElemFT ->
+        let xElemT = mapTypeKnown ctx xElemFT
+        let yElemT = mapTypeKnown ctx yElemFT
+        let tupleFableT = Fable.Type.Tuple([xElemFT; yElemFT], false)
+        let tupleWType  = mapTypeKnown ctx tupleFableT  // registers tuple struct if needed
+        let tupleIdx    =
+            let key = wTypesKey [xElemT; yElemT]
+            match ctx.TupleRegistry.TryGetValue(key) with
+            | true, idx -> idx
+            | _ -> failwith "tuple not registered after mapTypeKnown"
+        let tupleRefT   = WType.Ref(tupleIdx, false)
+        let tupleNullRefT = WType.Ref(tupleIdx, true)
+        // Get cons type for the output list (pairs)
+        match tryListTypeInfoFromElemType ctx tupleFableT with
+        | None -> None
+        | Some(pairElemT, pairConsIdx) ->
+        match tryListTypeInfo ctx xsArg with
+        | None -> None
+        | Some(xElemT2, xConsIdx) ->
+        match tryListTypeInfo ctx ysArg with
+        | None -> None
+        | Some(yElemT2, yConsIdx) ->
+        let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
+        let xListNNRefT  = WType.Ref(xConsIdx, false)
+        let yListNNRefT  = WType.Ref(yConsIdx, false)
+        let pairListNNRefT = WType.Ref(pairConsIdx, false)
+        let xPtr    = "$zip_xp"
+        let yPtr    = "$zip_yp"
+        let accVar  = "$zip_acc"
+        let xnn     = "$zip_xnn"
+        let ynn     = "$zip_ynn"
+        let loopLabel = "$zip_loop"
+        let wXs = transform ctx xsArg
+        let wYs = transform ctx ysArg
+        let loopBody =
+            WExpr.If(
+                WExpr.Unary(WUnaryOp.Eqz,
+                    WExpr.RefIsNull(WExpr.LocalGet(xPtr, listBaseRefT)), WType.I32),
+                WExpr.If(
+                    WExpr.Unary(WUnaryOp.Eqz,
+                        WExpr.RefIsNull(WExpr.LocalGet(yPtr, listBaseRefT)), WType.I32),
+                    WExpr.Sequence [
+                        WExpr.Let(xnn, WExpr.Cast(WExpr.LocalGet(xPtr, listBaseRefT), xListNNRefT),
+                            WExpr.Let(ynn, WExpr.Cast(WExpr.LocalGet(yPtr, listBaseRefT), yListNNRefT),
+                                WExpr.Sequence [
+                                    WExpr.Assign(accVar,
+                                        WExpr.StructNew(pairConsIdx,
+                                            [WExpr.StructNew(tupleIdx,
+                                                [WExpr.StructGet(WExpr.LocalGet(xnn, xListNNRefT), 0, xElemT)
+                                                 WExpr.StructGet(WExpr.LocalGet(ynn, yListNNRefT), 0, yElemT)],
+                                                tupleRefT)
+                                             WExpr.LocalGet(accVar, listBaseRefT)],
+                                            listBaseRefT))
+                                    WExpr.Assign(xPtr,
+                                        WExpr.StructGet(WExpr.LocalGet(xnn, xListNNRefT), 1, listBaseRefT))
+                                    WExpr.Assign(yPtr,
+                                        WExpr.StructGet(WExpr.LocalGet(ynn, yListNNRefT), 1, listBaseRefT))
+                                    WExpr.Continue(loopLabel, [])
+                                ]))
+                    ],
+                    WExpr.Nop, WType.Void),
+                WExpr.Nop, WType.Void)
+        let loop = WExpr.Loop(loopLabel, loopBody, WType.Void)
+        let accumulate =
+            WExpr.LetMut(xPtr, wXs,
+                WExpr.LetMut(yPtr, wYs,
+                    WExpr.LetMut(accVar, WExpr.Const(WConst.Null listBaseRefT),
+                        WExpr.Sequence [
+                            loop
+                            WExpr.LocalGet(accVar, listBaseRefT)
+                        ])))
+        // Reverse the accumulated list
+        let gen = LabelGen("zip")
+        let sOut = mkListShape pairElemT pairConsIdx
+        Some(listRev gen sOut accumulate)
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────

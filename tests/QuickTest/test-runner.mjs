@@ -532,6 +532,10 @@ console.log("\n─── Array.sortWith ─────────────�
 check("Array.sortWith asc [3;1;4;2] head = 1",  1, exp.testArraySortWith());
 check("Array.sortWith desc [3;1;4;2] head = 4", 4, exp.testArraySortWithDesc());
 
+console.log("\n─── List.zip ─────────────────────────────────────\n");
+check("List.zip [1;2;3] [10;20;30] head sum = 11", 11, exp.testListZip());
+check("List.zip ['a';'b';'c'] [1;2;3] len = 3",    3,  exp.testListZipLen());
+
 console.log("\n─── pown (integer exponentiation) ───────────────\n");
 check("pown 2 10 = 1024", 1024, exp.testPown2_10());
 check("pown 3 0 = 1", 1, exp.testPownZero());
