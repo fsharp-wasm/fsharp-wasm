@@ -513,6 +513,11 @@ console.log("\n─── Interface Vtable Dispatch ─────────�
 check("interfaceDispatch: EnglishGreeter 'hello'.Length = 5", 5, exp.testInterfaceDispatch());
 check("interfacePolymorphism: 'hello'.Length + 'hola'.Length = 9", 9, exp.testInterfacePolymorphism());
 
+console.log("\n─── DU implementing interface ───────────────────\n");
+check("Circle(3).Area() = 9",                    9,  exp.testDuInterfaceCircle());
+check("Rect(4,5).Area() = 20",                   20, exp.testDuInterfaceRect());
+check("Circle(2).Area() + Rect(3,4).Area() = 16", 16, exp.testDuInterfacePoly());
+
 console.log("\n─── pown (integer exponentiation) ───────────────\n");
 check("pown 2 10 = 1024", 1024, exp.testPown2_10());
 check("pown 3 0 = 1", 1, exp.testPownZero());

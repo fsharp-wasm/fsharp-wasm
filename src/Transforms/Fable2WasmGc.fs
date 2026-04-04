@@ -2027,11 +2027,49 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                 (ctx'', classDecl.AttachedMembers)
                 ||> List.fold (fun c m ->
                     let func = transformMemberDecl c m |> resolveLocals
+                    let func =
+                        if m.ImplementedSignatureRef.IsSome then
+                            let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
+                            { func with Name = qualName; Exported = false }
+                        else func
                     c.Functions.Add(func); c)
+                |> (fun ctx3 ->
+                    // ── Vtable wiring for DU interface implementations ──────────
+                    let ifaceImpls =
+                        classDecl.AttachedMembers
+                        |> List.choose (fun m ->
+                            match m.ImplementedSignatureRef with
+                            | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)) ->
+                                let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
+                                match ctx3.Functions |> Seq.tryFindBack (fun f -> f.Name = qualName) with
+                                | Some func ->
+                                    Some(ifaceEntityRef.FullName, ifaceMemberInfo.CompiledName,
+                                         qualName, func.Params |> List.map snd, func.Result)
+                                | None -> None
+                            | _ -> None)
+                    let byIface = ifaceImpls |> List.groupBy (fun (ifaceName, _, _, _, _) -> ifaceName)
+                    for (ifaceName, methods) in byIface do
+                        let methodSigs =
+                            methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
+                                let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
+                                methodName, nonSelfParams, retType)
+                        let vtableTypeIdx, boxTypeIdx = WasmGcVTable.getOrRegisterInterface ctx3 ifaceName methodSigs
+                        let _, _, funcTypeIndices, _ = ctx3.VTableRegistry.[ifaceName]
+                        let methodImpls =
+                            methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
+                                methodName, compiledFunc, compiledParams, retType)
+                        WasmGcVTable.registerVTableImpl ctx3 classDecl.Entity.FullName baseIdx
+                            ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
+                    ctx3)
         else
             (ctx, classDecl.AttachedMembers)
             ||> List.fold (fun c m ->
                 let func = transformMemberDecl c m |> resolveLocals
+                let func =
+                    if m.ImplementedSignatureRef.IsSome then
+                        let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
+                        { func with Name = qualName; Exported = false }
+                    else func
                 c.Functions.Add(func); c)
 
 /// Build the final WModule from accumulated ctx state.

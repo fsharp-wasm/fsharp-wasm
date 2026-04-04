@@ -1710,6 +1710,35 @@ let testInterfacePolymorphism () : int =
           { Palabra = "hola" } :> IGreeter ]
     greeters |> List.sumBy (fun g -> g.Greet())
 
+// ── DU implementing interface ─────────────────────────────────────────────
+
+type IShape =
+    abstract Area: unit -> int
+
+type IntShape =
+    | ICircle of Radius: int
+    | IRect of Width: int * Height: int
+    interface IShape with
+        member this.Area() =
+            match this with
+            | ICircle r -> r * r
+            | IRect(w, h) -> w * h
+
+/// DU implementing interface — ICircle(3).Area() = 9
+let testDuInterfaceCircle () : int =
+    let s : IShape = ICircle 3 :> IShape
+    s.Area()
+
+/// DU implementing interface — IRect(4,5).Area() = 20
+let testDuInterfaceRect () : int =
+    let s : IShape = IRect(4, 5) :> IShape
+    s.Area()
+
+/// DU interface polymorphism
+let testDuInterfacePoly () : int =
+    let shapes : IShape list = [ ICircle 2 :> IShape; IRect(3, 4) :> IShape ]
+    shapes |> List.sumBy (fun s -> s.Area())  // 4 + 12 = 16
+
 // ── pown (integer exponentiation) ─────────────────────────────────────────
 
 /// Test: pown 2 10 = 1024
