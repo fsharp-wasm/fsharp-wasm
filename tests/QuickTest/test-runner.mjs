@@ -665,6 +665,11 @@ check("ResizeArray.[1] → 200",        200, exp.testResizeArrayIndex());
 check("Seq.pairwise diffs → 4",          4, exp.testSeqPairwise());
 check("Seq.countBy 2 groups → 2",         2, exp.testSeqCountBy());
 
+console.log("\n─── Sprint 23e: recursive DU, active patterns, groupBy ─────");
+check("List.groupBy 2 groups → 2",         2, exp.testListGroupBy());
+check("Recursive DU eval → 25",           25, exp.testRecursiveDU());
+check("Active pattern classify → 3",       3, exp.testActivePattern());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

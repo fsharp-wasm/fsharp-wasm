@@ -2225,3 +2225,29 @@ let testSeqPairwise () : int =
 let testSeqCountBy () : int =
     let result = [1; 2; 3; 4; 5; 6] |> Seq.countBy (fun x -> x % 2)
     Seq.length result  // 2 groups: odd (1,3,5) and even (2,4,6)
+
+// ── Sprint 23e: recursive DU, active patterns, groupBy ────────────────────────
+
+let testListGroupBy () : int =
+    let groups = [1; 2; 3; 4; 5; 6] |> List.groupBy (fun x -> x % 2)
+    List.length groups  // 2
+
+type MathExpr =
+    | Lit of int
+    | Add of MathExpr * MathExpr
+    | Mul of MathExpr * MathExpr
+
+let rec evalExpr = function
+    | Lit n       -> n
+    | Add(a, b)   -> evalExpr a + evalExpr b
+    | Mul(a, b)   -> evalExpr a * evalExpr b
+
+let testRecursiveDU () : int =
+    let expr = Mul(Add(Lit 2, Lit 3), Add(Lit 1, Lit 4))
+    evalExpr expr  // (2+3)*(1+4) = 25
+
+let (|Even|Odd|) n = if n % 2 = 0 then Even else Odd
+
+let testActivePattern () : int =
+    let classify n = match n with Even -> 0 | Odd -> 1
+    [1; 2; 3; 4; 5] |> List.sumBy classify  // 1+0+1+0+1 = 3

@@ -882,7 +882,161 @@ let tryListCountByInline
         Some body
     | _ -> None
 
-/// `List.unzip : ('a * 'b) list → 'a list * 'b list`
+/// `List.groupBy : ('a → 'key) → 'a list → ('key * 'a list) list`
+/// For I32-compatible keys: parallel arrays of keys and reversed element lists.
+/// Returns groups in first-occurrence order, each group in original element order.
+let tryListGroupByInline
+        (transform: TransformFn)
+        (ctx: Ctx)
+        (selector: string)
+        (fableArgs: Fable.Expr list)
+        (resultFableType: Fable.Type) : WExpr option =
+    match selector, fableArgs with
+    | ("groupBy" | "List_groupBy"), ((Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)) :: listArg :: _) ->
+        let keyWT = mapTypeKnown ctx fbody.Type
+        if keyWT <> WType.I32 then None
+        else
+        match tryListTypeInfo ctx listArg with
+        | None -> None
+        | Some(elemWT, inConsIdx) ->
+        // Output types: list<(key, list<elem>)>
+        let listElemFT = match seqElemType listArg.Type with Some t -> t | None -> Fable.Type.Any
+        let groupFT    = Fable.Type.List(listElemFT)
+        let pairFT     = Fable.Type.Tuple([fbody.Type; groupFT], false)
+        let pairWT     = mapTypeKnown ctx pairFT
+        let _          = mapTypeKnown ctx (Fable.Type.List(pairFT))
+        match tryListTypeInfoFromElemType ctx pairFT with
+        | None -> None
+        | Some(_, outConsIdx) ->
+        let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
+        let inNNRefT     = WType.Ref(inConsIdx, false)
+        let null_list    = WExpr.Const(WConst.Null listBaseRefT)
+        let zero32       = WExpr.Const(WConst.I32 0)
+        let one32        = WExpr.Const(WConst.I32 1)
+        let capacity     = 64
+        let i32ArrIdx    = getOrAddArrayType ctx WType.I32
+        let i32ArrRefT   = WType.Ref(i32ArrIdx, false)
+        let lbArrIdx     = getOrAddArrayType ctx listBaseRefT  // GcArray<(ref null $ListBase)>
+        let lbArrRefT    = WType.Ref(lbArrIdx, false)
+        let tupleIdx     = match pairWT with | WType.Ref(i, _) -> i | _ -> 0
+        let tupleRefT    = WType.Ref(tupleIdx, false)
+        let wList   = transform ctx listArg
+        let ctx'    = ctx.WithLocal(farg.Name, elemWT)
+        let keysVar  = "$gb_keys"
+        let headsVar = "$gb_heads"
+        let nVar     = "$gb_n"
+        let kVar     = "$gb_k"
+        let iVar     = "$gb_i"
+        let outVar   = "$gb_out"
+        let revIVar  = "$gb_revI"
+        let revOVar  = "$gb_revO"
+        let nGet     = WExpr.LocalGet(nVar, WType.I32)
+        let iGet     = WExpr.LocalGet(iVar, WType.I32)
+        let kGet     = WExpr.LocalGet(kVar, WType.I32)
+        let keysGet  = WExpr.LocalGet(keysVar, i32ArrRefT)
+        let headsGet = WExpr.LocalGet(headsVar, lbArrRefT)
+        let revIGet  = WExpr.LocalGet(revIVar, listBaseRefT)
+        let revOGet  = WExpr.LocalGet(revOVar, listBaseRefT)
+        let elemGet  = WExpr.LocalGet(farg.Name, elemWT)
+        // Scan: search keys[0..n-1] for k, cons elem onto matching group or create new
+        let scanLoop =
+            WExpr.Sequence [
+                WExpr.Assign(iVar, zero32)
+                WExpr.Loop("$gb_scan",
+                    WExpr.If(
+                        WExpr.Compare(WCompareOp.LtS, iGet, nGet),
+                        WExpr.If(
+                            WExpr.Compare(WCompareOp.Eq, WExpr.ArrayGet(keysGet, iGet, WType.I32), kGet),
+                            // Found: prepend elem to reversed group list
+                            WExpr.ArraySet(headsGet, iGet,
+                                WExpr.StructNew(inConsIdx,
+                                    [elemGet; WExpr.ArrayGet(headsGet, iGet, listBaseRefT)],
+                                    listBaseRefT)),
+                            // Not found: i++, continue
+                            WExpr.Sequence [
+                                WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, one32, WType.I32))
+                                WExpr.Continue("$gb_scan", [])
+                            ],
+                            WType.Void),
+                        // i >= n: new group with single elem
+                        WExpr.Sequence [
+                            WExpr.ArraySet(keysGet, nGet, kGet)
+                            WExpr.ArraySet(headsGet, nGet,
+                                WExpr.StructNew(inConsIdx, [elemGet; null_list], listBaseRefT))
+                            WExpr.Assign(nVar, WExpr.Binary(WBinaryOp.Add, nGet, one32, WType.I32))
+                        ],
+                        WType.Void),
+                    WType.Void)
+            ]
+        // Forward walk over input
+        let fwdLoop =
+            mkListLoop "gbfwd" elemWT inConsIdx wList []
+                (fun h ->
+                    WExpr.Let(farg.Name, h,
+                        WExpr.Sequence [
+                            WExpr.Assign(kVar, transform ctx' fbody)
+                            scanLoop
+                        ]))
+                WExpr.Nop None
+        // Build output: walk i from n-1 to 0, reversing each group's list, building result cons list
+        let buildResult =
+            WExpr.LetMut(iVar,
+                WExpr.Binary(WBinaryOp.Sub, nGet, one32, WType.I32),
+                WExpr.LetMut(outVar, null_list,
+                    WExpr.LetMut(revIVar, null_list,
+                        WExpr.LetMut(revOVar, null_list,
+                WExpr.Sequence [
+                    WExpr.Loop("$gb_build",
+                        WExpr.If(
+                            WExpr.Compare(WCompareOp.GeS, iGet, zero32),
+                            // Reverse heads[i] → in-order group list
+                            WExpr.Sequence [
+                                WExpr.Assign(revIVar, WExpr.ArrayGet(headsGet, iGet, listBaseRefT))
+                                WExpr.Assign(revOVar, null_list)
+                                WExpr.Loop("$gb_rev",
+                                    WExpr.If(
+                                        WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull(revIGet), WType.I32),
+                                        WExpr.Let("$gb_revNN", WExpr.Cast(revIGet, inNNRefT),
+                                            WExpr.Sequence [
+                                                WExpr.Assign(revOVar,
+                                                    WExpr.StructNew(inConsIdx,
+                                                        [WExpr.StructGet(WExpr.LocalGet("$gb_revNN", inNNRefT), 0, elemWT);
+                                                         revOGet],
+                                                        listBaseRefT))
+                                                WExpr.Assign(revIVar,
+                                                    WExpr.StructGet(WExpr.LocalGet("$gb_revNN", inNNRefT), 1, listBaseRefT))
+                                                WExpr.Continue("$gb_rev", [])
+                                            ]),
+                                        WExpr.Nop, WType.Void),
+                                    WType.Void)
+                                // revOVar = reversed group list (correct order)
+                                WExpr.Assign(outVar,
+                                    WExpr.StructNew(outConsIdx,
+                                        [WExpr.StructNew(tupleIdx,
+                                            [WExpr.ArrayGet(keysGet, iGet, WType.I32);
+                                             revOGet],
+                                            tupleRefT);
+                                         WExpr.LocalGet(outVar, listBaseRefT)],
+                                        listBaseRefT))
+                                WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Sub, iGet, one32, WType.I32))
+                                WExpr.Continue("$gb_build", [])
+                            ],
+                            WExpr.Nop, WType.Void),
+                        WType.Void)
+                    WExpr.LocalGet(outVar, listBaseRefT)
+                ]))))
+        let body =
+            WExpr.Let(keysVar,
+                WExpr.ArrayNew(i32ArrIdx, WExpr.Const(WConst.I32 capacity), zero32, i32ArrRefT),
+                WExpr.Let(headsVar,
+                    WExpr.ArrayNew(lbArrIdx, WExpr.Const(WConst.I32 capacity), null_list, lbArrRefT),
+                    WExpr.LetMut(nVar, zero32,
+                        WExpr.LetMut(kVar, zero32,
+                            WExpr.Sequence [fwdLoop; buildResult]))))
+        Some body
+    | _ -> None
+
+
 /// Single forward pass builds reversed acc lists; two reversal passes restore order.
 let tryListUnzipInline
         (transform: TransformFn)
