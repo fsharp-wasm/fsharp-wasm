@@ -536,6 +536,18 @@ console.log("\n─── List.zip ───────────────�
 check("List.zip [1;2;3] [10;20;30] head sum = 11", 11, exp.testListZip());
 check("List.zip ['a';'b';'c'] [1;2;3] len = 3",    3,  exp.testListZipLen());
 
+console.log("\n─── List.map2 ────────────────────────────────────\n");
+check("List.map2 (+) [1;2;3] [4;5;6] sum = 21", 21, exp.testListMap2Sum());
+check("List.map2 (*) [1;2;3] [4;5;6] head = 4",  4, exp.testListMap2Head());
+
+console.log("\n─── Array.zip ────────────────────────────────────\n");
+check("Array.zip [|1;2;3|] [|10;20;30|].[0] sum = 11", 11, exp.testArrayZip());
+check("Array.zip length = 3",                           3,  exp.testArrayZipLen());
+
+console.log("\n─── Array.map2 ───────────────────────────────────\n");
+check("Array.map2 (+) [|1;2;3|] [|4;5;6|] sum = 21", 21, exp.testArrayMap2Sum());
+check("Array.map2 (*) [|1;2;3|] [|4;5;6|].[0] = 4",   4, exp.testArrayMap2Head());
+
 console.log("\n─── pown (integer exponentiation) ───────────────\n");
 check("pown 2 10 = 1024", 1024, exp.testPown2_10());
 check("pown 3 0 = 1", 1, exp.testPownZero());

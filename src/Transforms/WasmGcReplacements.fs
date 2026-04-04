@@ -1413,6 +1413,84 @@ let tryListTakeSkipSortInline
         let gen = LabelGen("zip")
         let sOut = mkListShape pairElemT pairConsIdx
         Some(listRev gen sOut accumulate)
+    // List.map2 f xs ys — apply a 2-arg function to each pair of elements.
+    // Strategy: walk both lists in parallel, cons f(x,y), then reverse.
+    | "map2", (cmpArg :: xsArg :: ysArg :: _) ->
+        // Unpack the 2-arg function (same patterns as sortWith)
+        let cmpParts =
+            match cmpArg with
+            | Fable.Expr.Lambda(a1, Fable.Expr.Lambda(a2, body, _), _) -> Some(a1, a2, body)
+            | Fable.Expr.Lambda(a1, Fable.Expr.Delegate([a2], body, _, _), _) -> Some(a1, a2, body)
+            | Fable.Expr.Delegate([a1; a2], body, _, _) -> Some(a1, a2, body)
+            | Fable.Expr.Delegate([a1], Fable.Expr.Lambda(a2, body, _), _, _) -> Some(a1, a2, body)
+            | _ -> None
+        match cmpParts with
+        | None -> None
+        | Some(farg1, farg2, fbody) ->
+        match tryListTypeInfo ctx xsArg with
+        | None -> None
+        | Some(xElemT, xConsIdx) ->
+        match tryListTypeInfo ctx ysArg with
+        | None -> None
+        | Some(yElemT, yConsIdx) ->
+        // Result element type from the lambda body
+        let resultFableT = fbody.Type
+        match tryListTypeInfoFromElemType ctx resultFableT with
+        | None -> None
+        | Some(resultElemT, resultConsIdx) ->
+        let wBody = transform ctx fbody
+        let listBaseRefT  = WType.Ref(ListBaseTypeIdx, true)
+        let xListNNRefT   = WType.Ref(xConsIdx, false)
+        let yListNNRefT   = WType.Ref(yConsIdx, false)
+        let xPtr    = "$m2_xp"
+        let yPtr    = "$m2_yp"
+        let accVar  = "$m2_acc"
+        let xnn     = "$m2_xnn"
+        let ynn     = "$m2_ynn"
+        let loopLabel = "$m2_loop"
+        let wXs = transform ctx xsArg
+        let wYs = transform ctx ysArg
+        let inlineCall xExpr yExpr =
+            WExpr.Let(farg1.Name, xExpr, WExpr.Let(farg2.Name, yExpr, wBody))
+        let loopBody =
+            WExpr.If(
+                WExpr.Unary(WUnaryOp.Eqz,
+                    WExpr.RefIsNull(WExpr.LocalGet(xPtr, listBaseRefT)), WType.I32),
+                WExpr.If(
+                    WExpr.Unary(WUnaryOp.Eqz,
+                        WExpr.RefIsNull(WExpr.LocalGet(yPtr, listBaseRefT)), WType.I32),
+                    WExpr.Sequence [
+                        WExpr.Let(xnn, WExpr.Cast(WExpr.LocalGet(xPtr, listBaseRefT), xListNNRefT),
+                            WExpr.Let(ynn, WExpr.Cast(WExpr.LocalGet(yPtr, listBaseRefT), yListNNRefT),
+                                WExpr.Sequence [
+                                    WExpr.Assign(accVar,
+                                        WExpr.StructNew(resultConsIdx,
+                                            [inlineCall
+                                                (WExpr.StructGet(WExpr.LocalGet(xnn, xListNNRefT), 0, xElemT))
+                                                (WExpr.StructGet(WExpr.LocalGet(ynn, yListNNRefT), 0, yElemT))
+                                             WExpr.LocalGet(accVar, listBaseRefT)],
+                                            listBaseRefT))
+                                    WExpr.Assign(xPtr,
+                                        WExpr.StructGet(WExpr.LocalGet(xnn, xListNNRefT), 1, listBaseRefT))
+                                    WExpr.Assign(yPtr,
+                                        WExpr.StructGet(WExpr.LocalGet(ynn, yListNNRefT), 1, listBaseRefT))
+                                    WExpr.Continue(loopLabel, [])
+                                ]))
+                    ],
+                    WExpr.Nop, WType.Void),
+                WExpr.Nop, WType.Void)
+        let loop = WExpr.Loop(loopLabel, loopBody, WType.Void)
+        let accumulate =
+            WExpr.LetMut(xPtr, wXs,
+                WExpr.LetMut(yPtr, wYs,
+                    WExpr.LetMut(accVar, WExpr.Const(WConst.Null listBaseRefT),
+                        WExpr.Sequence [
+                            loop
+                            WExpr.LocalGet(accVar, listBaseRefT)
+                        ])))
+        let gen = LabelGen("m2")
+        let sOut = mkListShape resultElemT resultConsIdx
+        Some(listRev gen sOut accumulate)
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -2412,6 +2490,109 @@ let tryArrayInline
                                 WExpr.Sequence [loop; resGet])))))
             | None -> None
         | None -> None
+    // ── Array.zip arr1 arr2 — parallel arrays → array of pairs ──
+    | "zip" ->
+        match fableArgs with
+        | (arr1Arg :: arr2Arg :: _) ->
+            match getArrElemT arr1Arg.Type, getArrElemT arr2Arg.Type with
+            | Some e1FT, Some e2FT ->
+                let e1T = mapTypeKnown ctx e1FT
+                let e2T = mapTypeKnown ctx e2FT
+                let tupleFableT = Fable.Type.Tuple([e1FT; e2FT], false)
+                let tupleWType  = mapTypeKnown ctx tupleFableT
+                let tupleIdx =
+                    let key = wTypesKey [e1T; e2T]
+                    match ctx.TupleRegistry.TryGetValue(key) with
+                    | true, idx -> idx
+                    | _ -> failwith "tuple not registered after mapTypeKnown"
+                let tupleRefT   = WType.Ref(tupleIdx, false)
+                // For array.new we need a non-null default for non-nullable ref elements.
+                // Create a dummy zero-field tuple struct as the default value.
+                let rec makeWZero (wt: WType) : WExpr =
+                    match wt with
+                    | WType.I64 -> WExpr.Const(WConst.I64 0L)
+                    | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
+                    | WType.F64 -> WExpr.Const(WConst.F64 0.0)
+                    | WType.Ref(idx, true) -> WExpr.Const(WConst.Null(WType.Ref(idx, true)))
+                    | WType.Ref(idx, false) ->
+                        match ctx.TypeDefs.[idx].Def with
+                        | WTypeDef.Struct(fields, _) ->
+                            WExpr.StructNew(idx, fields |> List.map (fun f -> makeWZero f.Type), WType.Ref(idx, false))
+                        | _ -> WExpr.Const(WConst.Null(WType.Ref(idx, true)))
+                    | _ -> WExpr.Const(WConst.I32 0)
+                let tupleDefault = makeWZero tupleRefT
+                let resArrIdx   = getOrAddArrayType ctx tupleRefT
+                let resArrRefT  = WType.Ref(resArrIdx, false)
+                let wArr1 = transform ctx arr1Arg
+                let wArr2 = transform ctx arr2Arg
+                let a1Var = "$azip_a1"
+                let a2Var = "$azip_a2"
+                let resVar = "$azip_res"
+                let a1Get = WExpr.LocalGet(a1Var, WType.Ref(getOrAddArrayType ctx e1T, false))
+                let a2Get = WExpr.LocalGet(a2Var, WType.Ref(getOrAddArrayType ctx e2T, false))
+                let resGet = WExpr.LocalGet(resVar, resArrRefT)
+                let len = WExpr.ArrayLen(a1Get)
+                Some(WExpr.Let(a1Var, wArr1,
+                    WExpr.Let(a2Var, wArr2,
+                        WExpr.Let(resVar,
+                            WExpr.ArrayNew(resArrIdx, len, tupleDefault, resArrRefT),
+                            mkArrayLoop "azip" tupleRefT resArrIdx resGet []
+                                (fun _elem idx ->
+                                    WExpr.ArraySet(resGet, idx,
+                                        WExpr.StructNew(tupleIdx,
+                                            [WExpr.ArrayGet(a1Get, idx, e1T)
+                                             WExpr.ArrayGet(a2Get, idx, e2T)],
+                                            tupleRefT)))
+                                resGet None))))
+            | _ -> None
+        | _ -> None
+    // ── Array.map2 f arr1 arr2 — apply f to each pair, collecting results ──
+    | "map2" ->
+        match fableArgs with
+        | (cmpArg :: arr1Arg :: arr2Arg :: _) ->
+            let cmpParts =
+                match cmpArg with
+                | Fable.Expr.Lambda(a1, Fable.Expr.Lambda(a2, body, _), _) -> Some(a1, a2, body)
+                | Fable.Expr.Lambda(a1, Fable.Expr.Delegate([a2], body, _, _), _) -> Some(a1, a2, body)
+                | Fable.Expr.Delegate([a1; a2], body, _, _) -> Some(a1, a2, body)
+                | Fable.Expr.Delegate([a1], Fable.Expr.Lambda(a2, body, _), _, _) -> Some(a1, a2, body)
+                | _ -> None
+            match cmpParts with
+            | None -> None
+            | Some(farg1, farg2, fbody) ->
+            match getArrElemT arr1Arg.Type, getArrElemT arr2Arg.Type with
+            | Some e1FT, Some e2FT ->
+                let e1T = mapTypeKnown ctx e1FT
+                let e2T = mapTypeKnown ctx e2FT
+                let resultFT = fbody.Type
+                let resultET = mapTypeKnown ctx resultFT
+                let resArrIdx  = getOrAddArrayType ctx resultET
+                let resArrRefT = WType.Ref(resArrIdx, false)
+                let arr1ArrIdx = getOrAddArrayType ctx e1T
+                let arr2ArrIdx = getOrAddArrayType ctx e2T
+                let wArr1 = transform ctx arr1Arg
+                let wArr2 = transform ctx arr2Arg
+                let wBody = transform ctx fbody
+                let a1Var = "$am2_a1"
+                let a2Var = "$am2_a2"
+                let resVar = "$am2_res"
+                let a1Get = WExpr.LocalGet(a1Var, WType.Ref(arr1ArrIdx, false))
+                let a2Get = WExpr.LocalGet(a2Var, WType.Ref(arr2ArrIdx, false))
+                let resGet = WExpr.LocalGet(resVar, resArrRefT)
+                let len = WExpr.ArrayLen(a1Get)
+                Some(WExpr.Let(a1Var, wArr1,
+                    WExpr.Let(a2Var, wArr2,
+                        WExpr.Let(resVar,
+                            WExpr.ArrayNew(resArrIdx, len, makeNumericZero resultET, resArrRefT),
+                            mkArrayLoop "am2" resultET resArrIdx resGet []
+                                (fun _elem idx ->
+                                    WExpr.ArraySet(resGet, idx,
+                                        WExpr.Let(farg1.Name, WExpr.ArrayGet(a1Get, idx, e1T),
+                                            WExpr.Let(farg2.Name, WExpr.ArrayGet(a2Get, idx, e2T),
+                                                wBody))))
+                                resGet None))))
+            | _ -> None
+        | _ -> None
     // ── Array.sortWith cmp arr — insertion sort with inline comparator ──
     | "sortWith" ->
         // Unpack the 2-arg comparator (may be Lambda or Delegate)

@@ -1814,6 +1814,41 @@ let testListZipLen () : int =
     let ys = [1; 2; 3]
     List.zip xs ys |> List.length  // 3
 
+// ── List.map2 ─────────────────────────────────────────────────────────────
+
+/// Test: List.map2 (+) [1;2;3] [4;5;6] |> List.sum = 21
+let testListMap2Sum () : int =
+    List.map2 (fun a b -> a + b) [1; 2; 3] [4; 5; 6] |> List.sum  // 21
+
+/// Test: List.map2 (*) [1;2;3] [4;5;6] head = 4
+let testListMap2Head () : int =
+    List.map2 (fun a b -> a * b) [1; 2; 3] [4; 5; 6] |> List.head  // 4
+
+// ── Array.zip ─────────────────────────────────────────────────────────────
+
+/// Test: Array.zip [|1;2;3|] [|10;20;30|].[0] = (1,10), sum = 11
+let testArrayZip () : int =
+    let arr1 = [| 1; 2; 3 |]
+    let arr2 = [| 10; 20; 30 |]
+    let zipped = Array.zip arr1 arr2
+    let (a, b) = zipped.[0]
+    a + b  // 11
+
+/// Test: Array.zip of length 3 → length 3
+let testArrayZipLen () : int =
+    let zipped = Array.zip [| 1; 2; 3 |] [| 4; 5; 6 |]
+    zipped.Length  // 3
+
+// ── Array.map2 ────────────────────────────────────────────────────────────
+
+/// Test: Array.map2 (+) [|1;2;3|] [|4;5;6|] sum = 21
+let testArrayMap2Sum () : int =
+    Array.map2 (fun a b -> a + b) [| 1; 2; 3 |] [| 4; 5; 6 |] |> Array.sum  // 21
+
+/// Test: Array.map2 (*) first = 4
+let testArrayMap2Head () : int =
+    (Array.map2 (fun a b -> a * b) [| 1; 2; 3 |] [| 4; 5; 6 |]).[0]  // 4
+
 // ── pown (integer exponentiation) ─────────────────────────────────────────
 
 /// Test: pown 2 10 = 1024
