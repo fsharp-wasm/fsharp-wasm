@@ -2327,9 +2327,112 @@ let tryArrayInline
                                 WExpr.Sequence [loop; resGet])))))
             | None -> None
         | None -> None
+    // ── Array.sortWith cmp arr — insertion sort with inline comparator ──
+    | "sortWith" ->
+        // Unpack the 2-arg comparator (may be Lambda or Delegate)
+        let cmpArgOpt = fableArgs |> List.tryHead
+        let cmpParts =
+            match cmpArgOpt with
+            | None -> None
+            | Some cmpArg ->
+                match cmpArg with
+                | Fable.Expr.Lambda(arg1, Fable.Expr.Lambda(arg2, body, _), _) ->
+                    Some(arg1, arg2, body)
+                | Fable.Expr.Lambda(arg1, Fable.Expr.Delegate([arg2], body, _, _), _) ->
+                    Some(arg1, arg2, body)
+                | Fable.Expr.Delegate([arg1; arg2], body, _, _) ->
+                    Some(arg1, arg2, body)
+                | Fable.Expr.Delegate([arg1], Fable.Expr.Lambda(arg2, body, _), _, _) ->
+                    Some(arg1, arg2, body)
+                | _ -> None
+        match cmpParts with
+        | None -> None  // fall through to general array sort
+        | Some(farg1, farg2, fbody) ->
+        let arrArgOpt = fableArgs |> List.tryFind (fun a -> getArrElemT a.Type |> Option.isSome)
+        match arrArgOpt with
+        | None -> None
+        | Some arrArg ->
+        match getArrElemT arrArg.Type with
+        | None -> None
+        | Some elemFableT ->
+        let elemT      = mapTypeKnown ctx elemFableT
+        let (arrElemT, arrDefault) =
+            match elemT with
+            | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
+            | t -> t, makeZero t
+        let readElem arrExpr idxExpr =
+            match elemT with
+            | WType.Ref(idx, false) ->
+                WExpr.Cast(WExpr.ArrayGet(arrExpr, idxExpr, arrElemT), WType.Ref(idx, false))
+            | _ -> WExpr.ArrayGet(arrExpr, idxExpr, elemT)
+        let arrTypeIdx = getOrAddArrayType ctx arrElemT
+        let arrRefT    = WType.Ref(arrTypeIdx, false)
+        let wArr       = transform ctx arrArg
+        let ctx'       = ctx.WithLocal(farg1.Name, elemT)
+        let ctx''      = ctx'.WithLocal(farg2.Name, elemT)
+        let wCmp       = transform ctx'' fbody  // i32: negative/zero/positive
+        let inlineCmp aExpr bExpr =
+            WExpr.Let(farg1.Name, aExpr,
+                WExpr.Let(farg2.Name, bExpr,
+                    wCmp))
+        let srcVar     = "$asw_src"
+        let resVar     = "$asw_res"
+        let lenVar     = "$asw_len"
+        let iVar       = "$asw_i"
+        let jVar       = "$asw_j"
+        let eVar       = "$asw_e"
+        let iLoopLabel = "$asw_il"
+        let jLoopLabel = "$asw_jl"
+        let srcGet     = WExpr.LocalGet(srcVar, arrRefT)
+        let resGet     = WExpr.LocalGet(resVar, arrRefT)
+        let lenGet     = WExpr.LocalGet(lenVar, WType.I32)
+        let iGet       = WExpr.LocalGet(iVar, WType.I32)
+        let jGet       = WExpr.LocalGet(jVar, WType.I32)
+        let eGet       = WExpr.LocalGet(eVar, elemT)
+        let jCond =
+            WExpr.If(WExpr.Compare(WCompareOp.GeS, jGet, WExpr.Const(WConst.I32 0)),
+                WExpr.Compare(WCompareOp.GtS,
+                    inlineCmp (readElem resGet jGet) eGet,
+                    WExpr.Const(WConst.I32 0)),
+                WExpr.Const(WConst.I32 0), WType.I32)
+        let jStep =
+            WExpr.Sequence [
+                WExpr.ArraySet(resGet,
+                    WExpr.Binary(WBinaryOp.Add, jGet, WExpr.Const(WConst.I32 1), WType.I32),
+                    readElem resGet jGet)
+                WExpr.Assign(jVar, WExpr.Binary(WBinaryOp.Sub, jGet, WExpr.Const(WConst.I32 1), WType.I32))
+                WExpr.Continue(jLoopLabel, [])
+            ]
+        let jLoop = WExpr.Loop(jLoopLabel,
+            WExpr.If(jCond, jStep, WExpr.Nop, WType.Void), WType.Void)
+        let iStep =
+            WExpr.Sequence [
+                WExpr.Let(eVar, readElem resGet iGet,
+                    WExpr.LetMut(jVar,
+                        WExpr.Binary(WBinaryOp.Sub, iGet, WExpr.Const(WConst.I32 1), WType.I32),
+                        WExpr.Sequence [
+                            jLoop
+                            WExpr.ArraySet(resGet,
+                                WExpr.Binary(WBinaryOp.Add, jGet, WExpr.Const(WConst.I32 1), WType.I32),
+                                eGet)
+                        ]))
+                WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
+                WExpr.Continue(iLoopLabel, [])
+            ]
+        let iLoop = WExpr.Loop(iLoopLabel,
+            WExpr.If(WExpr.Compare(WCompareOp.LtS, iGet, lenGet), iStep, WExpr.Nop, WType.Void),
+            WType.Void)
+        Some(WExpr.Let(srcVar, wArr,
+            WExpr.Let(lenVar, WExpr.ArrayLen(srcGet),
+                WExpr.Let(resVar, WExpr.ArrayNew(arrTypeIdx, lenGet, arrDefault, arrRefT),
+                    WExpr.Sequence [
+                        WExpr.ArrayCopy(resGet, WExpr.Const(WConst.I32 0), srcGet, WExpr.Const(WConst.I32 0), lenGet)
+                        WExpr.LetMut(iVar, WExpr.Const(WConst.I32 1),
+                            WExpr.Sequence [iLoop; resGet])
+                    ]))))
     // ── Array.sort — insertion sort into a fresh copy ──
     // After ReplacementsInject, args are [arr; comparer] for sort/sortDescending
-    | "sort" | "sortDescending" | "sortWith" | "sortBy" ->
+    | "sort" | "sortDescending" | "sortBy" ->
         let arrArgOpt = fableArgs |> List.tryFind (fun a -> getArrElemT a.Type |> Option.isSome)
         match arrArgOpt with
         | Some arrArg ->

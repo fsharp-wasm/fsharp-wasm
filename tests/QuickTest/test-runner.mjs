@@ -528,6 +528,10 @@ check("sortWith asc head = 1",  1, exp.testSortWith());
 check("sortWith desc head = 4", 4, exp.testSortWithDesc());
 check("sortWith ints head = 1", 1, exp.testSortWithInts());
 
+console.log("\n─── Array.sortWith ───────────────────────────────\n");
+check("Array.sortWith asc [3;1;4;2] head = 1",  1, exp.testArraySortWith());
+check("Array.sortWith desc [3;1;4;2] head = 4", 4, exp.testArraySortWithDesc());
+
 console.log("\n─── pown (integer exponentiation) ───────────────\n");
 check("pown 2 10 = 1024", 1024, exp.testPown2_10());
 check("pown 3 0 = 1", 1, exp.testPownZero());

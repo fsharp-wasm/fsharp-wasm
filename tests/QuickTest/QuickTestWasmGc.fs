@@ -1784,6 +1784,20 @@ let testSortWithDesc () : int =
 let testSortWithInts () : int =
     List.sortWith (fun a b -> if a < b then -1 elif a > b then 1 else 0) [5; 3; 1; 4; 2] |> List.head  // 1
 
+// ── Array.sortWith ────────────────────────────────────────────────────────
+
+/// Array.sortWith ascending: head of sorted [|3;1;4;2|] should be 1
+let testArraySortWith () : int =
+    let arr = [| 3; 1; 4; 2 |]
+    let sorted = Array.sortWith (fun a b -> if a < b then -1 elif a > b then 1 else 0) arr
+    sorted.[0]  // 1
+
+/// Array.sortWith descending: head of sorted [|3;1;4;2|] should be 4
+let testArraySortWithDesc () : int =
+    let arr = [| 3; 1; 4; 2 |]
+    let sorted = Array.sortWith (fun a b -> if b < a then -1 elif b > a then 1 else 0) arr
+    sorted.[0]  // 4
+
 // ── pown (integer exponentiation) ─────────────────────────────────────────
 
 /// Test: pown 2 10 = 1024
