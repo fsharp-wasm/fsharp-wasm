@@ -729,6 +729,11 @@ let tryListPrimitiveInline
         (fableArgs: Fable.Expr list) : WExpr option =
     let listBaseRefT = WType.Ref(ListBaseTypeIdx, true)
     match selector, wArgs with
+    // Seq.toList xs / List.ofList xs — when the arg is already a WasmGC list, identity.
+    | ("toList" | "ofList"), [wList] ->
+        match tryListTypeInfo ctx (List.head fableArgs) with
+        | Some _ -> Some wList
+        | None   -> None
     // List.head xs
     | "head", [wList] ->
         let elemT = ty

@@ -2158,3 +2158,28 @@ let testStdMapContainsKey () : int =
 let testStdMapAdd () : int =
     let m = Map.ofList [(1, 10)] |> Map.add 2 20
     Map.find 2 m  // 20
+
+// ── Sprint 23 probes ──────────────────────────────────────────────────────────
+let testResizeArrayBasic () : int =
+    let xs = ResizeArray<int>()
+    xs.Add(10)
+    xs.Add(20)
+    xs.Add(30)
+    xs.Count  // 3
+
+// Seq.* routing to list ops (the arg goes through IEnumerable<T> type)
+let testSeqMap () : int =
+    [1; 2; 3; 4; 5] |> Seq.map (fun x -> x * 2) |> Seq.sum  // 30
+
+let testSeqFilter () : int =
+    [1; 2; 3; 4; 5; 6] |> Seq.filter (fun x -> x % 2 = 0) |> Seq.length  // 3
+
+let testSeqFold () : int =
+    Seq.fold (fun acc x -> acc + x) 0 [1; 2; 3; 4; 5]  // 15
+
+let testSeqExists () : int =
+    if Seq.exists (fun x -> x > 3) [1; 2; 3; 4; 5] then 1 else 0  // 1
+
+let testSeqToList () : int =
+    let xs : int list = [10; 20; 30]
+    Seq.toList xs |> List.sum  // 60

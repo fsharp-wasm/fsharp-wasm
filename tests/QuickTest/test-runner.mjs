@@ -646,6 +646,14 @@ check("Map.tryFind miss → 0",          0, exp.testStdMapTryFindMissing());
 check("Map.containsKey 5 → 1",         1, exp.testStdMapContainsKey());
 check("Map.add+find → 20",            20, exp.testStdMapAdd());
 
+console.log("\n─── Sprint 23 probes ───────────────────────────");
+check("ResizeArray.Add×3.Count → 3",   3, exp.testResizeArrayBasic());
+check("Seq.map ×2 |> sum → 30",       30, exp.testSeqMap());
+check("Seq.filter even |> len → 3",    3, exp.testSeqFilter());
+check("Seq.fold sum → 15",            15, exp.testSeqFold());
+check("Seq.exists >3 → 1",             1, exp.testSeqExists());
+check("Seq.toList |> sum → 60",       60, exp.testSeqToList());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -16,6 +16,14 @@ open Fable.Transforms.WasmGc.WasmGcRuntime
 open Fable.Transforms.WasmGc.WasmGcLoopHelpers
 open Fable.Transforms.WasmGc.WasmGcLoopCombinators
 
+/// Extract element Fable.Type from List<T>, seq<T>, or IEnumerable<T>.
+/// Lets all handlers accept Seq.* calls that Fable encodes as DeclaredType<_,[T]>.
+let private seqElemType (t: Fable.Type) : Fable.Type option =
+    match t with
+    | Fable.Type.List e               -> Some e
+    | Fable.Type.DeclaredType(_, [e]) -> Some e
+    | _                               -> None
+
 let tryListFoldInline
         (transform: TransformFn)
         (ctx: Ctx)
@@ -69,9 +77,9 @@ let tryListMapInline
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
     | "map", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
-        match listArg.Type with
-        | Fable.Type.List(elemFableType) ->
-            let resultElemFableType = match resultFableType with | Fable.Type.List(t) -> t | _ -> elemFableType
+        match seqElemType listArg.Type with
+        | Some elemFableType ->
+            let resultElemFableType = seqElemType resultFableType |> Option.defaultValue elemFableType
             match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx resultElemFableType with
             | Some(inputElemT, inputConsIdx), Some(resultElemT, resultConsIdx) ->
                 let wList        = transform ctx listArg
@@ -95,12 +103,12 @@ let tryListMapInline
                                 listBaseRefT)))
                         (WExpr.LocalGet("$map_acc", listBaseRefT)) None)
             | _ -> None
-        | _ -> None
+        | None -> None
     | "mapIndexed", [(Fable.Expr.Lambda(iarg, Fable.Expr.Lambda(farg, fbody, _), _)
                    | Fable.Expr.Delegate([iarg; farg], fbody, _, _)); listArg] ->
-        match listArg.Type with
-        | Fable.Type.List(elemFableType) ->
-            let resultElemFableType = match resultFableType with | Fable.Type.List(t) -> t | _ -> elemFableType
+        match seqElemType listArg.Type with
+        | Some elemFableType ->
+            let resultElemFableType = seqElemType resultFableType |> Option.defaultValue elemFableType
             match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx resultElemFableType with
             | Some(inputElemT, inputConsIdx), Some(resultElemT, resultConsIdx) ->
                 let wList        = transform ctx listArg
@@ -133,7 +141,7 @@ let tryListMapInline
                                 listBaseRefT)))
                         (WExpr.LocalGet("$mapi_acc", listBaseRefT)) None)
             | _ -> None
-        | _ -> None
+        | None -> None
     | _ -> None
 
 let tryListFilterInline
@@ -246,9 +254,9 @@ let tryListCollectInline
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
     | "collect", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
-        match listArg.Type with
-        | Fable.Type.List(inputElemFableType) ->
-            let outputElemFableType = match resultFableType with | Fable.Type.List(t) -> t | _ -> inputElemFableType
+        match seqElemType listArg.Type with
+        | Some inputElemFableType ->
+            let outputElemFableType = seqElemType resultFableType |> Option.defaultValue inputElemFableType
             match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx outputElemFableType with
             | Some(inputElemT, inputConsIdx), Some(outputElemT, outputConsIdx) ->
                 let wList        = transform ctx listArg
@@ -281,12 +289,12 @@ let tryListCollectInline
                         None
                 Some revConcat
             | _ -> None
-        | _ -> None
+        | None -> None
     // List.partition pred xs → (trueList, falseList) as a tuple struct.
     // Strategy: single pass collecting two reversed accumulators, then reverse each.
     | "partition", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
-        match listArg.Type with
-        | Fable.Type.List(elemFableT) ->
+        match seqElemType listArg.Type with
+        | Some elemFableT ->
             match tryListTypeInfo ctx listArg with
             | None -> None
             | Some(elemT, consIdx) ->
@@ -362,7 +370,7 @@ let tryListCollectInline
                                              WExpr.LocalGet("$part_ff", listBaseRefT)],
                                             tupleRefT)))))
                     ])))
-        | _ -> None
+        | None -> None
     | _ -> None
 
 let tryListChooseInline
@@ -373,9 +381,9 @@ let tryListChooseInline
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
     | "choose", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
-        match listArg.Type with
-        | Fable.Type.List(inputElemFableType) ->
-            let outputElemFableType = match resultFableType with | Fable.Type.List(t) -> t | _ -> Fable.Type.Any
+        match seqElemType listArg.Type with
+        | Some inputElemFableType ->
+            let outputElemFableType = seqElemType resultFableType |> Option.defaultValue Fable.Type.Any
             match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx outputElemFableType with
             | Some(inputElemT, inputConsIdx), Some(outputElemT, outputConsIdx) ->
                 let wList        = transform ctx listArg
@@ -418,7 +426,7 @@ let tryListChooseInline
                             (WExpr.LocalGet("$cho_acc", listBaseRefT)) None)
                 | _ -> None
             | _ -> None
-        | _ -> None
+        | None -> None
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
