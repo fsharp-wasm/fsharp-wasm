@@ -85,16 +85,16 @@ let listFold
         (accTy   : WType)
         (folder  : WExpr -> WExpr -> WExpr)   // acc → elem → newAcc
         : WExpr =
-    letMut gen "cur" s.BaseTy list     (fun cur setCur ->
-    letMut gen "acc" accTy  initAcc    (fun acc setAcc ->
-        sequence [
-            whileLoop (gen.Next("lp")) (refIsNotNull cur)
+    wasm {
+        let! cur = mutTy s.BaseTy list
+        let! acc = mutTy accTy initAcc
+        do! Wasm.while_ (refIsNotNull cur.Val)
                 (sequence [
-                    setAcc (folder acc (s.Head cur))
-                    setCur (s.Tail cur)
+                    acc.Set(folder acc.Val (s.Head cur.Val))
+                    cur.Set(s.Tail cur.Val)
                 ])
-            acc
-        ]))
+        return acc.Val
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listRev — reverse a list in O(n)
@@ -157,9 +157,11 @@ let listFilter
 
 /// Traverse a GC linked list for side effects only — no accumulator.
 let listIter (gen: LabelGen) (s: ListShape) (list: WExpr) (body: WExpr -> WExpr) : WExpr =
-    letMut gen "cur" s.BaseTy list (fun cur setCur ->
-        whileLoop (gen.Next("lp")) (refIsNotNull cur)
-            (sequence [body (s.Head cur); setCur (s.Tail cur)]))
+    wasm {
+        let! cur = mutTy s.BaseTy list
+        return! Wasm.while_ (refIsNotNull cur.Val)
+                    (sequence [body (s.Head cur.Val); cur.Set(s.Tail cur.Val)])
+    }
 
 /// Indexed void traversal — body receives (index, element).
 let listIteri
@@ -168,10 +170,12 @@ let listIteri
         (list : WExpr)
         (body : WExpr -> WExpr -> WExpr)   // idx → elem → void
         : WExpr =
-    letMut gen "cur" s.BaseTy list (fun cur setCur ->
-    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-        whileLoop (gen.Next("lp")) (refIsNotNull cur)
-            (sequence [body i (s.Head cur); setI (add i (i32Const 1)); setCur (s.Tail cur)])))
+    wasm {
+        let! cur = mutTy s.BaseTy list
+        let! i = mut (i32Const 0)
+        return! Wasm.while_ (refIsNotNull cur.Val)
+                    (sequence [body i.Val (s.Head cur.Val); i.Set(add i.Val (i32Const 1)); cur.Set(s.Tail cur.Val)])
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listMapi — indexed map
@@ -186,18 +190,18 @@ let listMapi
         (mapper : WExpr -> WExpr -> WExpr)  // idx → srcElem → resElem
         : WExpr =
     let rev =
-        letMut gen "cur" s.BaseTy list (fun cur setCur ->
-        letMut gen "acc" rs.BaseTy rs.Nil (fun acc setAcc ->
-        letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-            sequence [
-                whileLoop (gen.Next("lp")) (refIsNotNull cur)
+        wasm {
+            let! cur = mutTy s.BaseTy list
+            let! acc = mutTy rs.BaseTy rs.Nil
+            let! i = mut (i32Const 0)
+            do! Wasm.while_ (refIsNotNull cur.Val)
                     (sequence [
-                        setAcc (rs.Cons (mapper i (s.Head cur)) acc)
-                        setI (add i (i32Const 1))
-                        setCur (s.Tail cur)
+                        acc.Set(rs.Cons (mapper i.Val (s.Head cur.Val)) acc.Val)
+                        i.Set(add i.Val (i32Const 1))
+                        cur.Set(s.Tail cur.Val)
                     ])
-                acc
-            ])))
+            return acc.Val
+        }
     listRev gen rs rev
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,23 +215,22 @@ let listExists
         (list : WExpr)
         (pred : WExpr -> WExpr)
         : WExpr =
-    // Capture labels BEFORE letMut so the label strings are in scope for break/continue.
     let blkLbl = gen.Next("blk")
     let lpLbl  = gen.Next("lp")
-    letMut gen "cur" s.BaseTy list (fun cur setCur ->
-    letMut gen "res" WType.I32 (i32Const 0) (fun res setRes ->
-        sequence [
-            WExpr.Block(blkLbl,
+    wasm {
+        let! cur = mutTy s.BaseTy list
+        let! res = mut (i32Const 0)
+        do! WExpr.Block(blkLbl,
                 WExpr.Loop(lpLbl,
-                    wasmIf (refIsNotNull cur)
-                        (wasmIf (pred (s.Head cur))
-                            (sequence [setRes (i32Const 1); WExpr.Break(blkLbl, None)])
-                            (sequence [setCur (s.Tail cur); WExpr.Continue(lpLbl, [])]))
+                    wasmIf (refIsNotNull cur.Val)
+                        (wasmIf (pred (s.Head cur.Val))
+                            (sequence [res.Set(i32Const 1); WExpr.Break(blkLbl, None)])
+                            (sequence [cur.Set(s.Tail cur.Val); WExpr.Continue(lpLbl, [])]))
                         WExpr.Nop,
                     WType.Void),
                 WType.Void)
-            res
-        ]))
+        return res.Val
+    }
 
 /// Returns 1 (true) if all elements satisfy the predicate (short-circuits on first failure).
 let listForAll
@@ -238,20 +241,20 @@ let listForAll
         : WExpr =
     let blkLbl = gen.Next("blk")
     let lpLbl  = gen.Next("lp")
-    letMut gen "cur" s.BaseTy list (fun cur setCur ->
-    letMut gen "res" WType.I32 (i32Const 1) (fun res setRes ->
-        sequence [
-            WExpr.Block(blkLbl,
+    wasm {
+        let! cur = mutTy s.BaseTy list
+        let! res = mut (i32Const 1)
+        do! WExpr.Block(blkLbl,
                 WExpr.Loop(lpLbl,
-                    wasmIf (refIsNotNull cur)
-                        (wasmIf (pred (s.Head cur))
-                            (sequence [setCur (s.Tail cur); WExpr.Continue(lpLbl, [])])
-                            (sequence [setRes (i32Const 0); WExpr.Break(blkLbl, None)]))
+                    wasmIf (refIsNotNull cur.Val)
+                        (wasmIf (pred (s.Head cur.Val))
+                            (sequence [cur.Set(s.Tail cur.Val); WExpr.Continue(lpLbl, [])])
+                            (sequence [res.Set(i32Const 0); WExpr.Break(blkLbl, None)]))
                         WExpr.Nop,
                     WType.Void),
                 WType.Void)
-            res
-        ]))
+        return res.Val
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listSearch — find first element matching predicate
@@ -270,21 +273,21 @@ let listSearch
         : WExpr =
     let exitLbl = gen.Next("exit")
     let lpLbl   = gen.Next("lp")
-    letMut gen "cur" s.BaseTy list (fun cur setCur ->
-        WExpr.Block(exitLbl,
+    wasm {
+        let! cur = mutTy s.BaseTy list
+        return! WExpr.Block(exitLbl,
             sequence [
                 WExpr.Loop(lpLbl,
-                    wasmIf (refIsNotNull cur)
-                        (sequence [
-                            wasmIf (pred (s.Head cur))
-                                (WExpr.Break(exitLbl, Some (onFound (s.Head cur))))
-                                (sequence [setCur (s.Tail cur); WExpr.Continue(lpLbl, [])])
-                        ])
+                    wasmIf (refIsNotNull cur.Val)
+                        (wasmIf (pred (s.Head cur.Val))
+                            (WExpr.Break(exitLbl, Some (onFound (s.Head cur.Val))))
+                            (sequence [cur.Set(s.Tail cur.Val); WExpr.Continue(lpLbl, [])]))
                         WExpr.Nop,
                     WType.Void)
                 onNotFound
             ],
-            resTy))
+            resTy)
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // indexedLoop — index-based iteration over an array or string
@@ -298,10 +301,12 @@ let listSearch
 ///       body i
 ///       i <- i + 1
 let indexedLoop (gen: LabelGen) (len: WExpr) (body: WExpr -> WExpr) : WExpr =
-    letVal gen "n" WType.I32 len (fun gl ->
-    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-        whileLoop (gen.Next("lp")) (ltS i gl)
-            (sequence [body i; setI (add i (i32Const 1))])))
+    wasm {
+        let! n = len
+        let! i = mut (i32Const 0)
+        return! Wasm.while_ (ltS i.Val n)
+                    (sequence [body i.Val; i.Set(add i.Val (i32Const 1))])
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // arrayToListRev — walk array right-to-left, consing into a list
@@ -318,16 +323,51 @@ let arrayToListRev
         (len     : WExpr)
         (getElem : WExpr -> WExpr -> WExpr)
         : WExpr =
-    letMut gen "ri"  WType.I32  (sub len (i32Const 1)) (fun ri setRi ->
-    letMut gen "acc" s.BaseTy   s.Nil                   (fun acc setAcc ->
-        sequence [
-            whileLoop (gen.Next("lp")) (geS ri (i32Const 0))
+    wasm {
+        let! ri  = mut (sub len (i32Const 1))
+        let! acc = mutTy s.BaseTy s.Nil
+        do! Wasm.while_ (geS ri.Val (i32Const 0))
                 (sequence [
-                    setAcc (s.Cons (getElem arr ri) acc)
-                    setRi  (sub ri (i32Const 1))
+                    acc.Set(s.Cons (getElem arr ri.Val) acc.Val)
+                    ri.Set(sub ri.Val (i32Const 1))
                 ])
-            acc
-        ]))
+        return acc.Val
+    }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// insertionSortInPlace — shared between Array.sort and List.sort
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// In-place insertion sort on a GC array.
+/// `cmp a b` should return an i32 WExpr: negative = a < b, 0 = equal, positive = a > b.
+/// `readElem arr idx` reads element at index (may cast nullable → non-nullable).
+/// `writeElem arr idx val` writes element at index.
+let insertionSortInPlace
+        (gen       : LabelGen)
+        (arr       : WExpr)
+        (len       : WExpr)
+        (elemTy    : WType)
+        (readElem  : WExpr -> WExpr -> WExpr)    // arr → idx → elem
+        (writeElem : WExpr -> WExpr -> WExpr -> WExpr)  // arr → idx → val → void
+        (cmp       : WExpr -> WExpr -> WExpr)     // a → b → i32 (negative/zero/positive)
+        : WExpr =
+    wasm {
+        let! si = mut (i32Const 1)
+        return! Wasm.while_ (ltS si.Val len)
+            (wasm {
+                let! se = readElem arr si.Val
+                let! sj = mut (sub si.Val (i32Const 1))
+                do! Wasm.while_
+                        (wasmAnd (geS sj.Val (i32Const 0))
+                                 (gtS (cmp (readElem arr sj.Val) se) (i32Const 0)))
+                        (sequence [
+                            writeElem arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
+                            sj.Set(sub sj.Val (i32Const 1))
+                        ])
+                do! writeElem arr (add sj.Val (i32Const 1)) se
+                return! si.Set(add si.Val (i32Const 1))
+            })
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // buildListSort — O(n²) insertion sort, fully composed from combinators
@@ -353,50 +393,30 @@ let buildListSort
     let arrRefTy = WType.Ref(arrTypeIdx, false)
     let cmpOp    = if descending then gtS else ltS
 
-    // Pass 1 — count
-    letVal gen "lst" s.BaseTy list (fun lst ->
-    letVal gen "len" WType.I32 (listLength gen s lst) (fun len ->
+    wasm {
+        let! lst = list
+        let! len = listLength gen s lst
+        let! arr = arrayNew arrTypeIdx len (makeNumericZero s.ElemTy) arrRefTy
 
-    // Pass 2 — allocate array (init value: zero for the element type)
-    letVal gen "arr" arrRefTy
-        (arrayNew arrTypeIdx len (makeNumericZero s.ElemTy) arrRefTy)
-        (fun arr ->
-
-    // Fill the array from the list
-    let fillLoop =
-        letMut gen "fi" WType.I32 (i32Const 0) (fun fi setFi ->
-            listFold gen s lst WExpr.Nop WType.Void
+        // Fill the array from the list
+        let! fi = mut (i32Const 0)
+        do! listFold gen s lst WExpr.Nop WType.Void
                 (fun _ elem ->
                     sequence [
-                        arraySet arr fi elem
-                        setFi (add fi (i32Const 1))
-                    ]))
+                        arraySet arr fi.Val elem
+                        fi.Set(add fi.Val (i32Const 1))
+                    ])
 
-    // Pass 3 — insertion sort in-place
-    let sortLoop =
-        letMut gen "si" WType.I32 (i32Const 1) (fun si setSi ->
-            whileLoop (gen.Next("sil")) (ltS si len)
-                (letVal gen "se" s.ElemTy (arrayGet arr si s.ElemTy) (fun se ->
-                letMut gen "sj" WType.I32 (sub si (i32Const 1))      (fun sj setSj ->
-                    sequence [
-                        whileLoop (gen.Next("sjl"))
-                            (wasmAnd (geS sj (i32Const 0))
-                                     (cmpOp se (arrayGet arr sj s.ElemTy)))
-                            (sequence [
-                                arraySet arr (add sj (i32Const 1)) (arrayGet arr sj s.ElemTy)
-                                setSj (sub sj (i32Const 1))
-                            ])
-                        arraySet arr (add sj (i32Const 1)) se
-                        setSi (add si (i32Const 1))
-                    ]))))
+        // Insertion sort in-place
+        do! insertionSortInPlace gen arr len s.ElemTy
+                (fun a i -> arrayGet a i s.ElemTy)
+                (fun a i v -> arraySet a i v)
+                (fun a b -> wasmIf (cmpOp a b) (i32Const -1) (i32Const 1))
 
-    // Pass 4 — rebuild list from array (right-to-left → forward order)
-    sequence [
-        fillLoop
-        sortLoop
-        arrayToListRev gen s arr len
-            (fun a i -> arrayGet a i s.ElemTy)
-    ])))
+        // Rebuild list from array (right-to-left → forward order)
+        return! arrayToListRev gen s arr len
+                    (fun a i -> arrayGet a i s.ElemTy)
+    }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ARRAY COMBINATORS — parallel API to the list combinators above
@@ -431,18 +451,18 @@ let arrayFold
         (accTy   : WType)
         (folder  : WExpr -> WExpr -> WExpr)   // acc → elem → newAcc
         : WExpr =
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
-    letMut gen "acc" accTy initAcc (fun acc setAcc ->
-    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-        sequence [
-            whileLoop (gen.Next("lp")) (ltS i n)
+    wasm {
+        let! src = arr
+        let! n = arrayLen src
+        let! acc = mutTy accTy initAcc
+        let! i = mut (i32Const 0)
+        do! Wasm.while_ (ltS i.Val n)
                 (sequence [
-                    setAcc (folder acc (arrayGet src i a.ElemTy))
-                    setI (add i (i32Const 1))
+                    acc.Set(folder acc.Val (arrayGet src i.Val a.ElemTy))
+                    i.Set(add i.Val (i32Const 1))
                 ])
-            acc
-        ]))))
+        return acc.Val
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // arrayIter / arrayIteri — void traversal
@@ -455,9 +475,11 @@ let arrayIter
         (arr  : WExpr)
         (body : WExpr -> WExpr)   // elem → void
         : WExpr =
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-        indexedLoop gen (arrayLen src)
-            (fun i -> body (arrayGet src i a.ElemTy)))
+    wasm {
+        let! src = arr
+        return! indexedLoop gen (arrayLen src)
+                    (fun i -> body (arrayGet src i a.ElemTy))
+    }
 
 /// Indexed void traversal — body receives (index, element).
 let arrayIteri
@@ -466,9 +488,11 @@ let arrayIteri
         (arr  : WExpr)
         (body : WExpr -> WExpr -> WExpr)   // idx → elem → void
         : WExpr =
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-        indexedLoop gen (arrayLen src)
-            (fun i -> body i (arrayGet src i a.ElemTy)))
+    wasm {
+        let! src = arr
+        return! indexedLoop gen (arrayLen src)
+                    (fun i -> body i (arrayGet src i a.ElemTy))
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // arrayMap / arrayMapi — map to new array
@@ -482,15 +506,14 @@ let arrayMap
         (arr    : WExpr)
         (mapper : WExpr -> WExpr)   // srcElem → resElem
         : WExpr =
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
-    letVal gen "res" ra.ArrRefTy (arrayNew ra.ArrTypeIdx n (makeNumericZero ra.ElemTy) ra.ArrRefTy)
-        (fun res ->
-            sequence [
-                indexedLoop gen n (fun i ->
-                    arraySet res i (mapper (arrayGet src i a.ElemTy)))
-                res
-            ])))
+    wasm {
+        let! src = arr
+        let! n = arrayLen src
+        let! res = arrayNew ra.ArrTypeIdx n (makeNumericZero ra.ElemTy) ra.ArrRefTy
+        do! indexedLoop gen n (fun i ->
+                arraySet res i (mapper (arrayGet src i a.ElemTy)))
+        return res
+    }
 
 /// Indexed map — mapper receives (index, element).
 let arrayMapi
@@ -500,15 +523,14 @@ let arrayMapi
         (arr    : WExpr)
         (mapper : WExpr -> WExpr -> WExpr)   // idx → srcElem → resElem
         : WExpr =
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
-    letVal gen "res" ra.ArrRefTy (arrayNew ra.ArrTypeIdx n (makeNumericZero ra.ElemTy) ra.ArrRefTy)
-        (fun res ->
-            sequence [
-                indexedLoop gen n (fun i ->
-                    arraySet res i (mapper i (arrayGet src i a.ElemTy)))
-                res
-            ])))
+    wasm {
+        let! src = arr
+        let! n = arrayLen src
+        let! res = arrayNew ra.ArrTypeIdx n (makeNumericZero ra.ElemTy) ra.ArrRefTy
+        do! indexedLoop gen n (fun i ->
+                arraySet res i (mapper i (arrayGet src i a.ElemTy)))
+        return res
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // arrayExists / arrayForAll — short-circuit search
@@ -523,21 +545,23 @@ let arrayExists
         : WExpr =
     let blkLbl = gen.Next("blk")
     let lpLbl  = gen.Next("lp")
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
-    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-        WExpr.Block(blkLbl,
+    wasm {
+        let! src = arr
+        let! n = arrayLen src
+        let! i = mut (i32Const 0)
+        return! WExpr.Block(blkLbl,
             sequence [
                 WExpr.Loop(lpLbl,
-                    wasmIf (ltS i n)
-                        (wasmIf (pred (arrayGet src i a.ElemTy))
+                    wasmIf (ltS i.Val n)
+                        (wasmIf (pred (arrayGet src i.Val a.ElemTy))
                             (WExpr.Break(blkLbl, Some(i32Const 1)))
-                            (sequence [setI (add i (i32Const 1)); continue_ lpLbl]))
+                            (sequence [i.Set(add i.Val (i32Const 1)); continue_ lpLbl]))
                         WExpr.Nop,
                     WType.Void)
                 i32Const 0
             ],
-            WType.I32))))
+            WType.I32)
+    }
 
 /// Returns 1 (true) if all elements satisfy the predicate (short-circuits).
 let arrayForAll
@@ -548,21 +572,23 @@ let arrayForAll
         : WExpr =
     let blkLbl = gen.Next("blk")
     let lpLbl  = gen.Next("lp")
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
-    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-        WExpr.Block(blkLbl,
+    wasm {
+        let! src = arr
+        let! n = arrayLen src
+        let! i = mut (i32Const 0)
+        return! WExpr.Block(blkLbl,
             sequence [
                 WExpr.Loop(lpLbl,
-                    wasmIf (ltS i n)
-                        (wasmIf (pred (arrayGet src i a.ElemTy))
-                            (sequence [setI (add i (i32Const 1)); continue_ lpLbl])
+                    wasmIf (ltS i.Val n)
+                        (wasmIf (pred (arrayGet src i.Val a.ElemTy))
+                            (sequence [i.Set(add i.Val (i32Const 1)); continue_ lpLbl])
                             (WExpr.Break(blkLbl, Some(i32Const 0))))
                         WExpr.Nop,
                     WType.Void)
                 i32Const 1
             ],
-            WType.I32))))
+            WType.I32)
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // arrayFilter — two-pass filter (count + fill)
@@ -575,29 +601,25 @@ let arrayFilter
         (arr  : WExpr)
         (pred : WExpr -> WExpr)   // elem → i32 (bool)
         : WExpr =
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
-    // Pass 1: count matching elements
-    letMut gen "cnt" WType.I32 (i32Const 0) (fun cnt setCnt ->
-        sequence [
-            indexedLoop gen n (fun i ->
+    wasm {
+        let! src = arr
+        let! n = arrayLen src
+        // Pass 1: count matching elements
+        let! cnt = mut (i32Const 0)
+        do! indexedLoop gen n (fun i ->
                 wasmWhen (pred (arrayGet src i a.ElemTy))
-                    (setCnt (add cnt (i32Const 1))))
-            // Pass 2: allocate + fill
-            letVal gen "res" a.ArrRefTy
-                (arrayNew a.ArrTypeIdx cnt (makeNumericZero a.ElemTy) a.ArrRefTy)
-                (fun res ->
-                letMut gen "wi" WType.I32 (i32Const 0) (fun wi setWi ->
-                    sequence [
-                        indexedLoop gen n (fun i ->
-                            let elem = arrayGet src i a.ElemTy
-                            wasmWhen (pred elem)
-                                (sequence [
-                                    arraySet res wi (arrayGet src i a.ElemTy)
-                                    setWi (add wi (i32Const 1))
-                                ]))
-                        res
-                    ]))])))
+                    (cnt.Set(add cnt.Val (i32Const 1))))
+        // Pass 2: allocate + fill
+        let! res = arrayNew a.ArrTypeIdx cnt.Val (makeNumericZero a.ElemTy) a.ArrRefTy
+        let! wi = mut (i32Const 0)
+        do! indexedLoop gen n (fun i ->
+                wasmWhen (pred (arrayGet src i a.ElemTy))
+                    (sequence [
+                        arraySet res wi.Val (arrayGet src i a.ElemTy)
+                        wi.Set(add wi.Val (i32Const 1))
+                    ]))
+        return res
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // arraySearch — find first element matching predicate
@@ -616,52 +638,23 @@ let arraySearch
         : WExpr =
     let exitLbl = gen.Next("exit")
     let lpLbl   = gen.Next("lp")
-    letVal gen "src" a.ArrRefTy arr (fun src ->
-    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
-    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-        WExpr.Block(exitLbl,
+    wasm {
+        let! src = arr
+        let! n = arrayLen src
+        let! i = mut (i32Const 0)
+        return! WExpr.Block(exitLbl,
             sequence [
                 WExpr.Loop(lpLbl,
-                    wasmIf (ltS i n)
-                        (let elem = arrayGet src i a.ElemTy
+                    wasmIf (ltS i.Val n)
+                        (let elem = arrayGet src i.Val a.ElemTy
                          wasmIf (pred elem)
-                            (WExpr.Break(exitLbl, Some(onFound i (arrayGet src i a.ElemTy))))
-                            (sequence [setI (add i (i32Const 1)); continue_ lpLbl]))
+                            (WExpr.Break(exitLbl, Some(onFound i.Val (arrayGet src i.Val a.ElemTy))))
+                            (sequence [i.Set(add i.Val (i32Const 1)); continue_ lpLbl]))
                         WExpr.Nop,
                     WType.Void)
                 onNotFound
             ],
-            resTy))))
+            resTy)
+    }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// insertionSortInPlace — shared between Array.sort and List.sort
-// ─────────────────────────────────────────────────────────────────────────────
 
-/// In-place insertion sort on a GC array.
-/// `cmp a b` should return an i32 WExpr: negative = a < b, 0 = equal, positive = a > b.
-/// `readElem arr idx` reads element at index (may cast nullable → non-nullable).
-/// `writeElem arr idx val` writes element at index.
-let insertionSortInPlace
-        (gen       : LabelGen)
-        (arr       : WExpr)
-        (len       : WExpr)
-        (elemTy    : WType)
-        (readElem  : WExpr -> WExpr -> WExpr)    // arr → idx → elem
-        (writeElem : WExpr -> WExpr -> WExpr -> WExpr)  // arr → idx → val → void
-        (cmp       : WExpr -> WExpr -> WExpr)     // a → b → i32 (negative/zero/positive)
-        : WExpr =
-    letMut gen "si" WType.I32 (i32Const 1) (fun si setSi ->
-        whileLoop (gen.Next("sil")) (ltS si len)
-            (letVal gen "se" elemTy (readElem arr si) (fun se ->
-            letMut gen "sj" WType.I32 (sub si (i32Const 1)) (fun sj setSj ->
-                sequence [
-                    whileLoop (gen.Next("sjl"))
-                        (wasmAnd (geS sj (i32Const 0))
-                                 (gtS (cmp (readElem arr sj) se) (i32Const 0)))
-                        (sequence [
-                            writeElem arr (add sj (i32Const 1)) (readElem arr sj)
-                            setSj (sub sj (i32Const 1))
-                        ])
-                    writeElem arr (add sj (i32Const 1)) se
-                    setSi (add si (i32Const 1))
-                ]))))
