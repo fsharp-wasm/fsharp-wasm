@@ -152,6 +152,55 @@ let listFilter
     listRev gen s rev
 
 // ─────────────────────────────────────────────────────────────────────────────
+// listIter — void traversal (no accumulator)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Traverse a GC linked list for side effects only — no accumulator.
+let listIter (gen: LabelGen) (s: ListShape) (list: WExpr) (body: WExpr -> WExpr) : WExpr =
+    letMut gen "cur" s.BaseTy list (fun cur setCur ->
+        whileLoop (gen.Next("lp")) (refIsNotNull cur)
+            (sequence [body (s.Head cur); setCur (s.Tail cur)]))
+
+/// Indexed void traversal — body receives (index, element).
+let listIteri
+        (gen  : LabelGen)
+        (s    : ListShape)
+        (list : WExpr)
+        (body : WExpr -> WExpr -> WExpr)   // idx → elem → void
+        : WExpr =
+    letMut gen "cur" s.BaseTy list (fun cur setCur ->
+    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
+        whileLoop (gen.Next("lp")) (refIsNotNull cur)
+            (sequence [body i (s.Head cur); setI (add i (i32Const 1)); setCur (s.Tail cur)])))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// listMapi — indexed map
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Indexed map over a list — result preserves order via fold→rev.
+let listMapi
+        (gen    : LabelGen)
+        (s      : ListShape)
+        (rs     : ListShape)
+        (list   : WExpr)
+        (mapper : WExpr -> WExpr -> WExpr)  // idx → srcElem → resElem
+        : WExpr =
+    let rev =
+        letMut gen "cur" s.BaseTy list (fun cur setCur ->
+        letMut gen "acc" rs.BaseTy rs.Nil (fun acc setAcc ->
+        letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
+            sequence [
+                whileLoop (gen.Next("lp")) (refIsNotNull cur)
+                    (sequence [
+                        setAcc (rs.Cons (mapper i (s.Head cur)) acc)
+                        setI (add i (i32Const 1))
+                        setCur (s.Tail cur)
+                    ])
+                acc
+            ])))
+    listRev gen rs rev
+
+// ─────────────────────────────────────────────────────────────────────────────
 // listExists / listForAll — short-circuit search returning bool
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -348,3 +397,271 @@ let buildListSort
         arrayToListRev gen s arr len
             (fun a i -> arrayGet a i s.ElemTy)
     ])))
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARRAY COMBINATORS — parallel API to the list combinators above
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Shape info for a GC array type, analogous to ListShape for lists.
+type ArrayShape = {
+    ElemTy     : WType
+    ArrTypeIdx : int
+    ArrRefTy   : WType
+}
+
+/// Build an ArrayShape from element type and GC array type index.
+let mkArrayShape (elemT: WType) (arrTypeIdx: int) : ArrayShape =
+    { ElemTy = elemT; ArrTypeIdx = arrTypeIdx; ArrRefTy = WType.Ref(arrTypeIdx, false) }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// arrayFold — fold over a GC array
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Left-fold over a GC array.
+///
+///   let mutable acc = initAcc
+///   for i in 0..arr.len-1 do
+///       acc <- folder acc arr.[i]
+///   acc
+let arrayFold
+        (gen     : LabelGen)
+        (a       : ArrayShape)
+        (arr     : WExpr)
+        (initAcc : WExpr)
+        (accTy   : WType)
+        (folder  : WExpr -> WExpr -> WExpr)   // acc → elem → newAcc
+        : WExpr =
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
+    letMut gen "acc" accTy initAcc (fun acc setAcc ->
+    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
+        sequence [
+            whileLoop (gen.Next("lp")) (ltS i n)
+                (sequence [
+                    setAcc (folder acc (arrayGet src i a.ElemTy))
+                    setI (add i (i32Const 1))
+                ])
+            acc
+        ]))))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// arrayIter / arrayIteri — void traversal
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Iterate over a GC array for side effects only.
+let arrayIter
+        (gen  : LabelGen)
+        (a    : ArrayShape)
+        (arr  : WExpr)
+        (body : WExpr -> WExpr)   // elem → void
+        : WExpr =
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+        indexedLoop gen (arrayLen src)
+            (fun i -> body (arrayGet src i a.ElemTy)))
+
+/// Indexed void traversal — body receives (index, element).
+let arrayIteri
+        (gen  : LabelGen)
+        (a    : ArrayShape)
+        (arr  : WExpr)
+        (body : WExpr -> WExpr -> WExpr)   // idx → elem → void
+        : WExpr =
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+        indexedLoop gen (arrayLen src)
+            (fun i -> body i (arrayGet src i a.ElemTy)))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// arrayMap / arrayMapi — map to new array
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Map over a GC array, producing a new array.
+let arrayMap
+        (gen    : LabelGen)
+        (a      : ArrayShape)       // source shape
+        (ra     : ArrayShape)       // result shape (may differ)
+        (arr    : WExpr)
+        (mapper : WExpr -> WExpr)   // srcElem → resElem
+        : WExpr =
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
+    letVal gen "res" ra.ArrRefTy (arrayNew ra.ArrTypeIdx n (makeNumericZero ra.ElemTy) ra.ArrRefTy)
+        (fun res ->
+            sequence [
+                indexedLoop gen n (fun i ->
+                    arraySet res i (mapper (arrayGet src i a.ElemTy)))
+                res
+            ])))
+
+/// Indexed map — mapper receives (index, element).
+let arrayMapi
+        (gen    : LabelGen)
+        (a      : ArrayShape)
+        (ra     : ArrayShape)
+        (arr    : WExpr)
+        (mapper : WExpr -> WExpr -> WExpr)   // idx → srcElem → resElem
+        : WExpr =
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
+    letVal gen "res" ra.ArrRefTy (arrayNew ra.ArrTypeIdx n (makeNumericZero ra.ElemTy) ra.ArrRefTy)
+        (fun res ->
+            sequence [
+                indexedLoop gen n (fun i ->
+                    arraySet res i (mapper i (arrayGet src i a.ElemTy)))
+                res
+            ])))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// arrayExists / arrayForAll — short-circuit search
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns 1 (true) if any element satisfies the predicate (short-circuits).
+let arrayExists
+        (gen  : LabelGen)
+        (a    : ArrayShape)
+        (arr  : WExpr)
+        (pred : WExpr -> WExpr)
+        : WExpr =
+    let blkLbl = gen.Next("blk")
+    let lpLbl  = gen.Next("lp")
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
+    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
+        WExpr.Block(blkLbl,
+            sequence [
+                WExpr.Loop(lpLbl,
+                    wasmIf (ltS i n)
+                        (wasmIf (pred (arrayGet src i a.ElemTy))
+                            (WExpr.Break(blkLbl, Some(i32Const 1)))
+                            (sequence [setI (add i (i32Const 1)); continue_ lpLbl]))
+                        WExpr.Nop,
+                    WType.Void)
+                i32Const 0
+            ],
+            WType.I32))))
+
+/// Returns 1 (true) if all elements satisfy the predicate (short-circuits).
+let arrayForAll
+        (gen  : LabelGen)
+        (a    : ArrayShape)
+        (arr  : WExpr)
+        (pred : WExpr -> WExpr)
+        : WExpr =
+    let blkLbl = gen.Next("blk")
+    let lpLbl  = gen.Next("lp")
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
+    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
+        WExpr.Block(blkLbl,
+            sequence [
+                WExpr.Loop(lpLbl,
+                    wasmIf (ltS i n)
+                        (wasmIf (pred (arrayGet src i a.ElemTy))
+                            (sequence [setI (add i (i32Const 1)); continue_ lpLbl])
+                            (WExpr.Break(blkLbl, Some(i32Const 0))))
+                        WExpr.Nop,
+                    WType.Void)
+                i32Const 1
+            ],
+            WType.I32))))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// arrayFilter — two-pass filter (count + fill)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Filter a GC array using a predicate (two-pass: count then fill).
+let arrayFilter
+        (gen  : LabelGen)
+        (a    : ArrayShape)
+        (arr  : WExpr)
+        (pred : WExpr -> WExpr)   // elem → i32 (bool)
+        : WExpr =
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
+    // Pass 1: count matching elements
+    letMut gen "cnt" WType.I32 (i32Const 0) (fun cnt setCnt ->
+        sequence [
+            indexedLoop gen n (fun i ->
+                wasmWhen (pred (arrayGet src i a.ElemTy))
+                    (setCnt (add cnt (i32Const 1))))
+            // Pass 2: allocate + fill
+            letVal gen "res" a.ArrRefTy
+                (arrayNew a.ArrTypeIdx cnt (makeNumericZero a.ElemTy) a.ArrRefTy)
+                (fun res ->
+                letMut gen "wi" WType.I32 (i32Const 0) (fun wi setWi ->
+                    sequence [
+                        indexedLoop gen n (fun i ->
+                            let elem = arrayGet src i a.ElemTy
+                            wasmWhen (pred elem)
+                                (sequence [
+                                    arraySet res wi (arrayGet src i a.ElemTy)
+                                    setWi (add wi (i32Const 1))
+                                ]))
+                        res
+                    ]))])))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// arraySearch — find first element matching predicate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Find the first array element satisfying `pred` and return `onFound idx elem`.
+/// If not found, returns `onNotFound`.
+let arraySearch
+        (gen        : LabelGen)
+        (a          : ArrayShape)
+        (arr        : WExpr)
+        (resTy      : WType)
+        (pred       : WExpr -> WExpr)
+        (onFound    : WExpr -> WExpr -> WExpr)   // idx → elem → result
+        (onNotFound : WExpr)
+        : WExpr =
+    let exitLbl = gen.Next("exit")
+    let lpLbl   = gen.Next("lp")
+    letVal gen "src" a.ArrRefTy arr (fun src ->
+    letVal gen "n" WType.I32 (arrayLen src) (fun n ->
+    letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
+        WExpr.Block(exitLbl,
+            sequence [
+                WExpr.Loop(lpLbl,
+                    wasmIf (ltS i n)
+                        (let elem = arrayGet src i a.ElemTy
+                         wasmIf (pred elem)
+                            (WExpr.Break(exitLbl, Some(onFound i (arrayGet src i a.ElemTy))))
+                            (sequence [setI (add i (i32Const 1)); continue_ lpLbl]))
+                        WExpr.Nop,
+                    WType.Void)
+                onNotFound
+            ],
+            resTy))))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// insertionSortInPlace — shared between Array.sort and List.sort
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// In-place insertion sort on a GC array.
+/// `cmp a b` should return an i32 WExpr: negative = a < b, 0 = equal, positive = a > b.
+/// `readElem arr idx` reads element at index (may cast nullable → non-nullable).
+/// `writeElem arr idx val` writes element at index.
+let insertionSortInPlace
+        (gen       : LabelGen)
+        (arr       : WExpr)
+        (len       : WExpr)
+        (elemTy    : WType)
+        (readElem  : WExpr -> WExpr -> WExpr)    // arr → idx → elem
+        (writeElem : WExpr -> WExpr -> WExpr -> WExpr)  // arr → idx → val → void
+        (cmp       : WExpr -> WExpr -> WExpr)     // a → b → i32 (negative/zero/positive)
+        : WExpr =
+    letMut gen "si" WType.I32 (i32Const 1) (fun si setSi ->
+        whileLoop (gen.Next("sil")) (ltS si len)
+            (letVal gen "se" elemTy (readElem arr si) (fun se ->
+            letMut gen "sj" WType.I32 (sub si (i32Const 1)) (fun sj setSj ->
+                sequence [
+                    whileLoop (gen.Next("sjl"))
+                        (wasmAnd (geS sj (i32Const 0))
+                                 (gtS (cmp (readElem arr sj) se) (i32Const 0)))
+                        (sequence [
+                            writeElem arr (add sj (i32Const 1)) (readElem arr sj)
+                            setSj (sub sj (i32Const 1))
+                        ])
+                    writeElem arr (add sj (i32Const 1)) se
+                    setSi (add si (i32Const 1))
+                ]))))
