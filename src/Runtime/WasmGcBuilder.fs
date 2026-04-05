@@ -35,6 +35,51 @@ let freshName () =
     $"$w{n}"
 
 // ─────────────────────────────────────────────────────────────────
+// WVar — typed mutable handles (moved here so WasmBuilder can reference it)
+// ─────────────────────────────────────────────────────────────────
+
+/// A strongly-typed handle for a WasmGC local variable.
+/// Eliminates string-keyed `localGet "$name" i32` boilerplate.
+///
+/// Create with `WVar.letMut` or via `let! v = mut expr` in the CE.
+/// Use `.Val` to read, `.Set(e)` to assign, `.Update(f)` to modify.
+[<Struct>]
+type WVar = { Name: string; Ty: WType }
+    with
+        /// The current value as a WExpr (LocalGet).
+        member v.Val = WExpr.LocalGet(v.Name, v.Ty)
+        /// Assign a new value (LocalSet).
+        member v.Set(expr: WExpr) = WExpr.Assign(v.Name, expr)
+        /// Assign the result of a function applied to the current value.
+        member v.Update(f: WExpr -> WExpr) = WExpr.Assign(v.Name, f (WExpr.LocalGet(v.Name, v.Ty)))
+
+// ─────────────────────────────────────────────────────────────────
+// MutInit — mutable binding marker for the CE
+// ─────────────────────────────────────────────────────────────────
+
+/// Marker type for mutable bindings inside `wasm { }`.
+/// Use `mut expr` or `mutTy ty expr` to create, then bind with `let! v = ...`.
+///
+///   wasm {
+///       let! i = mut (i32Const 0)             // mutable i32
+///       let! p = mutTy s.BaseTy wList         // mutable with explicit type
+///       do! Wasm.while_ (cond) (wasm {
+///           do! i.Set(add i.Val (i32Const 1))
+///       })
+///       return i.Val
+///   }
+[<Struct>]
+type MutInit = { Init: WExpr; Ty: WType }
+
+/// Create a mutable binding marker; type is inferred from the expression.
+let mut (init: WExpr) : MutInit = { Init = init; Ty = exprWType init }
+
+/// Create a mutable binding marker with an explicit type
+/// (needed when the init expression type doesn't match the variable type,
+/// e.g. nullable ref init for a broader ref type).
+let mutTy (ty: WType) (init: WExpr) : MutInit = { Init = init; Ty = ty }
+
+// ─────────────────────────────────────────────────────────────────
 // WasmBuilder — monadic CE over WExpr
 // ─────────────────────────────────────────────────────────────────
 
@@ -44,6 +89,9 @@ let freshName () =
 ///
 /// `let! x = e` introduces a fresh let-binding and passes a `LocalGet` to the
 /// continuation, so `x` is ready-to-use wherever a WExpr is expected.
+///
+/// `let! v = mut expr` introduces a mutable binding and passes a `WVar` handle.
+/// Use `v.Val` to read, `v.Set(newVal)` to assign.
 ///
 /// `do! e` sequences a void-typed expression without naming its result.
 type WasmBuilder() =
@@ -63,6 +111,13 @@ type WasmBuilder() =
         | ty ->
             let name = freshName ()
             WExpr.Let(name, expr, k (WExpr.LocalGet(name, ty)))
+
+    /// `let! v = mut expr` — introduce a mutable binding.
+    /// The continuation receives a `WVar` with `.Val` / `.Set(e)` / `.Update(f)`.
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
+    member _.Bind(m: MutInit, k: WVar -> WExpr) : WExpr =
+        let name = freshName ()
+        WExpr.LetMut(name, m.Init, k { Name = name; Ty = m.Ty })
 
     /// `do! e` — sequence a void expression, ignoring its (unit) result.
     /// F# desugars `do! e` as `Bind(e, fun () -> rest)` so we need this overload.
@@ -398,22 +453,8 @@ let makeNumericZero = function
     | ty        -> failwithf "makeNumericZero: non-numeric type %A" ty
 
 // ─────────────────────────────────────────────────────────────────
-// WVar — typed mutable handles (BCL-FRAMEWORK-SPEC-extended, Sprint 18)
+// WVar factory helpers
 // ─────────────────────────────────────────────────────────────────
-
-/// A strongly-typed handle for a WasmGC local variable.
-/// Eliminates string-keyed `localGet "$name" i32` boilerplate.
-///
-/// Create with `WVar.letMut` or `WVar.letVal`; use `.Val`, `.Set`, `.Update`.
-[<Struct>]
-type WVar = { Name: string; Ty: WType }
-    with
-        /// The current value as a WExpr (LocalGet).
-        member v.Val = WExpr.LocalGet(v.Name, v.Ty)
-        /// Assign a new value (LocalSet).
-        member v.Set(expr: WExpr) = WExpr.Assign(v.Name, expr)
-        /// Assign the result of a function applied to the current value.
-        member v.Update(f: WExpr -> WExpr) = WExpr.Assign(v.Name, f (WExpr.LocalGet(v.Name, v.Ty)))
 
 /// Factory and scoping helpers for `WVar`.
 module WVar =
