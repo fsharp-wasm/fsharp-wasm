@@ -43,7 +43,7 @@ let tryArrayInline
         | Some elemFableT, [wSize; wInit] ->
             let elemT = mapTypeKnown ctx elemFableT
             let arrTypeIdx = getOrAddArrayType ctx elemT
-            Some(WExpr.ArrayNew(arrTypeIdx, wSize, wInit, WType.Ref(arrTypeIdx, false)))
+            Some(arrayNew arrTypeIdx wSize wInit (WType.Ref(arrTypeIdx, false)))
         | _ -> None
     // Array.zeroCreate n
     | "zeroCreate" ->
@@ -51,13 +51,13 @@ let tryArrayInline
         | Some elemFableT, [wSize] ->
             let elemT = mapTypeKnown ctx elemFableT
             let arrTypeIdx = getOrAddArrayType ctx elemT
-            Some(WExpr.ArrayNew(arrTypeIdx, wSize, makeZero elemT, WType.Ref(arrTypeIdx, false)))
+            Some(arrayNew arrTypeIdx wSize (makeZero elemT) (WType.Ref(arrTypeIdx, false)))
         | _ -> None
     // Array.length
     | "length" ->
         match fableArgs with
         | [arrArg] when getArrElemT arrArg.Type |> Option.isSome ->
-            Some(WExpr.ArrayLen(List.head wArgs))
+            Some(arrayLen (List.head wArgs))
         | _ -> None
     // Array.get / Array.item
     | ("get" | "item") ->
@@ -71,15 +71,14 @@ let tryArrayInline
             let elemT = mapTypeKnown ctx elemFableT
             let wArr = if arrWArgIdx = 0 then w0 else w1
             let wIdx = if idxWArgIdx = 0 then w0 else w1
-            // ResizeArray indexing: extract data field before calling array.get
             let wArrFinal =
                 match arrFableArg.Type with
                 | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) ->
                     let (arrTypeIdx, _) = getOrAddResizeArrayType ctx elemT
                     let arrRefT = WType.Ref(arrTypeIdx, true)
-                    WExpr.Cast(WExpr.StructGet(wArr, 0, arrRefT), WType.Ref(arrTypeIdx, false))
+                    cast (structGet wArr 0 arrRefT) (WType.Ref(arrTypeIdx, false))
                 | _ -> wArr
-            Some(WExpr.ArrayGet(wArrFinal, wIdx, elemT))
+            Some(arrayGet wArrFinal wIdx elemT)
         | _ -> None
     // ResizeArray.[idx] <- v → Array.setItem(ar, idx, value)
     | "setItem" ->
@@ -94,9 +93,9 @@ let tryArrayInline
                     | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) ->
                         let (arrTypeIdx, _) = getOrAddResizeArrayType ctx elemT
                         let arrRefT = WType.Ref(arrTypeIdx, true)
-                        Some(WExpr.ArraySet(WExpr.Cast(WExpr.StructGet(wArr, 0, arrRefT), WType.Ref(arrTypeIdx, false)), wIdx, wVal))
+                        Some(arraySet (cast (structGet wArr 0 arrRefT) (WType.Ref(arrTypeIdx, false))) wIdx wVal)
                     | _ ->
-                        Some(WExpr.ArraySet(wArr, wIdx, wVal))
+                        Some(arraySet wArr wIdx wVal)
                 | _ -> None
             | None -> None
         | _ -> None
@@ -105,7 +104,7 @@ let tryArrayInline
         match fableArgs with
         | [arrArg; _; _] when getArrElemT arrArg.Type |> Option.isSome ->
             match wArgs with
-            | [wArr; wIdx; wVal] -> Some(WExpr.ArraySet(wArr, wIdx, wVal))
+            | [wArr; wIdx; wVal] -> Some(arraySet wArr wIdx wVal)
             | _ -> None
         | _ -> None
     // Array.copy
@@ -118,13 +117,13 @@ let tryArrayInline
                 let arrTypeIdx = getOrAddArrayType ctx elemT
                 let arrRef = WType.Ref(arrTypeIdx, false)
                 let wSrc = List.head wArgs
-                let tmp = "$arrcopy_dst"
-                Some(WExpr.Let(tmp, WExpr.ArrayNew(arrTypeIdx, WExpr.ArrayLen(wSrc), makeZero elemT, arrRef),
-                    WExpr.Sequence [
-                        WExpr.ArrayCopy(WExpr.LocalGet(tmp, arrRef), WExpr.Const(WConst.I32 0),
-                            wSrc, WExpr.Const(WConst.I32 0), WExpr.ArrayLen(wSrc))
-                        WExpr.LocalGet(tmp, arrRef)
-                    ]))
+                let gen = LabelGen("acpy")
+                Some(letVal gen "src" arrRef wSrc (fun src ->
+                    letVal gen "dst" arrRef (arrayNew arrTypeIdx (arrayLen src) (makeZero elemT) arrRef) (fun dst ->
+                        sequence [
+                            arrayCopy dst (i32Const 0) src (i32Const 0) (arrayLen src)
+                            dst
+                        ])))
             | None -> None
         | _ -> None
     // Array.fill
@@ -135,31 +134,22 @@ let tryArrayInline
             let arrTypeIdx = getOrAddArrayType ctx elemT
             let arrRefT = WType.Ref(arrTypeIdx, false)
             match wArgs with
-            | [_; _; wCount; wValue] -> Some(WExpr.ArrayNew(arrTypeIdx, wCount, wValue, arrRefT))
-            | [_; wCount; wValue]    -> Some(WExpr.ArrayNew(arrTypeIdx, wCount, wValue, arrRefT))
-            | [wCount; wValue]       -> Some(WExpr.ArrayNew(arrTypeIdx, wCount, wValue, arrRefT))
+            | [_; _; wCount; wValue] -> Some(arrayNew arrTypeIdx wCount wValue arrRefT)
+            | [_; wCount; wValue]    -> Some(arrayNew arrTypeIdx wCount wValue arrRefT)
+            | [wCount; wValue]       -> Some(arrayNew arrTypeIdx wCount wValue arrRefT)
             | _ -> None
         | None ->
             match fableArgs, wArgs with
             | [arrArg; _; _; _], [wArr; wStart; wCount; wVal]
                   when getArrElemT arrArg.Type |> Option.isSome ->
-                let iVar = "$fill_i"
-                let limVar = "$fill_end"
-                let lbl = "$fill_loop"
-                let iGet = WExpr.LocalGet(iVar, WType.I32)
-                Some(WExpr.LetMut(iVar, wStart,
-                    WExpr.LetMut(limVar,
-                        WExpr.Binary(WBinaryOp.Add, wStart, wCount, WType.I32),
-                        WExpr.Loop(lbl,
-                            WExpr.If(
-                                WExpr.Compare(WCompareOp.LtS, iGet, WExpr.LocalGet(limVar, WType.I32)),
-                                WExpr.Sequence [
-                                    WExpr.ArraySet(wArr, iGet, wVal)
-                                    WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
-                                    WExpr.Continue(lbl, [])
-                                ],
-                                WExpr.Nop, WType.Void),
-                            WType.Void))))
+                let gen = LabelGen("fill")
+                Some(letVal gen "lim" WType.I32 (add wStart wCount) (fun lim ->
+                    letMut gen "i" WType.I32 wStart (fun i setI ->
+                        whileLoop (gen.Next("lp")) (ltS i lim)
+                            (sequence [
+                                arraySet wArr i wVal
+                                setI (add i (i32Const 1))
+                            ]))))
             | _ -> None
     // Array.iter / iterate
     | ("iter" | "iterate") ->
@@ -176,12 +166,13 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
+                let a = mkArrayShape elemT arrTypeIdx
+                let gen = LabelGen("aiter")
                 let wArr = transform ctx arrArg
                 let ctx' = ctx.WithLocal(farg.Name, elemT)
                 let wBody = transform ctx' fbody
-                Some(mkArrayLoop "aiter" elemT arrTypeIdx wArr []
-                        (fun elem _idx -> WExpr.Let(farg.Name, elem, wBody))
-                        WExpr.Nop None)
+                Some(arrayIter gen a wArr
+                    (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
             | None -> None
         | None -> None
     // Array.iteri / iterateIndexed
@@ -202,13 +193,14 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
+                let a = mkArrayShape elemT arrTypeIdx
+                let gen = LabelGen("aiteri")
                 let wArr = transform ctx arrArg
                 let ctx' = ctx.WithLocal(fidx.Name, WType.I32).WithLocal(farg.Name, elemT)
                 let wBody = transform ctx' fbody
-                Some(mkArrayLoop "aiteri" elemT arrTypeIdx wArr []
-                        (fun elem idx ->
-                            WExpr.Let(fidx.Name, idx, WExpr.Let(farg.Name, elem, wBody)))
-                        WExpr.Nop None)
+                Some(arrayIteri gen a wArr
+                    (fun idx elem ->
+                        WExpr.Let(fidx.Name, idx, WExpr.Let(farg.Name, elem, wBody))))
             | None -> None
         | None -> None
     // Array.map
@@ -229,21 +221,14 @@ let tryArrayInline
                 let resultFableT = match resultFableType with | Fable.Type.Array(t,_) -> t | _ -> elemFableT
                 let resultElemT = mapTypeKnown ctx resultFableT
                 let resultArrIdx = getOrAddArrayType ctx resultElemT
-                let resultArrRefT = WType.Ref(resultArrIdx, false)
-                let srcVar = "$amap_src"
-                let resVar = "$amap_res"
-                let srcRefT = WType.Ref(arrTypeIdx, false)
+                let a = mkArrayShape elemT arrTypeIdx
+                let ra = mkArrayShape resultElemT resultArrIdx
+                let gen = LabelGen("amap")
                 let wArr = transform ctx arrArg
                 let ctx' = ctx.WithLocal(farg.Name, elemT)
                 let wBody = transform ctx' fbody
-                Some(WExpr.Let(srcVar, wArr,
-                    WExpr.Let(resVar,
-                        WExpr.ArrayNew(resultArrIdx, WExpr.ArrayLen(WExpr.LocalGet(srcVar, srcRefT)), makeZero resultElemT, resultArrRefT),
-                        mkArrayLoop "amap" elemT arrTypeIdx (WExpr.LocalGet(srcVar, srcRefT)) []
-                            (fun elem idx ->
-                                WExpr.Let(farg.Name, elem,
-                                    WExpr.ArraySet(WExpr.LocalGet(resVar, resultArrRefT), idx, wBody)))
-                            (WExpr.LocalGet(resVar, resultArrRefT)) None)))
+                Some(arrayMap gen a ra wArr
+                    (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
             | None -> None
         | None -> None
     // Array.mapi / mapIndexed
@@ -267,22 +252,16 @@ let tryArrayInline
                 let resultFableT = match resultFableType with | Fable.Type.Array(t,_) -> t | _ -> elemFableT
                 let resultElemT = mapTypeKnown ctx resultFableT
                 let resultArrIdx = getOrAddArrayType ctx resultElemT
-                let resultArrRefT = WType.Ref(resultArrIdx, false)
-                let srcVar = "$amapi_src"
-                let resVar = "$amapi_res"
-                let srcRefT = WType.Ref(arrTypeIdx, false)
+                let a = mkArrayShape elemT arrTypeIdx
+                let ra = mkArrayShape resultElemT resultArrIdx
+                let gen = LabelGen("amapi")
                 let wArr = transform ctx arrArg
                 let ctx' = ctx.WithLocal(fidx.Name, WType.I32).WithLocal(farg.Name, elemT)
                 let wBody = transform ctx' fbody
-                Some(WExpr.Let(srcVar, wArr,
-                    WExpr.Let(resVar,
-                        WExpr.ArrayNew(resultArrIdx, WExpr.ArrayLen(WExpr.LocalGet(srcVar, srcRefT)), makeZero resultElemT, resultArrRefT),
-                        mkArrayLoop "amapi" elemT arrTypeIdx (WExpr.LocalGet(srcVar, srcRefT)) []
-                            (fun elem idx ->
-                                WExpr.Let(fidx.Name, idx,
-                                    WExpr.Let(farg.Name, elem,
-                                        WExpr.ArraySet(WExpr.LocalGet(resVar, resultArrRefT), idx, wBody))))
-                            (WExpr.LocalGet(resVar, resultArrRefT)) None)))
+                Some(arrayMapi gen a ra wArr
+                    (fun idx elem ->
+                        WExpr.Let(fidx.Name, idx,
+                            WExpr.Let(farg.Name, elem, wBody))))
             | None -> None
         | None -> None
     // Array.fold
@@ -296,15 +275,17 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
+                let a = mkArrayShape elemT arrTypeIdx
+                let gen = LabelGen("afold")
                 let wArr = List.last wArgs
                 let wInit = transform ctx initArg
                 let accT = mapTypeKnown ctx initArg.Type
                 let ctx' = ctx.WithLocal(farg1.Name, accT).WithLocal(farg2.Name, elemT)
                 let wBody = transform ctx' fbody
-                Some(mkArrayLoop "afold" elemT arrTypeIdx wArr
-                        [(farg1.Name, wInit)]
-                        (fun elem _idx -> WExpr.Assign(farg1.Name, WExpr.Let(farg2.Name, elem, wBody)))
-                        (WExpr.LocalGet(farg1.Name, accT)) None)
+                Some(arrayFold gen a wArr wInit accT
+                    (fun acc elem ->
+                        WExpr.Let(farg1.Name, acc,
+                            WExpr.Let(farg2.Name, elem, wBody))))
             | None -> None
         | _ -> None
     // Array.exists / Array.forAll
@@ -323,23 +304,17 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
+                let a = mkArrayShape elemT arrTypeIdx
+                let gen = LabelGen("aexi")
                 let wArr = transform ctx arrArg
                 let ctx' = ctx.WithLocal(farg.Name, elemT)
                 let wPred = transform ctx' fbody
-                let (breakVal, fallback) =
-                    if sel = "exists"
-                    then WExpr.Const(WConst.I32 1), WExpr.Const(WConst.I32 0)
-                    else WExpr.Const(WConst.I32 0), WExpr.Const(WConst.I32 1)
-                let checkExpr =
-                    if sel = "exists" then wPred
-                    else WExpr.Unary(WUnaryOp.Eqz, wPred, WType.I32)
-                Some(mkArrayLoop "aexi" elemT arrTypeIdx wArr []
-                        (fun elem _idx ->
-                            WExpr.Let(farg.Name, elem,
-                                WExpr.If(checkExpr,
-                                    WExpr.Break("$aexi_exit", Some breakVal),
-                                    WExpr.Nop, WType.Void)))
-                        fallback (Some("$aexi_exit", WType.I32)))
+                if sel = "exists" then
+                    Some(arrayExists gen a wArr
+                        (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
+                else
+                    Some(arrayForAll gen a wArr
+                        (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
             | None -> None
         | None -> None
     // Array.filter
@@ -357,51 +332,16 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
-                let arrRefT = WType.Ref(arrTypeIdx, false)
+                let a = mkArrayShape elemT arrTypeIdx
+                let gen = LabelGen("afilt")
                 let wArr = transform ctx arrArg
-                let srcVar = "$afilt_src"
-                let cntVar = "$afilt_cnt"
-                let resVar = "$afilt_res"
-                let widxVar = "$afilt_widx"
-                let srcGet = WExpr.LocalGet(srcVar, arrRefT)
-                let resGet = WExpr.LocalGet(resVar, arrRefT)
                 let ctx' = ctx.WithLocal(farg.Name, elemT)
                 let wPred = transform ctx' fbody
-                let countLoop =
-                    mkArrayLoop "afiltcnt" elemT arrTypeIdx srcGet
-                        [(cntVar, WExpr.Const(WConst.I32 0))]
-                        (fun elem _idx ->
-                            WExpr.Let(farg.Name, elem,
-                                WExpr.If(wPred,
-                                    WExpr.Assign(cntVar, WExpr.Binary(WBinaryOp.Add,
-                                        WExpr.LocalGet(cntVar, WType.I32),
-                                        WExpr.Const(WConst.I32 1), WType.I32)),
-                                    WExpr.Nop, WType.Void)))
-                        (WExpr.LocalGet(cntVar, WType.I32)) None
-                let fillLoop =
-                    mkArrayLoop "afiltfil" elemT arrTypeIdx srcGet
-                        [(widxVar, WExpr.Const(WConst.I32 0))]
-                        (fun elem _idx ->
-                            WExpr.Let(farg.Name, elem,
-                                WExpr.If(wPred,
-                                    WExpr.Sequence [
-                                        WExpr.ArraySet(resGet, WExpr.LocalGet(widxVar, WType.I32), WExpr.LocalGet(farg.Name, elemT))
-                                        WExpr.Assign(widxVar, WExpr.Binary(WBinaryOp.Add,
-                                            WExpr.LocalGet(widxVar, WType.I32),
-                                            WExpr.Const(WConst.I32 1), WType.I32))
-                                    ],
-                                    WExpr.Nop, WType.Void)))
-                        resGet None
-                Some(WExpr.Let(srcVar, wArr,
-                    WExpr.Let("$afilt_count", countLoop,
-                        WExpr.Let(resVar,
-                            WExpr.ArrayNew(arrTypeIdx,
-                                WExpr.LocalGet("$afilt_count", WType.I32),
-                                makeZero elemT, arrRefT),
-                            fillLoop))))
+                Some(arrayFilter gen a wArr
+                    (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
             | None -> None
         | None -> None
-    // Array.init / initialize (List.init handled by tryListInitReplicateInline when result is List)
+    // Array.init / initialize
     | ("init" | "initialize") ->
         let tryInitArgs () =
             match fableArgs with
@@ -417,16 +357,18 @@ let tryArrayInline
             let resultElemT = mapTypeKnown ctx resultFableT
             let resultArrIdx = getOrAddArrayType ctx resultElemT
             let resultArrRefT = WType.Ref(resultArrIdx, false)
-            let resVar = "$ainit_res"
+            let gen = LabelGen("ainit")
             let ctx' = ctx.WithLocal(farg.Name, WType.I32)
             let wBody = transform ctx' fbody
-            Some(WExpr.Let(resVar,
-                WExpr.ArrayNew(resultArrIdx, wLen, makeZero resultElemT, resultArrRefT),
-                mkArrayLoop "ainit" resultElemT resultArrIdx (WExpr.LocalGet(resVar, resultArrRefT)) []
-                    (fun _elem idx ->
-                        WExpr.Let(farg.Name, idx,
-                            WExpr.ArraySet(WExpr.LocalGet(resVar, resultArrRefT), idx, wBody)))
-                    (WExpr.LocalGet(resVar, resultArrRefT)) None))
+            Some(letVal gen "res" resultArrRefT
+                (arrayNew resultArrIdx wLen (makeZero resultElemT) resultArrRefT)
+                (fun res ->
+                    sequence [
+                        indexedLoop gen (arrayLen res) (fun idx ->
+                            WExpr.Let(farg.Name, idx,
+                                arraySet res idx wBody))
+                        res
+                    ]))
         | None -> None
     // ── Array.reduce f arr — fold from first element as accumulator ──
     | "reduce" | "reduceBack" ->
@@ -439,38 +381,25 @@ let tryArrayInline
                 let arrTypeIdx = getOrAddArrayType ctx elemT
                 let arrRefT    = WType.Ref(arrTypeIdx, false)
                 let wArr       = transform ctx arrArg
-                let arrVar     = "$ared_arr"
-                let accVar     = "$ared_acc"
-                let iVar       = "$ared_i"
-                let lenVar     = "$ared_len"
-                let loopLabel  = "$ared_loop"
-                let arrGet     = WExpr.LocalGet(arrVar, arrRefT)
-                let accGet     = WExpr.LocalGet(accVar, elemT)
-                let iGet       = WExpr.LocalGet(iVar, WType.I32)
-                let lenGet     = WExpr.LocalGet(lenVar, WType.I32)
+                let gen        = LabelGen("ared")
                 let ctx'       = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
                 let wBody      = transform ctx' fbody
-                let elem       = WExpr.ArrayGet(arrGet, iGet, elemT)
-                let step =
-                    WExpr.Sequence [
-                        WExpr.Assign(accVar,
-                            WExpr.Let(farg1.Name, accGet,
-                                WExpr.Let(farg2.Name, elem, wBody)))
-                        WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
-                        WExpr.Continue(loopLabel, [])
-                    ]
-                let loop = WExpr.Loop(loopLabel,
-                    WExpr.If(WExpr.Compare(WCompareOp.LtS, iGet, lenGet), step, WExpr.Nop, WType.Void),
-                    WType.Void)
-                Some(WExpr.Let(arrVar, wArr,
-                    WExpr.Let(lenVar, WExpr.ArrayLen(arrGet),
-                        WExpr.LetMut(accVar, WExpr.ArrayGet(arrGet, WExpr.Const(WConst.I32 0), elemT),
-                            WExpr.LetMut(iVar, WExpr.Const(WConst.I32 1),
-                                WExpr.Sequence [loop; accGet])))))
+                Some(letVal gen "arr" arrRefT wArr (fun src ->
+                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
+                    letMut gen "acc" elemT (arrayGet src (i32Const 0) elemT) (fun acc setAcc ->
+                    letMut gen "i" WType.I32 (i32Const 1) (fun i setI ->
+                        sequence [
+                            whileLoop (gen.Next("lp")) (ltS i len)
+                                (sequence [
+                                    setAcc (WExpr.Let(farg1.Name, acc,
+                                        WExpr.Let(farg2.Name, arrayGet src i elemT, wBody)))
+                                    setI (add i (i32Const 1))
+                                ])
+                            acc
+                        ])))))
             | None -> None
         | _ -> None
     // ── Array.sum arr — fold with additive zero ──
-    // After ReplacementsInject, args are [arr; adder] (adder appended last)
     | "sum" | "sumBy" ->
         let arrArgOpt = fableArgs |> List.tryFind (fun a -> getArrElemT a.Type |> Option.isSome)
         match arrArgOpt with
@@ -479,18 +408,14 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
+                let a          = mkArrayShape elemT arrTypeIdx
+                let gen        = LabelGen("asum")
                 let wArr       = transform ctx arrArg
-                let accVar     = "$asum_acc"
-                let accGet     = WExpr.LocalGet(accVar, elemT)
-                Some(mkArrayLoop "asum" elemT arrTypeIdx wArr
-                        [(accVar, makeZero elemT)]
-                        (fun elem _idx ->
-                            WExpr.Assign(accVar, WExpr.Binary(WBinaryOp.Add, accGet, elem, elemT)))
-                        accGet None)
+                Some(arrayFold gen a wArr (makeZero elemT) elemT
+                    (fun acc elem -> WExpr.Binary(WBinaryOp.Add, acc, elem, elemT)))
             | None -> None
         | None -> None
     // ── Array.min / Array.max — fold from first element, keep extreme ──
-    // After ReplacementsInject, args are [arr; comparer] (comparer appended last)
     | "min" | "minBy" | "max" | "maxBy" ->
         let isMin = (match selector with | "min" | "minBy" -> true | _ -> false)
         let arrArgOpt = fableArgs |> List.tryFind (fun a -> getArrElemT a.Type |> Option.isSome)
@@ -502,44 +427,31 @@ let tryArrayInline
                 let arrTypeIdx = getOrAddArrayType ctx elemT
                 let arrRefT    = WType.Ref(arrTypeIdx, false)
                 let wArr       = transform ctx arrArg
-                let arrVar     = "$aminmax_arr"
-                let accVar     = "$aminmax_acc"
-                let iVar       = "$aminmax_i"
-                let lenVar     = "$aminmax_len"
-                let loopLabel  = "$aminmax_loop"
-                let arrGet     = WExpr.LocalGet(arrVar, arrRefT)
-                let accGet     = WExpr.LocalGet(accVar, elemT)
-                let iGet       = WExpr.LocalGet(iVar, WType.I32)
-                let lenGet     = WExpr.LocalGet(lenVar, WType.I32)
-                let elem       = WExpr.ArrayGet(arrGet, iGet, elemT)
+                let gen        = LabelGen("aminmax")
                 let cmpOp      = if isMin then WCompareOp.LtS else WCompareOp.GtS
-                // For floats use f64.min/f64.max; for integers use compare+select
-                let updateAcc eVar =
+                let updateAcc acc eVar =
                     match elemT with
                     | WType.F64 | WType.F32 ->
                         let bop = if isMin then WBinaryOp.Min else WBinaryOp.Max
-                        WExpr.Assign(accVar, WExpr.Binary(bop, accGet, eVar, elemT))
+                        WExpr.Binary(bop, acc, eVar, elemT)
                     | _ ->
-                        WExpr.Assign(accVar,
-                            WExpr.If(WExpr.Compare(cmpOp, eVar, accGet), eVar, accGet, elemT))
-                let step =
-                    WExpr.Sequence [
-                        WExpr.Let("$aminmax_e", elem, updateAcc (WExpr.LocalGet("$aminmax_e", elemT)))
-                        WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
-                        WExpr.Continue(loopLabel, [])
-                    ]
-                let loop = WExpr.Loop(loopLabel,
-                    WExpr.If(WExpr.Compare(WCompareOp.LtS, iGet, lenGet), step, WExpr.Nop, WType.Void),
-                    WType.Void)
-                Some(WExpr.Let(arrVar, wArr,
-                    WExpr.Let(lenVar, WExpr.ArrayLen(arrGet),
-                        WExpr.LetMut(accVar, WExpr.ArrayGet(arrGet, WExpr.Const(WConst.I32 0), elemT),
-                            WExpr.LetMut(iVar, WExpr.Const(WConst.I32 1),
-                                WExpr.Sequence [loop; accGet])))))
+                        WExpr.If(WExpr.Compare(cmpOp, eVar, acc), eVar, acc, elemT)
+                Some(letVal gen "arr" arrRefT wArr (fun src ->
+                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
+                    letMut gen "acc" elemT (arrayGet src (i32Const 0) elemT) (fun acc setAcc ->
+                    letMut gen "i" WType.I32 (i32Const 1) (fun i setI ->
+                        sequence [
+                            whileLoop (gen.Next("lp")) (ltS i len)
+                                (sequence [
+                                    letVal gen "e" elemT (arrayGet src i elemT) (fun e ->
+                                        setAcc (updateAcc acc e))
+                                    setI (add i (i32Const 1))
+                                ])
+                            acc
+                        ])))))
             | None -> None
         | None -> None
     // ── Array.rev arr — new array with elements in reverse order ──
-    // No injection for rev, fableArgs = [arr]
     | "rev" | "reverse" ->
         let arrArgOpt = fableArgs |> List.tryFind (fun a -> getArrElemT a.Type |> Option.isSome)
         match arrArgOpt with
@@ -550,33 +462,15 @@ let tryArrayInline
                 let arrTypeIdx = getOrAddArrayType ctx elemT
                 let arrRefT    = WType.Ref(arrTypeIdx, false)
                 let wArr       = transform ctx arrArg
-                let srcVar     = "$arv_src"
-                let resVar     = "$arv_res"
-                let lenVar     = "$arv_len"
-                let iVar       = "$arv_i"
-                let loopLabel  = "$arv_loop"
-                let srcGet     = WExpr.LocalGet(srcVar, arrRefT)
-                let resGet     = WExpr.LocalGet(resVar, arrRefT)
-                let lenGet     = WExpr.LocalGet(lenVar, WType.I32)
-                let iGet       = WExpr.LocalGet(iVar, WType.I32)
-                let revIdx =
-                    WExpr.Binary(WBinaryOp.Sub,
-                        WExpr.Binary(WBinaryOp.Sub, lenGet, WExpr.Const(WConst.I32 1), WType.I32),
-                        iGet, WType.I32)
-                let step =
-                    WExpr.Sequence [
-                        WExpr.ArraySet(resGet, iGet, WExpr.ArrayGet(srcGet, revIdx, elemT))
-                        WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
-                        WExpr.Continue(loopLabel, [])
-                    ]
-                let loop = WExpr.Loop(loopLabel,
-                    WExpr.If(WExpr.Compare(WCompareOp.LtS, iGet, lenGet), step, WExpr.Nop, WType.Void),
-                    WType.Void)
-                Some(WExpr.Let(srcVar, wArr,
-                    WExpr.Let(lenVar, WExpr.ArrayLen(srcGet),
-                        WExpr.Let(resVar, WExpr.ArrayNew(arrTypeIdx, lenGet, makeZero elemT, arrRefT),
-                            WExpr.LetMut(iVar, WExpr.Const(WConst.I32 0),
-                                WExpr.Sequence [loop; resGet])))))
+                let gen        = LabelGen("arv")
+                Some(letVal gen "src" arrRefT wArr (fun src ->
+                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
+                    letVal gen "res" arrRefT (arrayNew arrTypeIdx len (makeZero elemT) arrRefT) (fun res ->
+                        sequence [
+                            indexedLoop gen len (fun i ->
+                                arraySet res i (arrayGet src (sub (sub len (i32Const 1)) i) elemT))
+                            res
+                        ]))))
             | None -> None
         | None -> None
     // ── Array.zip arr1 arr2 — parallel arrays → array of pairs ──
@@ -595,8 +489,6 @@ let tryArrayInline
                     | true, idx -> idx
                     | _ -> failwith "tuple not registered after mapTypeKnown"
                 let tupleRefT   = WType.Ref(tupleIdx, false)
-                // For array.new we need a non-null default for non-nullable ref elements.
-                // Create a dummy zero-field tuple struct as the default value.
                 let rec makeWZero (wt: WType) : WExpr =
                     match wt with
                     | WType.I64 -> WExpr.Const(WConst.I64 0L)
@@ -606,7 +498,7 @@ let tryArrayInline
                     | WType.Ref(idx, false) ->
                         match ctx.TypeDefs.[idx].Def with
                         | WTypeDef.Struct(fields, _) ->
-                            WExpr.StructNew(idx, fields |> List.map (fun f -> makeWZero f.Type), WType.Ref(idx, false))
+                            structNew idx (fields |> List.map (fun f -> makeWZero f.Type)) (WType.Ref(idx, false))
                         | _ -> WExpr.Const(WConst.Null(WType.Ref(idx, true)))
                     | _ -> WExpr.Const(WConst.I32 0)
                 let tupleDefault = makeWZero tupleRefT
@@ -614,25 +506,20 @@ let tryArrayInline
                 let resArrRefT  = WType.Ref(resArrIdx, false)
                 let wArr1 = transform ctx arr1Arg
                 let wArr2 = transform ctx arr2Arg
-                let a1Var = "$azip_a1"
-                let a2Var = "$azip_a2"
-                let resVar = "$azip_res"
-                let a1Get = WExpr.LocalGet(a1Var, WType.Ref(getOrAddArrayType ctx e1T, false))
-                let a2Get = WExpr.LocalGet(a2Var, WType.Ref(getOrAddArrayType ctx e2T, false))
-                let resGet = WExpr.LocalGet(resVar, resArrRefT)
-                let len = WExpr.ArrayLen(a1Get)
-                Some(WExpr.Let(a1Var, wArr1,
-                    WExpr.Let(a2Var, wArr2,
-                        WExpr.Let(resVar,
-                            WExpr.ArrayNew(resArrIdx, len, tupleDefault, resArrRefT),
-                            mkArrayLoop "azip" tupleRefT resArrIdx resGet []
-                                (fun _elem idx ->
-                                    WExpr.ArraySet(resGet, idx,
-                                        WExpr.StructNew(tupleIdx,
-                                            [WExpr.ArrayGet(a1Get, idx, e1T)
-                                             WExpr.ArrayGet(a2Get, idx, e2T)],
-                                            tupleRefT)))
-                                resGet None))))
+                let gen = LabelGen("azip")
+                let a1ArrIdx = getOrAddArrayType ctx e1T
+                let a2ArrIdx = getOrAddArrayType ctx e2T
+                Some(letVal gen "a1" (WType.Ref(a1ArrIdx, false)) wArr1 (fun a1 ->
+                    letVal gen "a2" (WType.Ref(a2ArrIdx, false)) wArr2 (fun a2 ->
+                    letVal gen "res" resArrRefT (arrayNew resArrIdx (arrayLen a1) tupleDefault resArrRefT) (fun res ->
+                        sequence [
+                            indexedLoop gen (arrayLen a1) (fun idx ->
+                                arraySet res idx
+                                    (structNew tupleIdx
+                                        [arrayGet a1 idx e1T; arrayGet a2 idx e2T]
+                                        tupleRefT))
+                            res
+                        ]))))
             | _ -> None
         | _ -> None
     // ── Array.unzip arr — array of pairs → two arrays ─────────────────────
@@ -650,7 +537,6 @@ let tryArrayInline
                     let bArrIdx = getOrAddArrayType ctx bT
                     let aArrRefT = WType.Ref(aArrIdx, false)
                     let bArrRefT = WType.Ref(bArrIdx, false)
-                    // Register result tuple type (arr<ta>, arr<tb>)
                     let arrATupleWT = WType.Ref(aArrIdx, false)
                     let arrBTupleWT = WType.Ref(bArrIdx, false)
                     let _ = mapTypeKnown ctx (Fable.Type.Tuple([Fable.Type.Array(ta, Fable.ArrayKind.MutableArray); Fable.Type.Array(tb, Fable.ArrayKind.MutableArray)], false))
@@ -662,36 +548,27 @@ let tryArrayInline
                     let pairArrIdx = getOrAddArrayType ctx pairT
                     let pairArrRefT = WType.Ref(pairArrIdx, false)
                     let wArr  = transform ctx arrArg
-                    let srcVar = "$aunz_src"
-                    let aVar   = "$aunz_a"
-                    let bVar   = "$aunz_b"
-                    let srcGet = WExpr.LocalGet(srcVar, pairArrRefT)
-                    let aGet   = WExpr.LocalGet(aVar,   aArrRefT)
-                    let bGet   = WExpr.LocalGet(bVar,   bArrRefT)
-                    let lenGet = WExpr.ArrayLen(srcGet)
-                    let zero = WExpr.Const(WConst.I32 0)
+                    let gen = LabelGen("aunz")
                     let makeZeroFor wt =
                         match wt with
                         | WType.I64 -> WExpr.Const(WConst.I64 0L)
                         | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
                         | WType.F64 -> WExpr.Const(WConst.F64 0.0)
                         | WType.Ref(i, _) -> WExpr.Const(WConst.Null(WType.Ref(i, true)))
-                        | _ -> zero
-                    Some(WExpr.Let(srcVar, wArr,
-                        WExpr.Let(aVar, WExpr.ArrayNew(aArrIdx, lenGet, makeZeroFor aT, aArrRefT),
-                            WExpr.Let(bVar, WExpr.ArrayNew(bArrIdx, lenGet, makeZeroFor bT, bArrRefT),
-                                    mkArrayLoop "aunz" pairT pairArrIdx srcGet []
-                                        (fun _elem idx ->
-                                            WExpr.Let("$aunz_p",
-                                                WExpr.ArrayGet(srcGet, idx, pairT),
-                                                WExpr.Sequence [
-                                                    WExpr.ArraySet(aGet, idx,
-                                                        WExpr.StructGet(WExpr.LocalGet("$aunz_p", pairT), 0, aT))
-                                                    WExpr.ArraySet(bGet, idx,
-                                                        WExpr.StructGet(WExpr.LocalGet("$aunz_p", pairT), 1, bT))
-                                                ]))
-                                        (WExpr.StructNew(resultTupleIdx, [aGet; bGet], resultTupleRefT))
-                                        None))))
+                        | _ -> i32Const 0
+                    Some(letVal gen "src" pairArrRefT wArr (fun src ->
+                        letVal gen "n" WType.I32 (arrayLen src) (fun n ->
+                        letVal gen "a" aArrRefT (arrayNew aArrIdx n (makeZeroFor aT) aArrRefT) (fun aArr ->
+                        letVal gen "b" bArrRefT (arrayNew bArrIdx n (makeZeroFor bT) bArrRefT) (fun bArr ->
+                            sequence [
+                                indexedLoop gen n (fun idx ->
+                                    letVal gen "p" pairT (arrayGet src idx pairT) (fun p ->
+                                        sequence [
+                                            arraySet aArr idx (structGet p 0 aT)
+                                            arraySet bArr idx (structGet p 1 bT)
+                                        ]))
+                                structNew resultTupleIdx [aArr; bArr] resultTupleRefT
+                            ])))))
                 | _ -> None
             | _ -> None
         | _ -> None
@@ -722,29 +599,23 @@ let tryArrayInline
                 let wArr1 = transform ctx arr1Arg
                 let wArr2 = transform ctx arr2Arg
                 let wBody = transform ctx fbody
-                let a1Var = "$am2_a1"
-                let a2Var = "$am2_a2"
-                let resVar = "$am2_res"
-                let a1Get = WExpr.LocalGet(a1Var, WType.Ref(arr1ArrIdx, false))
-                let a2Get = WExpr.LocalGet(a2Var, WType.Ref(arr2ArrIdx, false))
-                let resGet = WExpr.LocalGet(resVar, resArrRefT)
-                let len = WExpr.ArrayLen(a1Get)
-                Some(WExpr.Let(a1Var, wArr1,
-                    WExpr.Let(a2Var, wArr2,
-                        WExpr.Let(resVar,
-                            WExpr.ArrayNew(resArrIdx, len, makeNumericZero resultET, resArrRefT),
-                            mkArrayLoop "am2" resultET resArrIdx resGet []
-                                (fun _elem idx ->
-                                    WExpr.ArraySet(resGet, idx,
-                                        WExpr.Let(farg1.Name, WExpr.ArrayGet(a1Get, idx, e1T),
-                                            WExpr.Let(farg2.Name, WExpr.ArrayGet(a2Get, idx, e2T),
-                                                wBody))))
-                                resGet None))))
+                let gen = LabelGen("am2")
+                Some(letVal gen "a1" (WType.Ref(arr1ArrIdx, false)) wArr1 (fun a1 ->
+                    letVal gen "a2" (WType.Ref(arr2ArrIdx, false)) wArr2 (fun a2 ->
+                    letVal gen "n" WType.I32 (arrayLen a1) (fun n ->
+                    letVal gen "res" resArrRefT (arrayNew resArrIdx n (makeNumericZero resultET) resArrRefT) (fun res ->
+                        sequence [
+                            indexedLoop gen n (fun idx ->
+                                arraySet res idx
+                                    (WExpr.Let(farg1.Name, arrayGet a1 idx e1T,
+                                        WExpr.Let(farg2.Name, arrayGet a2 idx e2T,
+                                            wBody))))
+                            res
+                        ])))))
             | _ -> None
         | _ -> None
     // ── Array.sortWith cmp arr — insertion sort with inline comparator ──
     | "sortWith" ->
-        // Unpack the 2-arg comparator (may be Lambda or Delegate)
         let cmpArgOpt = fableArgs |> List.tryHead
         let cmpParts =
             match cmpArgOpt with
@@ -761,7 +632,7 @@ let tryArrayInline
                     Some(arg1, arg2, body)
                 | _ -> None
         match cmpParts with
-        | None -> None  // fall through to general array sort
+        | None -> None
         | Some(farg1, farg2, fbody) ->
         let arrArgOpt = fableArgs |> List.tryFind (fun a -> getArrElemT a.Type |> Option.isSome)
         match arrArgOpt with
@@ -778,75 +649,30 @@ let tryArrayInline
         let readElem arrExpr idxExpr =
             match elemT with
             | WType.Ref(idx, false) ->
-                WExpr.Cast(WExpr.ArrayGet(arrExpr, idxExpr, arrElemT), WType.Ref(idx, false))
-            | _ -> WExpr.ArrayGet(arrExpr, idxExpr, elemT)
+                cast (arrayGet arrExpr idxExpr arrElemT) (WType.Ref(idx, false))
+            | _ -> arrayGet arrExpr idxExpr elemT
+        let writeElem arrExpr idxExpr valExpr =
+            arraySet arrExpr idxExpr valExpr
         let arrTypeIdx = getOrAddArrayType ctx arrElemT
         let arrRefT    = WType.Ref(arrTypeIdx, false)
         let wArr       = transform ctx arrArg
         let ctx'       = ctx.WithLocal(farg1.Name, elemT)
         let ctx''      = ctx'.WithLocal(farg2.Name, elemT)
-        let wCmp       = transform ctx'' fbody  // i32: negative/zero/positive
+        let wCmp       = transform ctx'' fbody
         let inlineCmp aExpr bExpr =
             WExpr.Let(farg1.Name, aExpr,
                 WExpr.Let(farg2.Name, bExpr,
                     wCmp))
-        let srcVar     = "$asw_src"
-        let resVar     = "$asw_res"
-        let lenVar     = "$asw_len"
-        let iVar       = "$asw_i"
-        let jVar       = "$asw_j"
-        let eVar       = "$asw_e"
-        let iLoopLabel = "$asw_il"
-        let jLoopLabel = "$asw_jl"
-        let srcGet     = WExpr.LocalGet(srcVar, arrRefT)
-        let resGet     = WExpr.LocalGet(resVar, arrRefT)
-        let lenGet     = WExpr.LocalGet(lenVar, WType.I32)
-        let iGet       = WExpr.LocalGet(iVar, WType.I32)
-        let jGet       = WExpr.LocalGet(jVar, WType.I32)
-        let eGet       = WExpr.LocalGet(eVar, elemT)
-        let jCond =
-            WExpr.If(WExpr.Compare(WCompareOp.GeS, jGet, WExpr.Const(WConst.I32 0)),
-                WExpr.Compare(WCompareOp.GtS,
-                    inlineCmp (readElem resGet jGet) eGet,
-                    WExpr.Const(WConst.I32 0)),
-                WExpr.Const(WConst.I32 0), WType.I32)
-        let jStep =
-            WExpr.Sequence [
-                WExpr.ArraySet(resGet,
-                    WExpr.Binary(WBinaryOp.Add, jGet, WExpr.Const(WConst.I32 1), WType.I32),
-                    readElem resGet jGet)
-                WExpr.Assign(jVar, WExpr.Binary(WBinaryOp.Sub, jGet, WExpr.Const(WConst.I32 1), WType.I32))
-                WExpr.Continue(jLoopLabel, [])
-            ]
-        let jLoop = WExpr.Loop(jLoopLabel,
-            WExpr.If(jCond, jStep, WExpr.Nop, WType.Void), WType.Void)
-        let iStep =
-            WExpr.Sequence [
-                WExpr.Let(eVar, readElem resGet iGet,
-                    WExpr.LetMut(jVar,
-                        WExpr.Binary(WBinaryOp.Sub, iGet, WExpr.Const(WConst.I32 1), WType.I32),
-                        WExpr.Sequence [
-                            jLoop
-                            WExpr.ArraySet(resGet,
-                                WExpr.Binary(WBinaryOp.Add, jGet, WExpr.Const(WConst.I32 1), WType.I32),
-                                eGet)
-                        ]))
-                WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
-                WExpr.Continue(iLoopLabel, [])
-            ]
-        let iLoop = WExpr.Loop(iLoopLabel,
-            WExpr.If(WExpr.Compare(WCompareOp.LtS, iGet, lenGet), iStep, WExpr.Nop, WType.Void),
-            WType.Void)
-        Some(WExpr.Let(srcVar, wArr,
-            WExpr.Let(lenVar, WExpr.ArrayLen(srcGet),
-                WExpr.Let(resVar, WExpr.ArrayNew(arrTypeIdx, lenGet, arrDefault, arrRefT),
-                    WExpr.Sequence [
-                        WExpr.ArrayCopy(resGet, WExpr.Const(WConst.I32 0), srcGet, WExpr.Const(WConst.I32 0), lenGet)
-                        WExpr.LetMut(iVar, WExpr.Const(WConst.I32 1),
-                            WExpr.Sequence [iLoop; resGet])
-                    ]))))
+        let gen = LabelGen("asw")
+        Some(letVal gen "src" arrRefT wArr (fun src ->
+            letVal gen "len" WType.I32 (arrayLen src) (fun len ->
+            letVal gen "res" arrRefT (arrayNew arrTypeIdx len arrDefault arrRefT) (fun res ->
+                sequence [
+                    arrayCopy res (i32Const 0) src (i32Const 0) len
+                    insertionSortInPlace gen res len elemT readElem writeElem inlineCmp
+                    res
+                ]))))
     // ── Array.sort — insertion sort into a fresh copy ──
-    // After ReplacementsInject, args are [arr; comparer] for sort/sortDescending
     | "sort" | "sortDescending" | "sortBy" ->
         let arrArgOpt = fableArgs |> List.tryFind (fun a -> getArrElemT a.Type |> Option.isSome)
         match arrArgOpt with
@@ -857,61 +683,24 @@ let tryArrayInline
                 let arrTypeIdx = getOrAddArrayType ctx elemT
                 let arrRefT    = WType.Ref(arrTypeIdx, false)
                 let wArr       = transform ctx arrArg
-                let srcVar     = "$asort_src"
-                let resVar     = "$asort_res"
-                let lenVar     = "$asort_len"
-                let iVar       = "$asort_i"
-                let jVar       = "$asort_j"
-                let eVar       = "$asort_e"
-                let iLoopLabel = "$asort_il"
-                let jLoopLabel = "$asort_jl"
-                let srcGet     = WExpr.LocalGet(srcVar, arrRefT)
-                let resGet     = WExpr.LocalGet(resVar, arrRefT)
-                let lenGet     = WExpr.LocalGet(lenVar, WType.I32)
-                let iGet       = WExpr.LocalGet(iVar, WType.I32)
-                let jGet       = WExpr.LocalGet(jVar, WType.I32)
-                let eGet       = WExpr.LocalGet(eVar, elemT)
-                let ltCmp a b  = WExpr.Compare(WCompareOp.LtS, a, b)
-                // j-loop condition: j >= 0 AND key < res[j]  (short-circuit via nested If)
-                let jCond =
-                    WExpr.If(WExpr.Compare(WCompareOp.GeS, jGet, WExpr.Const(WConst.I32 0)),
-                        ltCmp eGet (WExpr.ArrayGet(resGet, jGet, elemT)),
-                        WExpr.Const(WConst.I32 0), WType.I32)
-                let jStep =
-                    WExpr.Sequence [
-                        WExpr.ArraySet(resGet,
-                            WExpr.Binary(WBinaryOp.Add, jGet, WExpr.Const(WConst.I32 1), WType.I32),
-                            WExpr.ArrayGet(resGet, jGet, elemT))
-                        WExpr.Assign(jVar, WExpr.Binary(WBinaryOp.Sub, jGet, WExpr.Const(WConst.I32 1), WType.I32))
-                        WExpr.Continue(jLoopLabel, [])
-                    ]
-                let jLoop = WExpr.Loop(jLoopLabel,
-                    WExpr.If(jCond, jStep, WExpr.Nop, WType.Void), WType.Void)
-                let iStep =
-                    WExpr.Sequence [
-                        WExpr.Let(eVar, WExpr.ArrayGet(resGet, iGet, elemT),
-                            WExpr.LetMut(jVar,
-                                WExpr.Binary(WBinaryOp.Sub, iGet, WExpr.Const(WConst.I32 1), WType.I32),
-                                WExpr.Sequence [
-                                    jLoop
-                                    WExpr.ArraySet(resGet,
-                                        WExpr.Binary(WBinaryOp.Add, jGet, WExpr.Const(WConst.I32 1), WType.I32),
-                                        eGet)
-                                ]))
-                        WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
-                        WExpr.Continue(iLoopLabel, [])
-                    ]
-                let iLoop = WExpr.Loop(iLoopLabel,
-                    WExpr.If(WExpr.Compare(WCompareOp.LtS, iGet, lenGet), iStep, WExpr.Nop, WType.Void),
-                    WType.Void)
-                Some(WExpr.Let(srcVar, wArr,
-                    WExpr.Let(lenVar, WExpr.ArrayLen(srcGet),
-                        WExpr.Let(resVar, WExpr.ArrayNew(arrTypeIdx, lenGet, makeZero elemT, arrRefT),
-                            WExpr.Sequence [
-                                WExpr.ArrayCopy(resGet, WExpr.Const(WConst.I32 0), srcGet, WExpr.Const(WConst.I32 0), lenGet)
-                                WExpr.LetMut(iVar, WExpr.Const(WConst.I32 1),
-                                    WExpr.Sequence [iLoop; resGet])
-                            ]))))
+                let gen        = LabelGen("asort")
+                let readElem arrExpr idxExpr = arrayGet arrExpr idxExpr elemT
+                let writeElem arrExpr idxExpr valExpr = arraySet arrExpr idxExpr valExpr
+                let cmp a b = WExpr.Compare(WCompareOp.LtS, a, b)
+                // For sort: a < b → -1, else 1 (good enough for insertion sort's > 0 check)
+                let cmpFn a b =
+                    WExpr.If(WExpr.Compare(WCompareOp.LtS, a, b),
+                        i32Const -1,
+                        WExpr.If(WExpr.Compare(WCompareOp.Eq, a, b), i32Const 0, i32Const 1, WType.I32),
+                        WType.I32)
+                Some(letVal gen "src" arrRefT wArr (fun src ->
+                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
+                    letVal gen "res" arrRefT (arrayNew arrTypeIdx len (makeZero elemT) arrRefT) (fun res ->
+                        sequence [
+                            arrayCopy res (i32Const 0) src (i32Const 0) len
+                            insertionSortInPlace gen res len elemT readElem writeElem cmpFn
+                            res
+                        ]))))
             | None -> None
         | None -> None
     // ── Array.findIndex pred arr — first index where pred holds, -1 if none ──
@@ -922,22 +711,19 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
+                let a          = mkArrayShape elemT arrTypeIdx
+                let gen        = LabelGen("afidx")
                 let wArr       = transform ctx arrArg
                 let ctx'       = ctx.WithLocal(farg.Name, elemT)
                 let wPred      = transform ctx' fbody
-                Some(mkArrayLoop "afidx" elemT arrTypeIdx wArr []
-                        (fun elem idx ->
-                            WExpr.Let(farg.Name, elem,
-                                WExpr.If(wPred,
-                                    WExpr.Break("$afidx_exit", Some idx),
-                                    WExpr.Nop, WType.Void)))
-                        (WExpr.Const(WConst.I32 (-1))) (Some("$afidx_exit", WType.I32)))
+                Some(arraySearch gen a wArr WType.I32
+                    (fun elem -> WExpr.Let(farg.Name, elem, wPred))
+                    (fun idx _elem -> idx)
+                    (i32Const -1))
             | None -> None
         | _ -> None
     // ── Array.contains needle arr — true (1) if any element equals needle ──
-    // After ReplacementsInject, args are [needle; arr; eqComparer]
     | "contains" ->
-        // Find the first array-typed arg; needle is the arg immediately before it
         let tryGetNeedleAndArr () =
             match fableArgs |> List.tryFindIndex (fun a -> getArrElemT a.Type |> Option.isSome) with
             | Some idx when idx > 0 -> Some(fableArgs.[idx - 1], fableArgs.[idx])
@@ -948,21 +734,16 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
+                let a          = mkArrayShape elemT arrTypeIdx
+                let gen        = LabelGen("acont")
                 let wArr       = transform ctx arrArg
                 let wNeedle    = transform ctx needle
-                let needleVar  = "$acont_needle"
-                let needleGet  = WExpr.LocalGet(needleVar, elemT)
-                Some(WExpr.Let(needleVar, wNeedle,
-                    mkArrayLoop "acont" elemT arrTypeIdx wArr []
-                        (fun elem _idx ->
-                            WExpr.If(WExpr.Compare(WCompareOp.Eq, elem, needleGet),
-                                WExpr.Break("$acont_exit", Some(WExpr.Const(WConst.I32 1))),
-                                WExpr.Nop, WType.Void))
-                        (WExpr.Const(WConst.I32 0)) (Some("$acont_exit", WType.I32))))
+                Some(letVal gen "needle" elemT wNeedle (fun needle ->
+                    arrayExists gen a wArr
+                        (fun elem -> eq elem needle)))
             | None -> None
         | None -> None
     // ── Array.scan f init arr — fold storing all intermediate accumulators ─────
-    // scan f init [|a;b;c|] = [|init; f init a; f (f init a) b; ...|] (length n+1)
     | "scan" ->
         match fableArgs with
         | [(Fable.Expr.Lambda(farg1, Fable.Expr.Lambda(farg2, fbody, _), _) | Fable.Expr.Delegate([farg1; farg2], fbody, _, _)); initArg; arrArg]
@@ -974,46 +755,34 @@ let tryArrayInline
                 let accT     = mapTypeKnown ctx accumFableT
                 let arrTypeIdx  = getOrAddArrayType ctx elemT
                 let accArrIdx = getOrAddArrayType ctx accT
-                let arrRefT  = WType.Ref(arrTypeIdx, false)
+                let srcA      = mkArrayShape elemT arrTypeIdx
+                let srcRefT  = WType.Ref(arrTypeIdx, false)
                 let accArrRefT = WType.Ref(accArrIdx, false)
                 let wArr  = transform ctx arrArg
                 let wInit = transform ctx initArg
-                let srcVar = "$scan_src"
-                let srcGet = WExpr.LocalGet(srcVar, arrRefT)
-                let resVar = "$scan_res"
-                let resGet = WExpr.LocalGet(resVar, accArrRefT)
-                let accVar = "$scan_acc"
-                let accGet = WExpr.LocalGet(accVar, accT)
+                let gen = LabelGen("scan")
                 let ctx'  = ctx.WithLocal(farg1.Name, accT).WithLocal(farg2.Name, elemT)
                 let wBody = transform ctx' fbody
-                let fillLoop =
-                    mkArrayLoop "scan" elemT arrTypeIdx srcGet []
-                        (fun elem idx ->
-                            let step = WExpr.Let(farg1.Name, accGet,
-                                        WExpr.Let(farg2.Name, elem,
-                                            WExpr.Sequence [
-                                                WExpr.Assign(accVar, wBody)
-                                                WExpr.ArraySet(resGet,
-                                                    WExpr.Binary(WBinaryOp.Add, idx, WExpr.Const(WConst.I32 1), WType.I32),
-                                                    accGet)
-                                            ]))
-                            step)
-                        WExpr.Nop None
-                Some(WExpr.Let(srcVar, wArr,
-                    WExpr.Let(resVar,
-                        WExpr.ArrayNew(accArrIdx,
-                            WExpr.Binary(WBinaryOp.Add, WExpr.ArrayLen(srcGet), WExpr.Const(WConst.I32 1), WType.I32),
-                            makeZero accT, accArrRefT),
-                        WExpr.LetMut(accVar, wInit,
-                            WExpr.Sequence [
-                                WExpr.ArraySet(resGet, WExpr.Const(WConst.I32 0), accGet)
-                                fillLoop
-                                resGet
-                            ]))))
+                Some(letVal gen "src" srcRefT wArr (fun src ->
+                    letVal gen "res" accArrRefT
+                        (arrayNew accArrIdx (add (arrayLen src) (i32Const 1)) (makeZero accT) accArrRefT)
+                        (fun res ->
+                    letMut gen "acc" accT wInit (fun acc setAcc ->
+                        sequence [
+                            arraySet res (i32Const 0) acc
+                            arrayIteri gen srcA src (fun idx elem ->
+                                let step = WExpr.Let(farg1.Name, acc,
+                                            WExpr.Let(farg2.Name, elem,
+                                                sequence [
+                                                    setAcc wBody
+                                                    arraySet res (add idx (i32Const 1)) acc
+                                                ]))
+                                step)
+                            res
+                        ]))))
             | None -> None
         | _ -> None
     // ── Array.toList arr — convert GC array to linked list (right-to-left cons) ──
-    // Uses arrayToListRev combinator for clean, readable code.
     | "toList" when (match resultFableType with | Fable.Type.List _ -> true | _ -> false) ->
         match List.tryHead fableArgs with
         | None -> None
@@ -1028,11 +797,9 @@ let tryArrayInline
             let gen    = LabelGen("atl")
             let wArr   = transform ctx arrArg
             let arrRefT = mapTypeKnown ctx arrArg.Type
-            let arrVar  = "$atl_arr"
-            Some(WExpr.Let(arrVar, wArr,
-                let a = WExpr.LocalGet(arrVar, arrRefT)
-                arrayToListRev gen s a (WExpr.ArrayLen a)
-                    (fun ar i -> WExpr.ArrayGet(ar, i, elemT))))
+            Some(letVal gen "arr" arrRefT wArr (fun a ->
+                arrayToListRev gen s a (arrayLen a)
+                    (fun ar i -> arrayGet ar i elemT)))
     // ── Array.append arr1 arr2 — new array = arr1 ++ arr2 ────────────────────
     | "append" ->
         match fableArgs with
@@ -1045,31 +812,21 @@ let tryArrayInline
                 let arrRefT = WType.Ref(arrTypeIdx, false)
                 let wArr1 = transform ctx arrArg1
                 let wArr2 = transform ctx arrArg2
-                let a1Var = "$app_a1"
-                let a1Get = WExpr.LocalGet(a1Var, arrRefT)
-                let a2Var = "$app_a2"
-                let a2Get = WExpr.LocalGet(a2Var, arrRefT)
-                let l1Var = "$app_l1"
-                let l1Get = WExpr.LocalGet(l1Var, WType.I32)
-                let resVar = "$app_res"
-                let resGet = WExpr.LocalGet(resVar, arrRefT)
-                Some(WExpr.Let(a1Var, wArr1,
-                    WExpr.Let(a2Var, wArr2,
-                        WExpr.Let(l1Var, WExpr.ArrayLen(a1Get),
-                            WExpr.Let(resVar,
-                                WExpr.ArrayNew(arrTypeIdx,
-                                    WExpr.Binary(WBinaryOp.Add, l1Get, WExpr.ArrayLen(a2Get), WType.I32),
-                                    makeZero elemT, arrRefT),
-                                WExpr.Sequence [
-                                    WExpr.ArrayCopy(resGet, WExpr.Const(WConst.I32 0), a1Get, WExpr.Const(WConst.I32 0), l1Get)
-                                    WExpr.ArrayCopy(resGet, l1Get, a2Get, WExpr.Const(WConst.I32 0), WExpr.ArrayLen(a2Get))
-                                    resGet
-                                ])))))
+                let gen = LabelGen("app")
+                Some(letVal gen "a1" arrRefT wArr1 (fun a1 ->
+                    letVal gen "a2" arrRefT wArr2 (fun a2 ->
+                    letVal gen "l1" WType.I32 (arrayLen a1) (fun l1 ->
+                    letVal gen "res" arrRefT
+                        (arrayNew arrTypeIdx (add l1 (arrayLen a2)) (makeZero elemT) arrRefT)
+                        (fun res ->
+                            sequence [
+                                arrayCopy res (i32Const 0) a1 (i32Const 0) l1
+                                arrayCopy res l1 a2 (i32Const 0) (arrayLen a2)
+                                res
+                            ])))))
             | None -> None
         | _ -> None
     // ── Array.choose f arr — apply f, keep Some values, unwrap ──────────────
-    // Strategy: two-pass.  Pass 1 counts matching elements.
-    //           Pass 2 fills a freshly-allocated result array.
     | "choose" ->
         let tryFnAndArr () =
             match fableArgs with
@@ -1097,65 +854,44 @@ let tryArrayInline
         let wArr       = transform ctx arrArg
         let ctx'       = ctx.WithLocal(farg.Name, inElemT)
         let wBody      = transform ctx' fbody
-        let wBodyT     = mapTypeKnown ctx fbody.Type     // Option struct type
+        let wBodyT     = mapTypeKnown ctx fbody.Type
         match wBodyT with
         | WType.Ref(optTypeIdx, _) ->
             let optNullT   = WType.Ref(optTypeIdx, true)
             let optNonNull = WType.Ref(optTypeIdx, false)
-            let srcVar    = "$acho_src"
-            let cntVar    = "$acho_cnt"
-            let resVar    = "$acho_res"
-            let widxVar   = "$acho_wi"
-            let srcGet    = WExpr.LocalGet(srcVar, inArrRefT)
-            let resGet    = WExpr.LocalGet(resVar, outArrRefT)
+            let inA        = mkArrayShape inElemT inArrIdx
+            let gen        = LabelGen("acho")
             // Pass 1: count Somes
-            let countLoop =
-                mkArrayLoop "achocnt" inElemT inArrIdx srcGet
-                    [(cntVar, WExpr.Const(WConst.I32 0))]
-                    (fun elem _idx ->
-                        WExpr.Let(farg.Name, elem,
-                            WExpr.Let("$acho_opt", wBody,
-                                WExpr.If(
-                                    WExpr.RefIsNull(WExpr.LocalGet("$acho_opt", optNullT)),
-                                    WExpr.Nop,
-                                    WExpr.Assign(cntVar, WExpr.Binary(WBinaryOp.Add,
-                                        WExpr.LocalGet(cntVar, WType.I32),
-                                        WExpr.Const(WConst.I32 1), WType.I32)),
-                                    WType.Void))))
-                    (WExpr.LocalGet(cntVar, WType.I32)) None
+            let countExpr src =
+                letMut gen "cnt" WType.I32 (i32Const 0) (fun cnt setCnt ->
+                    sequence [
+                        indexedLoop gen (arrayLen src) (fun i ->
+                            WExpr.Let(farg.Name, arrayGet src i inElemT,
+                                letVal gen "opt" optNullT wBody (fun opt ->
+                                    wasmWhen (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull opt, WType.I32))
+                                        (setCnt (add cnt (i32Const 1))))))
+                        cnt
+                    ])
             // Pass 2: fill result
-            let fillLoop =
-                mkArrayLoop "achofil" inElemT inArrIdx srcGet
-                    [(widxVar, WExpr.Const(WConst.I32 0))]
-                    (fun elem _idx ->
-                        WExpr.Let(farg.Name, elem,
-                            WExpr.Let("$acho_opt2", wBody,
-                                WExpr.If(
-                                    WExpr.RefIsNull(WExpr.LocalGet("$acho_opt2", optNullT)),
-                                    WExpr.Nop,
-                                    WExpr.Sequence [
-                                        WExpr.ArraySet(resGet,
-                                            WExpr.LocalGet(widxVar, WType.I32),
-                                            WExpr.StructGet(
-                                                WExpr.Cast(WExpr.LocalGet("$acho_opt2", optNullT), optNonNull),
-                                                0, outElemT))
-                                        WExpr.Assign(widxVar, WExpr.Binary(WBinaryOp.Add,
-                                            WExpr.LocalGet(widxVar, WType.I32),
-                                            WExpr.Const(WConst.I32 1), WType.I32))
-                                    ],
-                                    WType.Void))))
-                    resGet None
-            Some(WExpr.Let(srcVar, wArr,
-                WExpr.Let("$acho_count", countLoop,
-                    WExpr.Let(resVar,
-                        WExpr.ArrayNew(outArrIdx,
-                            WExpr.LocalGet("$acho_count", WType.I32),
-                            makeZero outElemT, outArrRefT),
-                        fillLoop))))
+            let fillExpr src res =
+                letMut gen "wi" WType.I32 (i32Const 0) (fun wi setWi ->
+                    sequence [
+                        indexedLoop gen (arrayLen src) (fun i ->
+                            WExpr.Let(farg.Name, arrayGet src i inElemT,
+                                letVal gen "opt2" optNullT wBody (fun opt ->
+                                    wasmWhen (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull opt, WType.I32))
+                                        (sequence [
+                                            arraySet res wi (structGet (cast opt optNonNull) 0 outElemT)
+                                            setWi (add wi (i32Const 1))
+                                        ]))))
+                        res
+                    ])
+            Some(letVal gen "src" inArrRefT wArr (fun src ->
+                letVal gen "count" WType.I32 (countExpr src) (fun count ->
+                letVal gen "res" outArrRefT (arrayNew outArrIdx count (makeZero outElemT) outArrRefT) (fun res ->
+                    fillExpr src res))))
         | _ -> None
     // ── Array.collect f arr — apply f (returns array), concatenate results ───
-    // Strategy: build intermediate list of sub-arrays, compute total length,
-    //           allocate result, copy each sub-array in.
     | "collect" ->
         let tryFnAndArr () =
             match fableArgs with
@@ -1182,47 +918,34 @@ let tryArrayInline
         let wArr       = transform ctx arrArg
         let ctx'       = ctx.WithLocal(farg.Name, inElemT)
         let wBody      = transform ctx' fbody
+        let gen = LabelGen("acol")
         // Pass 1: compute total output length
-        let srcVar    = "$acol_src"
-        let resVar    = "$acol_res"
-        let totVar    = "$acol_tot"
-        let outVar    = "$acol_out"
-        let subVar    = "$acol_sub"
-        let srcGet    = WExpr.LocalGet(srcVar, inArrRefT)
-        let resGet    = WExpr.LocalGet(resVar, outArrRefT)
-        let totGet    = WExpr.LocalGet(totVar, WType.I32)
-        let outGet    = WExpr.LocalGet(outVar, WType.I32)
-        let subRefT   = outArrRefT   // sub-arrays have same element type
-        let subGet    = WExpr.LocalGet(subVar, subRefT)
-        let countLoop =
-            mkArrayLoop "acolcnt" inElemT inArrIdx srcGet
-                [(totVar, WExpr.Const(WConst.I32 0))]
-                (fun elem _idx ->
-                    WExpr.Let(farg.Name, elem,
-                        WExpr.Let(subVar, wBody,
-                            WExpr.Assign(totVar, WExpr.Binary(WBinaryOp.Add,
-                                totGet, WExpr.ArrayLen(subGet), WType.I32)))))
-                totGet None
-        let fillLoop =
-            mkArrayLoop "acolfil" inElemT inArrIdx srcGet
-                [(outVar, WExpr.Const(WConst.I32 0))]
-                (fun elem _idx ->
-                    WExpr.Let(farg.Name, elem,
-                        WExpr.Let(subVar, wBody,
-                            WExpr.Sequence [
-                                WExpr.ArrayCopy(resGet, outGet, subGet,
-                                    WExpr.Const(WConst.I32 0),
-                                    WExpr.ArrayLen(subGet))
-                                WExpr.Assign(outVar, WExpr.Binary(WBinaryOp.Add,
-                                    outGet, WExpr.ArrayLen(subGet), WType.I32))
-                            ])))
-                resGet None
-        Some(WExpr.Let(srcVar, wArr,
-            WExpr.Let("$acol_count", countLoop,
-                WExpr.Let(resVar,
-                    WExpr.ArrayNew(outArrIdx, WExpr.LocalGet("$acol_count", WType.I32),
-                        makeZero outElemT, outArrRefT),
-                    fillLoop))))
+        let countExpr src =
+            letMut gen "tot" WType.I32 (i32Const 0) (fun tot setTot ->
+                sequence [
+                    indexedLoop gen (arrayLen src) (fun i ->
+                        WExpr.Let(farg.Name, arrayGet src i inElemT,
+                            letVal gen "sub" outArrRefT wBody (fun sub ->
+                                setTot (add tot (arrayLen sub)))))
+                    tot
+                ])
+        // Pass 2: allocate + fill
+        let fillExpr src res =
+            letMut gen "out" WType.I32 (i32Const 0) (fun out setOut ->
+                sequence [
+                    indexedLoop gen (arrayLen src) (fun i ->
+                        WExpr.Let(farg.Name, arrayGet src i inElemT,
+                            letVal gen "sub" outArrRefT wBody (fun sub ->
+                                sequence [
+                                    arrayCopy res out sub (i32Const 0) (arrayLen sub)
+                                    setOut (add out (arrayLen sub))
+                                ])))
+                    res
+                ])
+        Some(letVal gen "src" inArrRefT wArr (fun src ->
+            letVal gen "count" WType.I32 (countExpr src) (fun count ->
+            letVal gen "res" outArrRefT (arrayNew outArrIdx count (makeZero outElemT) outArrRefT) (fun res ->
+                fillExpr src res))))
     | _ -> None
 // These arrive as Get(arr, FieldGet "filter/some/every/forEach") as callee
 // ─────────────────────────────────────────────────────────────────
@@ -1247,90 +970,52 @@ let tryArrayInstanceCall
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
             let arrTypeIdx = getOrAddArrayType ctx elemT
-            let arrRefT = WType.Ref(arrTypeIdx, false)
+            let a = mkArrayShape elemT arrTypeIdx
+            let gen = LabelGen("ifilt")
             let wArr = transform ctx arrExpr
-            let srcVar = "$ifilt_src"
-            let cntVar = "$ifilt_cnt"
-            let resVar = "$ifilt_res"
-            let widxVar = "$ifilt_widx"
-            let srcGet = WExpr.LocalGet(srcVar, arrRefT)
-            let resGet = WExpr.LocalGet(resVar, arrRefT)
             let ctx' = ctx.WithLocal(farg.Name, elemT)
             let wPred = transform ctx' fbody
-            let countLoop =
-                mkArrayLoop "ifiltcnt" elemT arrTypeIdx srcGet
-                    [(cntVar, WExpr.Const(WConst.I32 0))]
-                    (fun elem _idx ->
-                        WExpr.Let(farg.Name, elem,
-                            WExpr.If(wPred,
-                                WExpr.Assign(cntVar, WExpr.Binary(WBinaryOp.Add,
-                                    WExpr.LocalGet(cntVar, WType.I32), WExpr.Const(WConst.I32 1), WType.I32)),
-                                WExpr.Nop, WType.Void)))
-                    (WExpr.LocalGet(cntVar, WType.I32)) None
-            let fillLoop =
-                mkArrayLoop "ifiltfil" elemT arrTypeIdx srcGet
-                    [(widxVar, WExpr.Const(WConst.I32 0))]
-                    (fun elem _idx ->
-                        WExpr.Let(farg.Name, elem,
-                            WExpr.If(wPred,
-                                WExpr.Sequence [
-                                    WExpr.ArraySet(resGet, WExpr.LocalGet(widxVar, WType.I32), WExpr.LocalGet(farg.Name, elemT))
-                                    WExpr.Assign(widxVar, WExpr.Binary(WBinaryOp.Add,
-                                        WExpr.LocalGet(widxVar, WType.I32), WExpr.Const(WConst.I32 1), WType.I32))
-                                ],
-                                WExpr.Nop, WType.Void)))
-                    resGet None
-            Some(WExpr.Let(srcVar, wArr,
-                WExpr.Let("$ifilt_count", countLoop,
-                    WExpr.Let(resVar,
-                        WExpr.ArrayNew(arrTypeIdx,
-                            WExpr.LocalGet("$ifilt_count", WType.I32),
-                            makeZero elemT, arrRefT),
-                        fillLoop))))
+            Some(arrayFilter gen a wArr
+                (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
         | None -> None
     | ("some"), Some(farg, fbody) ->
         match getArrElemT arrExpr.Type with
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
             let arrTypeIdx = getOrAddArrayType ctx elemT
+            let a = mkArrayShape elemT arrTypeIdx
+            let gen = LabelGen("isome")
             let wArr = transform ctx arrExpr
             let ctx' = ctx.WithLocal(farg.Name, elemT)
             let wPred = transform ctx' fbody
-            Some(mkArrayLoop "isome" elemT arrTypeIdx wArr []
-                    (fun elem _idx ->
-                        WExpr.Let(farg.Name, elem,
-                            WExpr.If(wPred,
-                                WExpr.Break("$isome_exit", Some(WExpr.Const(WConst.I32 1))),
-                                WExpr.Nop, WType.Void)))
-                    (WExpr.Const(WConst.I32 0)) (Some("$isome_exit", WType.I32)))
+            Some(arrayExists gen a wArr
+                (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
         | None -> None
     | ("every"), Some(farg, fbody) ->
         match getArrElemT arrExpr.Type with
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
             let arrTypeIdx = getOrAddArrayType ctx elemT
+            let a = mkArrayShape elemT arrTypeIdx
+            let gen = LabelGen("ievery")
             let wArr = transform ctx arrExpr
             let ctx' = ctx.WithLocal(farg.Name, elemT)
             let wPred = transform ctx' fbody
-            Some(mkArrayLoop "ievery" elemT arrTypeIdx wArr []
-                    (fun elem _idx ->
-                        WExpr.Let(farg.Name, elem,
-                            WExpr.If(WExpr.Unary(WUnaryOp.Eqz, wPred, WType.I32),
-                                WExpr.Break("$ievery_exit", Some(WExpr.Const(WConst.I32 0))),
-                                WExpr.Nop, WType.Void)))
-                    (WExpr.Const(WConst.I32 1)) (Some("$ievery_exit", WType.I32)))
+            Some(arrayForAll gen a wArr
+                (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
         | None -> None
     | ("forEach"), Some(farg, fbody) ->
         match getArrElemT arrExpr.Type with
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
             let arrTypeIdx = getOrAddArrayType ctx elemT
+            let a = mkArrayShape elemT arrTypeIdx
+            let gen = LabelGen("iforeach")
             let wArr = transform ctx arrExpr
             let ctx' = ctx.WithLocal(farg.Name, elemT)
             let wBody = transform ctx' fbody
-            Some(mkArrayLoop "iforeach" elemT arrTypeIdx wArr []
-                    (fun elem _idx -> WExpr.Let(farg.Name, elem, wBody))
-                    WExpr.Nop None)
+            Some(arrayIter gen a wArr
+                (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
         | None -> None
     // Array.reduce f arr → fold from first element as accumulator
     | ("reduce" | "reduceRight"), _ ->
@@ -1347,35 +1032,22 @@ let tryArrayInstanceCall
                 let arrTypeIdx = getOrAddArrayType ctx elemT
                 let arrRefT    = WType.Ref(arrTypeIdx, false)
                 let wArr       = transform ctx arrExpr
-                let arrVar     = "$ired_arr"
-                let accVar     = "$ired_acc"
-                let iVar       = "$ired_i"
-                let lenVar     = "$ired_len"
-                let loopLabel  = "$ired_loop"
-                let arrGet     = WExpr.LocalGet(arrVar, arrRefT)
-                let accGet     = WExpr.LocalGet(accVar, elemT)
-                let iGet       = WExpr.LocalGet(iVar, WType.I32)
-                let lenGet     = WExpr.LocalGet(lenVar, WType.I32)
+                let gen        = LabelGen("ired")
                 let ctx'       = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
                 let wBody      = transform ctx' fbody
-                let elem       = WExpr.ArrayGet(arrGet, iGet, elemT)
-                let step =
-                    WExpr.Sequence [
-                        WExpr.Assign(accVar,
-                            WExpr.Let(farg1.Name, accGet,
-                                WExpr.Let(farg2.Name, elem, wBody)))
-                        WExpr.Assign(iVar, WExpr.Binary(WBinaryOp.Add, iGet, WExpr.Const(WConst.I32 1), WType.I32))
-                        WExpr.Continue(loopLabel, [])
-                    ]
-                let loop = WExpr.Loop(loopLabel,
-                    WExpr.If(WExpr.Compare(WCompareOp.LtS, iGet, lenGet), step, WExpr.Nop, WType.Void),
-                    WType.Void)
-                Some(WExpr.Let(arrVar, wArr,
-                    WExpr.Let(lenVar, WExpr.ArrayLen(arrGet),
-                        WExpr.LetMut(accVar, WExpr.ArrayGet(arrGet, WExpr.Const(WConst.I32 0), elemT),
-                            WExpr.LetMut(iVar, WExpr.Const(WConst.I32 1),
-                                WExpr.Sequence [loop; accGet])))))
+                Some(letVal gen "arr" arrRefT wArr (fun src ->
+                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
+                    letMut gen "acc" elemT (arrayGet src (i32Const 0) elemT) (fun acc setAcc ->
+                    letMut gen "i" WType.I32 (i32Const 1) (fun i setI ->
+                        sequence [
+                            whileLoop (gen.Next("lp")) (ltS i len)
+                                (sequence [
+                                    setAcc (WExpr.Let(farg1.Name, acc,
+                                        WExpr.Let(farg2.Name, arrayGet src i elemT, wBody)))
+                                    setI (add i (i32Const 1))
+                                ])
+                            acc
+                        ])))))
             | None -> None
         | None -> None
     | _ -> None
-
