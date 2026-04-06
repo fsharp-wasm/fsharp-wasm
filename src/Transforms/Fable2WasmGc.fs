@@ -64,42 +64,26 @@ let private resizeArrayPushInline (ctx: Ctx) (elemT: WType) (arrTypeIdx: int) (r
                                    (wRav: WExpr) (wVal: WExpr) : WExpr =
     let arrRefT   = WType.Ref(arrTypeIdx, true)
     let arrNNRefT = WType.Ref(arrTypeIdx, false)
-    let ravRefT   = WType.Ref(ravTypeIdx, false)
     let zero      = zeroForElem elemT
-    let ravVar    = "$rav_self"
-    let lenVar    = "$rav_len"
-    let dataVar   = "$rav_data"
-    let newCapVar = "$rav_newcap"
-    let newDatVar = "$rav_newdat"
-    let ravGet  k = WExpr.LocalGet(k, ravRefT)
-    let i32Get  k = WExpr.LocalGet(k, WType.I32)
-    let datGet  k = WExpr.LocalGet(k, arrNNRefT)
-    // When len = capacity, double the array and update the struct.
-    let growBlock =
-        WExpr.Let(newCapVar,
-            WExpr.Binary(WBinaryOp.Shl,
-                WExpr.ArrayLen(datGet dataVar),
-                WExpr.Const(WConst.I32 1), WType.I32),   // cap * 2  (shift left 1 = multiply by 2)
-            WExpr.Let(newDatVar,
-                WExpr.ArrayNew(arrTypeIdx, i32Get newCapVar, zero, arrNNRefT),
-                WExpr.Sequence [
-                    WExpr.ArrayCopy(datGet newDatVar, WExpr.Const(WConst.I32 0),
-                                    datGet dataVar,    WExpr.Const(WConst.I32 0),
-                                    i32Get lenVar)
-                    WExpr.StructSet(ravGet ravVar, 0, datGet newDatVar)
-                ]))
-    WExpr.Let(ravVar, wRav,
-        WExpr.Let(lenVar,  WExpr.StructGet(ravGet ravVar, 1, WType.I32),
-            WExpr.Let(dataVar, WExpr.Cast(WExpr.StructGet(ravGet ravVar, 0, arrRefT), arrNNRefT),
-                WExpr.Sequence [
-                    WExpr.If(WExpr.Compare(WCompareOp.GeU, i32Get lenVar, WExpr.ArrayLen(datGet dataVar)),
-                             growBlock, WExpr.Nop, WType.Void)
-                    // Re-read data (may have changed after grow)
-                    WExpr.ArraySet(WExpr.Cast(WExpr.StructGet(ravGet ravVar, 0, arrRefT), arrNNRefT),
-                                   i32Get lenVar, wVal)
-                    WExpr.StructSet(ravGet ravVar, 1,
-                        WExpr.Binary(WBinaryOp.Add, i32Get lenVar, WExpr.Const(WConst.I32 1), WType.I32))
-                ])))
+    wasm {
+        let! rav  = wRav
+        let! len  = WExpr.StructGet(rav, 1, WType.I32)
+        let! data = WExpr.Cast(WExpr.StructGet(rav, 0, arrRefT), arrNNRefT)
+        // When len = capacity, double the array and update the struct.
+        do! WExpr.If(WExpr.Compare(WCompareOp.GeU, len, WExpr.ArrayLen(data)),
+                wasm {
+                    let! newCap = WExpr.Binary(WBinaryOp.Shl, WExpr.ArrayLen(data),
+                                    WExpr.Const(WConst.I32 1), WType.I32)
+                    let! newDat = WExpr.ArrayNew(arrTypeIdx, newCap, zero, arrNNRefT)
+                    do! WExpr.ArrayCopy(newDat, WExpr.Const(WConst.I32 0),
+                                        data,   WExpr.Const(WConst.I32 0), len)
+                    return! WExpr.StructSet(rav, 0, newDat)
+                }, WExpr.Nop, WType.Void)
+        // Re-read data (may have changed after grow)
+        do! WExpr.ArraySet(WExpr.Cast(WExpr.StructGet(rav, 0, arrRefT), arrNNRefT), len, wVal)
+        return! WExpr.StructSet(rav, 1,
+            WExpr.Binary(WBinaryOp.Add, len, WExpr.Const(WConst.I32 1), WType.I32))
+    }
 
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     match expr with
