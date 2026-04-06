@@ -109,7 +109,7 @@ type Ctx =
         KnownFuncsByPath: Map<string * string, string>
         /// External Wasm function imports declared via [<Import("name","module")>] on nativeOnly funcs.
         /// Key = internal call-name "$ext$module$name"; Value = WImport to be emitted in import section.
-        ExternImports: System.Collections.Generic.Dictionary<string, WImport>
+        ExternImports: System.Collections.Concurrent.ConcurrentDictionary<string, WImport>
         /// String storage mode: I32 (default, wide) or I16 (packed, 50 % smaller for ASCII).
         StringMode: StringMode
         // ── Interface vtable support ───────────────────────────────────────
@@ -172,7 +172,7 @@ type Ctx =
             NamePrefix = ""
             FuncNameAlias = Map.empty
             KnownFuncsByPath = Map.empty
-            ExternImports = System.Collections.Generic.Dictionary<string, WImport>()
+            ExternImports = System.Collections.Concurrent.ConcurrentDictionary<string, WImport>()
             StringMode = stringMode
             VTableRegistry = System.Collections.Generic.Dictionary<string, int * int * int list * string list>()
             VTableImplRegistry = System.Collections.Generic.Dictionary<string * string, string>()
@@ -198,8 +198,7 @@ type Ctx =
         // WImport.Name stays as the external name (visible to the Wasm runtime/JS host).
         // WImport.CallName = callName (disambiguates if two modules export same funcName).
         let callName = $"{moduleName}_{funcName}"
-        if not (this.ExternImports.ContainsKey(callName)) then
-            this.ExternImports[callName] <- { ModuleName = moduleName; Name = funcName; CallName = callName; Desc = ImportFunc(parms, result) }
+        this.ExternImports.TryAdd(callName, { ModuleName = moduleName; Name = funcName; CallName = callName; Desc = ImportFunc(parms, result) }) |> ignore
         callName
 
     /// Get or create a WTypeDef.Func typeIdx for the given signature.

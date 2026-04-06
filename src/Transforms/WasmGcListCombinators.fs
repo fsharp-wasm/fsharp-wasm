@@ -61,15 +61,16 @@ let tryListFoldInline
             let ctx' = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
             let wBody = transform ctx' fbody
             let wList = transform ctx listArg
-            Some(
-                letVal gen "lst" s.BaseTy wList (fun lst ->
-                letVal gen "nn" s.NonNullTy (s.CastNN lst) (fun nn ->
-                    listFold gen s
-                        (WExpr.StructGet(nn, 1, s.BaseTy))
-                        (WExpr.StructGet(nn, 0, elemT))
-                        elemT
-                        (fun acc elem ->
-                            WExpr.Let(farg1.Name, acc, WExpr.Let(farg2.Name, elem, wBody))))))
+            Some(wasm {
+                let! lst = wList
+                let! nn = s.CastNN lst
+                return! listFold gen s
+                    (WExpr.StructGet(nn, 1, s.BaseTy))
+                    (WExpr.StructGet(nn, 0, elemT))
+                    elemT
+                    (fun acc elem ->
+                        WExpr.Let(farg1.Name, acc, WExpr.Let(farg2.Name, elem, wBody)))
+            })
         | None -> None
     | _ -> None
 
@@ -250,18 +251,19 @@ let tryListCollectInline
             let ctx' = ctx.WithLocal(farg.Name, elemT)
             let wPred = transform ctx' fbody
             let wList = transform ctx listArg
-            Some(
-                letMut gen "yes" s.BaseTy s.Nil (fun yes setYes ->
-                letMut gen "no" s.BaseTy s.Nil (fun no setNo ->
-                    sequence [
-                        listIter gen s wList (fun elem ->
-                            letVal gen "e" elemT elem (fun e ->
-                                WExpr.If(WExpr.Let(farg.Name, e, wPred),
-                                    setYes (s.Cons e yes),
-                                    setNo (s.Cons e no),
-                                    WType.Void)))
-                        structNew tupleIdx [listRev gen s yes; listRev gen s no] tupleRefT
-                    ])))
+            Some(wasm {
+                let! yes = mutTy s.BaseTy s.Nil
+                let! no = mutTy s.BaseTy s.Nil
+                do! listIter gen s wList (fun elem ->
+                    wasm {
+                        let! e = elem
+                        return! WExpr.If(WExpr.Let(farg.Name, e, wPred),
+                            yes.Set(s.Cons e yes.Val),
+                            no.Set(s.Cons e no.Val),
+                            WType.Void)
+                    })
+                return structNew tupleIdx [listRev gen s yes.Val; listRev gen s no.Val] tupleRefT
+            })
         | None -> None
     | _ -> None
 
@@ -378,22 +380,23 @@ let tryListMinMaxByInline
             let wKey  = transform ctx' fbody
             let wList = transform ctx listArg
             let cmpOp = if isMin then WCompareOp.LtS else WCompareOp.GtS
-            Some(
-                letVal gen "lst" s.BaseTy wList (fun lst ->
-                letVal gen "nn" s.NonNullTy (s.CastNN lst) (fun nn ->
-                    let headElem = WExpr.StructGet(nn, 0, elemT)
-                    let headTail = WExpr.StructGet(nn, 1, s.BaseTy)
-                    letMut gen "bestE" elemT headElem (fun bestE setBestE ->
-                    letMut gen "bestK" keyT (WExpr.Let(farg.Name, headElem, wKey)) (fun bestK setBestK ->
-                        sequence [
-                            listIter gen s headTail (fun elem ->
-                                letVal gen "e" elemT elem (fun e ->
-                                letVal gen "k" keyT (WExpr.Let(farg.Name, e, wKey)) (fun k ->
-                                    WExpr.If(WExpr.Compare(cmpOp, k, bestK),
-                                        sequence [setBestE e; setBestK k],
-                                        WExpr.Nop, WType.Void))))
-                            bestE
-                        ])))))
+            Some(wasm {
+                let! lst = wList
+                let! nn = s.CastNN lst
+                let headElem = WExpr.StructGet(nn, 0, elemT)
+                let headTail = WExpr.StructGet(nn, 1, s.BaseTy)
+                let! bestE = mutTy elemT headElem
+                let! bestK = mutTy keyT (WExpr.Let(farg.Name, headElem, wKey))
+                do! listIter gen s headTail (fun elem ->
+                    wasm {
+                        let! e = elem
+                        let! k = WExpr.Let(farg.Name, e, wKey)
+                        return! WExpr.If(WExpr.Compare(cmpOp, k, bestK.Val),
+                            WExpr.Sequence [bestE.Set e; bestK.Set k],
+                            WExpr.Nop, WType.Void)
+                    })
+                return bestE.Val
+            })
         | None -> None
     | _ -> None
 
@@ -432,17 +435,14 @@ let tryListInitReplicateInline
             let ctx'  = ctx.WithLocal(farg.Name, WType.I32)
             let wBody = transform ctx' fbody
             // Count DOWN from n-1 to 0, cons f(i) → forward order
-            Some(
-                letMut gen "i" WType.I32 (sub wN (i32Const 1)) (fun i setI ->
-                letMut gen "acc" s.BaseTy s.Nil (fun acc setAcc ->
-                    sequence [
-                        whileLoop (gen.Next("lp")) (geS i (i32Const 0))
-                            (sequence [
-                                setAcc (s.Cons (WExpr.Let(farg.Name, i, wBody)) acc)
-                                setI (sub i (i32Const 1))
-                            ])
-                        acc
-                    ])))
+            Some(wasm {
+                let! i = mut (sub wN (i32Const 1))
+                let! acc = mutTy s.BaseTy s.Nil
+                while! (geS i.Val (i32Const 0)) do
+                    do! acc.Set(s.Cons (WExpr.Let(farg.Name, i.Val, wBody)) acc.Val)
+                    do! i.Set(sub i.Val (i32Const 1))
+                return acc.Val
+            })
     | "replicate", (nArg :: xArg :: _) ->
         match tryListTypeInfoFromElemType ctx xArg.Type with
         | Some(elemT, consIdx) ->
@@ -450,16 +450,16 @@ let tryListInitReplicateInline
             let gen = LabelGen("repl")
             let wN  = transform ctx nArg
             let wX  = transform ctx xArg
-            Some(
-                letVal gen "x" elemT wX (fun x ->
-                letVal gen "n" WType.I32 wN (fun n ->
-                letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-                letMut gen "acc" s.BaseTy s.Nil (fun acc setAcc ->
-                    sequence [
-                        whileLoop (gen.Next("lp")) (ltS i n)
-                            (sequence [setAcc (s.Cons x acc); setI (add i (i32Const 1))])
-                        acc
-                    ])))))
+            Some(wasm {
+                let! x = wX
+                let! n = wN
+                let! i = mut (i32Const 0)
+                let! acc = mutTy s.BaseTy s.Nil
+                while! (ltS i.Val n) do
+                    do! acc.Set(s.Cons x acc.Val)
+                    do! i.Set(add i.Val (i32Const 1))
+                return acc.Val
+            })
         | None -> None
     | _ -> None
 
@@ -492,19 +492,25 @@ let tryListPairwiseInline
         let tupleIdx  = match pairWT with | WType.Ref(i, _) -> i | _ -> 0
         let tupleRefT = WType.Ref(tupleIdx, false)
         let wList     = transform ctx listArg
-        Some(
-            letVal gen "inp" sIn.BaseTy wList (fun inp ->
-                wasmIf (WExpr.RefIsNull inp)
-                    sOut.Nil
-                    (letVal gen "nn" sIn.NonNullTy (sIn.CastNN inp) (fun nn ->
-                        letMut gen "prev" elemWT (WExpr.StructGet(nn, 0, elemWT)) (fun prev setPrev ->
-                            let revAcc =
-                                listFold gen sIn (WExpr.StructGet(nn, 1, sIn.BaseTy)) sOut.Nil sOut.BaseTy
-                                    (fun acc elem ->
-                                        letVal gen "e" elemWT elem (fun e ->
-                                        letVal gen "pair" tupleRefT (structNew tupleIdx [prev; e] tupleRefT) (fun pair ->
-                                            WExpr.Sequence [setPrev e; sOut.Cons pair acc])))
-                            listRev gen sOut revAcc)))))
+        Some(wasm {
+            let! inp = wList
+            return! wasmIf (WExpr.RefIsNull inp)
+                sOut.Nil
+                (wasm {
+                    let! nn = sIn.CastNN inp
+                    let! prev = mutTy elemWT (WExpr.StructGet(nn, 0, elemWT))
+                    let revAcc =
+                        listFold gen sIn (WExpr.StructGet(nn, 1, sIn.BaseTy)) sOut.Nil sOut.BaseTy
+                            (fun acc elem ->
+                                wasm {
+                                    let! e = elem
+                                    let! pair = structNew tupleIdx [prev.Val; e] tupleRefT
+                                    do! prev.Set e
+                                    return sOut.Cons pair acc
+                                })
+                    return! listRev gen sOut revAcc
+                })
+        })
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -542,47 +548,42 @@ let tryListCountByInline
         let i32ArrRefT = WType.Ref(i32ArrIdx, false)
         let wList = transform ctx listArg
         let ctx'  = ctx.WithLocal(farg.Name, elemWT)
-        Some(
-            letVal gen "keys" i32ArrRefT (arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT) (fun keys ->
-            letVal gen "cnts" i32ArrRefT (arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT) (fun cnts ->
-            letMut gen "n" WType.I32 (i32Const 0) (fun n setN ->
-            letMut gen "k" WType.I32 (i32Const 0) (fun k setK ->
-            letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-                let scanLbl = gen.Next("scan")
-                let scanLoop =
-                    sequence [
-                        setI (i32Const 0)
-                        WExpr.Loop(scanLbl,
-                            wasmIf (ltS i n)
-                                (wasmIf (eq (arrayGet keys i WType.I32) k)
-                                    (arraySet cnts i (add (arrayGet cnts i WType.I32) (i32Const 1)))
-                                    (sequence [setI (add i (i32Const 1)); continue_ scanLbl]))
-                                (sequence [
-                                    arraySet keys n k
-                                    arraySet cnts n (i32Const 1)
-                                    setN (add n (i32Const 1))
-                                ]),
-                            WType.Void)
-                    ]
+        Some(wasm {
+            let! keys = arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT
+            let! cnts = arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT
+            let! n = mut (i32Const 0)
+            let! k = mut (i32Const 0)
+            let! i = mut (i32Const 0)
+            let scanLbl = gen.Next("scan")
+            let scanLoop =
                 sequence [
-                    listIter gen sIn wList (fun elem ->
-                        sequence [setK (WExpr.Let(farg.Name, elem, transform ctx' fbody)); scanLoop])
-                    // Build result: walk from n-1 down to 0
-                    letMut gen "ri" WType.I32 (sub n (i32Const 1)) (fun ri setRi ->
-                    letMut gen "out" sOut.BaseTy sOut.Nil (fun out setOut ->
-                        sequence [
-                            whileLoop (gen.Next("bld")) (geS ri (i32Const 0))
-                                (sequence [
-                                    setOut (sOut.Cons
-                                        (structNew tupleIdx
-                                            [arrayGet keys ri WType.I32; arrayGet cnts ri WType.I32]
-                                            tupleRefT)
-                                        out)
-                                    setRi (sub ri (i32Const 1))
-                                ])
-                            out
-                        ]))
-                ]))))))
+                    i.Set(i32Const 0)
+                    WExpr.Loop(scanLbl,
+                        wasmIf (ltS i.Val n.Val)
+                            (wasmIf (eq (arrayGet keys i.Val WType.I32) k.Val)
+                                (arraySet cnts i.Val (add (arrayGet cnts i.Val WType.I32) (i32Const 1)))
+                                (sequence [i.Set(add i.Val (i32Const 1)); continue_ scanLbl]))
+                            (sequence [
+                                arraySet keys n.Val k.Val
+                                arraySet cnts n.Val (i32Const 1)
+                                n.Set(add n.Val (i32Const 1))
+                            ]),
+                        WType.Void)
+                ]
+            do! listIter gen sIn wList (fun elem ->
+                sequence [k.Set(WExpr.Let(farg.Name, elem, transform ctx' fbody)); scanLoop])
+            // Build result: walk from n-1 down to 0
+            let! ri = mut (sub n.Val (i32Const 1))
+            let! out = mutTy sOut.BaseTy sOut.Nil
+            while! (geS ri.Val (i32Const 0)) do
+                do! out.Set(sOut.Cons
+                    (structNew tupleIdx
+                        [arrayGet keys ri.Val WType.I32; arrayGet cnts ri.Val WType.I32]
+                        tupleRefT)
+                    out.Val)
+                do! ri.Set(sub ri.Val (i32Const 1))
+            return out.Val
+        })
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -625,58 +626,53 @@ let tryListGroupByInline
         let null_list  = WExpr.Const(WConst.Null listBaseRefT)
         let wList = transform ctx listArg
         let ctx'  = ctx.WithLocal(farg.Name, elemWT)
-        Some(
-            letVal gen "keys" i32ArrRefT (arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT) (fun keys ->
-            letVal gen "heads" lbArrRefT (arrayNew lbArrIdx (i32Const capacity) null_list lbArrRefT) (fun heads ->
-            letMut gen "n" WType.I32 (i32Const 0) (fun n setN ->
-            letMut gen "k" WType.I32 (i32Const 0) (fun k setK ->
-            letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-                let scanLbl = gen.Next("scan")
-                let scanLoop (elemExpr: WExpr) =
-                    sequence [
-                        setI (i32Const 0)
-                        WExpr.Loop(scanLbl,
-                            wasmIf (ltS i n)
-                                (wasmIf (eq (arrayGet keys i WType.I32) k)
-                                    // Found: prepend elem to group list
-                                    (arraySet heads i
-                                        (WExpr.StructNew(inConsIdx,
-                                            [elemExpr; arrayGet heads i listBaseRefT],
-                                            listBaseRefT)))
-                                    (sequence [setI (add i (i32Const 1)); continue_ scanLbl]))
-                                // New group
-                                (sequence [
-                                    arraySet keys n k
-                                    arraySet heads n
-                                        (WExpr.StructNew(inConsIdx, [elemExpr; null_list], listBaseRefT))
-                                    setN (add n (i32Const 1))
-                                ]),
-                            WType.Void)
-                    ]
+        Some(wasm {
+            let! keys = arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT
+            let! heads = arrayNew lbArrIdx (i32Const capacity) null_list lbArrRefT
+            let! n = mut (i32Const 0)
+            let! k = mut (i32Const 0)
+            let! i = mut (i32Const 0)
+            let scanLbl = gen.Next("scan")
+            let scanLoop (elemExpr: WExpr) =
                 sequence [
-                    listIter gen sIn wList (fun elem ->
-                        WExpr.Let(farg.Name, elem,
-                            sequence [
-                                setK (transform ctx' fbody)
-                                scanLoop (WExpr.LocalGet(farg.Name, elemWT))
-                            ]))
-                    // Build result: walk from n-1 down to 0, reversing each group
-                    letMut gen "ri" WType.I32 (sub n (i32Const 1)) (fun ri setRi ->
-                    letMut gen "out" sOut.BaseTy sOut.Nil (fun out setOut ->
-                        sequence [
-                            whileLoop (gen.Next("bld")) (geS ri (i32Const 0))
-                                (let groupFwd = listRev gen sIn (arrayGet heads ri listBaseRefT)
-                                 sequence [
-                                    setOut (sOut.Cons
-                                        (structNew tupleIdx
-                                            [arrayGet keys ri WType.I32; groupFwd]
-                                            tupleRefT)
-                                        out)
-                                    setRi (sub ri (i32Const 1))
-                                ])
-                            out
-                        ]))
-                ]))))))
+                    i.Set(i32Const 0)
+                    WExpr.Loop(scanLbl,
+                        wasmIf (ltS i.Val n.Val)
+                            (wasmIf (eq (arrayGet keys i.Val WType.I32) k.Val)
+                                // Found: prepend elem to group list
+                                (arraySet heads i.Val
+                                    (WExpr.StructNew(inConsIdx,
+                                        [elemExpr; arrayGet heads i.Val listBaseRefT],
+                                        listBaseRefT)))
+                                (sequence [i.Set(add i.Val (i32Const 1)); continue_ scanLbl]))
+                            // New group
+                            (sequence [
+                                arraySet keys n.Val k.Val
+                                arraySet heads n.Val
+                                    (WExpr.StructNew(inConsIdx, [elemExpr; null_list], listBaseRefT))
+                                n.Set(add n.Val (i32Const 1))
+                            ]),
+                        WType.Void)
+                ]
+            do! listIter gen sIn wList (fun elem ->
+                WExpr.Let(farg.Name, elem,
+                    sequence [
+                        k.Set(transform ctx' fbody)
+                        scanLoop (WExpr.LocalGet(farg.Name, elemWT))
+                    ]))
+            // Build result: walk from n-1 down to 0, reversing each group
+            let! ri = mut (sub n.Val (i32Const 1))
+            let! out = mutTy sOut.BaseTy sOut.Nil
+            while! (geS ri.Val (i32Const 0)) do
+                let groupFwd = listRev gen sIn (arrayGet heads ri.Val listBaseRefT)
+                do! out.Set(sOut.Cons
+                    (structNew tupleIdx
+                        [arrayGet keys ri.Val WType.I32; groupFwd]
+                        tupleRefT)
+                    out.Val)
+                do! ri.Set(sub ri.Val (i32Const 1))
+            return out.Val
+        })
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -708,39 +704,38 @@ let tryListDistinctInline
         let i32ArrIdx  = getOrAddArrayType ctx WType.I32
         let i32ArrRefT = WType.Ref(i32ArrIdx, false)
         let wList = transform ctx listArg
-        Some(
-            letVal gen "seen" i32ArrRefT (arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT) (fun seen ->
-            letMut gen "n" WType.I32 (i32Const 0) (fun n setN ->
-            letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-            letMut gen "e" WType.I32 (i32Const 0) (fun e setE ->
-            letMut gen "rev" sOut.BaseTy sOut.Nil (fun rev setRev ->
-                let scanLbl = gen.Next("scan")
-                let scanLoop =
-                    sequence [
-                        setI (i32Const 0)
-                        WExpr.Loop(scanLbl,
-                            wasmIf (ltS i n)
-                                (wasmIf (eq (arrayGet seen i WType.I32) e)
-                                    WExpr.Nop  // found → leave i < n
-                                    (sequence [setI (add i (i32Const 1)); continue_ scanLbl]))
-                                WExpr.Nop,  // i >= n → done scanning
-                            WType.Void)
-                    ]
+        Some(wasm {
+            let! seen = arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT
+            let! n = mut (i32Const 0)
+            let! i = mut (i32Const 0)
+            let! e = mut (i32Const 0)
+            let! rev = mutTy sOut.BaseTy sOut.Nil
+            let scanLbl = gen.Next("scan")
+            let scanLoop =
                 sequence [
-                    listIter gen sIn wList (fun elem ->
+                    i.Set(i32Const 0)
+                    WExpr.Loop(scanLbl,
+                        wasmIf (ltS i.Val n.Val)
+                            (wasmIf (eq (arrayGet seen i.Val WType.I32) e.Val)
+                                WExpr.Nop  // found → leave i < n
+                                (sequence [i.Set(add i.Val (i32Const 1)); continue_ scanLbl]))
+                            WExpr.Nop,  // i >= n → done scanning
+                        WType.Void)
+                ]
+            do! listIter gen sIn wList (fun elem ->
+                sequence [
+                    e.Set elem
+                    scanLoop
+                    WExpr.If(eq i.Val n.Val,
                         sequence [
-                            setE elem
-                            scanLoop
-                            WExpr.If(eq i n,
-                                sequence [
-                                    arraySet seen n e
-                                    setN (add n (i32Const 1))
-                                    setRev (sOut.Cons e rev)
-                                ],
-                                WExpr.Nop, WType.Void)
-                        ])
-                    listRev gen sOut rev
-                ]))))))
+                            arraySet seen n.Val e.Val
+                            n.Set(add n.Val (i32Const 1))
+                            rev.Set(sOut.Cons e.Val rev.Val)
+                        ],
+                        WExpr.Nop, WType.Void)
+                ])
+            return! listRev gen sOut rev.Val
+        })
     | _ -> None
 
 let tryListDistinctByInline
@@ -769,40 +764,39 @@ let tryListDistinctByInline
         let i32ArrRefT = WType.Ref(i32ArrIdx, false)
         let wList = transform ctx listArg
         let ctx'  = ctx.WithLocal(farg.Name, elemWT)
-        Some(
-            letVal gen "seen" i32ArrRefT (arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT) (fun seen ->
-            letMut gen "n" WType.I32 (i32Const 0) (fun n setN ->
-            letMut gen "k" WType.I32 (i32Const 0) (fun k setK ->
-            letMut gen "i" WType.I32 (i32Const 0) (fun i setI ->
-            letMut gen "rev" sOut.BaseTy sOut.Nil (fun rev setRev ->
-                let scanLbl = gen.Next("scan")
-                let scanLoop =
-                    sequence [
-                        setI (i32Const 0)
-                        WExpr.Loop(scanLbl,
-                            wasmIf (ltS i n)
-                                (wasmIf (eq (arrayGet seen i WType.I32) k)
-                                    WExpr.Nop
-                                    (sequence [setI (add i (i32Const 1)); continue_ scanLbl]))
-                                WExpr.Nop,
-                            WType.Void)
-                    ]
+        Some(wasm {
+            let! seen = arrayNew i32ArrIdx (i32Const capacity) (i32Const 0) i32ArrRefT
+            let! n = mut (i32Const 0)
+            let! k = mut (i32Const 0)
+            let! i = mut (i32Const 0)
+            let! rev = mutTy sOut.BaseTy sOut.Nil
+            let scanLbl = gen.Next("scan")
+            let scanLoop =
                 sequence [
-                    listIter gen sIn wList (fun elem ->
-                        WExpr.Let(farg.Name, elem,
+                    i.Set(i32Const 0)
+                    WExpr.Loop(scanLbl,
+                        wasmIf (ltS i.Val n.Val)
+                            (wasmIf (eq (arrayGet seen i.Val WType.I32) k.Val)
+                                WExpr.Nop
+                                (sequence [i.Set(add i.Val (i32Const 1)); continue_ scanLbl]))
+                            WExpr.Nop,
+                        WType.Void)
+                ]
+            do! listIter gen sIn wList (fun elem ->
+                WExpr.Let(farg.Name, elem,
+                    sequence [
+                        k.Set(transform ctx' fbody)
+                        scanLoop
+                        WExpr.If(eq i.Val n.Val,
                             sequence [
-                                setK (transform ctx' fbody)
-                                scanLoop
-                                WExpr.If(eq i n,
-                                    sequence [
-                                        arraySet seen n k
-                                        setN (add n (i32Const 1))
-                                        setRev (sOut.Cons (WExpr.LocalGet(farg.Name, elemWT)) rev)
-                                    ],
-                                    WExpr.Nop, WType.Void)
-                            ]))
-                    listRev gen sOut rev
-                ]))))))
+                                arraySet seen n.Val k.Val
+                                n.Set(add n.Val (i32Const 1))
+                                rev.Set(sOut.Cons (WExpr.LocalGet(farg.Name, elemWT)) rev.Val)
+                            ],
+                            WExpr.Nop, WType.Void)
+                    ]))
+            return! listRev gen sOut rev.Val
+        })
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -841,19 +835,20 @@ let tryListUnzipInline
                 | true, resultTupleIdx ->
                 let resultTupleRefT = WType.Ref(resultTupleIdx, false)
                 // Fold: accumulate reversed 'a list; side-effect build reversed 'b list
-                Some(
-                    letMut gen "bRev" sB.BaseTy sB.Nil (fun bRev setBRev ->
-                        let aRev =
-                            listFold gen sIn wList sA.Nil sA.BaseTy
-                                (fun aAcc pair ->
-                                    letVal gen "p" pairT pair (fun p ->
-                                        WExpr.Sequence [
-                                            setBRev (sB.Cons (structGet p 1 bElemT) bRev)
-                                            sA.Cons (structGet p 0 aElemT) aAcc
-                                        ]))
-                        structNew resultTupleIdx
-                            [listRev gen sA aRev; listRev gen sB bRev]
-                            resultTupleRefT))
+                Some(wasm {
+                    let! bRev = mutTy sB.BaseTy sB.Nil
+                    let aRev =
+                        listFold gen sIn wList sA.Nil sA.BaseTy
+                            (fun aAcc pair ->
+                                wasm {
+                                    let! p = pair
+                                    do! bRev.Set(sB.Cons (structGet p 1 bElemT) bRev.Val)
+                                    return sA.Cons (structGet p 0 aElemT) aAcc
+                                })
+                    return structNew resultTupleIdx
+                        [listRev gen sA aRev; listRev gen sB bRev.Val]
+                        resultTupleRefT
+                })
             | _ -> None
         | _ -> None
     | _ -> None
