@@ -181,6 +181,33 @@ type WasmBuilder() =
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
     member _.ReturnFrom(expr: WExpr) = expr
 
+    /// `let! x = a and! y = b in return body` — parallel binding (FS-1063).
+    ///
+    /// Uses Bind2Return instead of MergeSources+BindReturn because BindReturn
+    /// poisons do!: the compiler optimizes the final `do! e` to
+    /// `BindReturn(e, fun () -> ())` with a unit->unit continuation that clashes
+    /// with `BindReturn(WExpr, WExpr->WExpr)`.
+    ///
+    /// The continuation takes a TUPLE `(x, y)` per the F# CE spec.
+    member _.Bind2Return(a: WExpr, b: WExpr, f: WExpr * WExpr -> WExpr) : WExpr =
+        let n1 = freshName ()
+        let n2 = freshName ()
+        let ty1 = exprWType a
+        let ty2 = exprWType b
+        WExpr.Let(n1, a,
+            WExpr.Let(n2, b,
+                f (WExpr.LocalGet(n1, ty1), WExpr.LocalGet(n2, ty2))))
+
+    /// `let! x = a and! y = b in <more-computation>` — Bind2 for non-return case.
+    member _.Bind2(a: WExpr, b: WExpr, f: WExpr * WExpr -> WExpr) : WExpr =
+        let n1 = freshName ()
+        let n2 = freshName ()
+        let ty1 = exprWType a
+        let ty2 = exprWType b
+        WExpr.Let(n1, a,
+            WExpr.Let(n2, b,
+                f (WExpr.LocalGet(n1, ty1), WExpr.LocalGet(n2, ty2))))
+
     /// Empty CE block → Nop.
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
     member _.Zero() = WExpr.Nop
