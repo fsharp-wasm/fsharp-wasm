@@ -88,10 +88,9 @@ let listFold
     wasm {
         let! cur = mutTy s.BaseTy list
         let! acc = mutTy accTy initAcc
-        do! Wasm.while_ (refIsNotNull cur.Val) (wasm {
+        while! (refIsNotNull cur.Val) do
             do! acc.Set(folder acc.Val (s.Head cur.Val))
-            return! cur.Set(s.Tail cur.Val)
-        })
+            do! cur.Set(s.Tail cur.Val)
         return acc.Val
     }
 
@@ -158,10 +157,9 @@ let listFilter
 let listIter (gen: LabelGen) (s: ListShape) (list: WExpr) (body: WExpr -> WExpr) : WExpr =
     wasm {
         let! cur = mutTy s.BaseTy list
-        return! Wasm.while_ (refIsNotNull cur.Val) (wasm {
+        while! (refIsNotNull cur.Val) do
             do! body (s.Head cur.Val)
-            return! cur.Set(s.Tail cur.Val)
-        })
+            do! cur.Set(s.Tail cur.Val)
     }
 
 /// Indexed void traversal — body receives (index, element).
@@ -174,11 +172,10 @@ let listIteri
     wasm {
         let! cur = mutTy s.BaseTy list
         let! i = mut (i32Const 0)
-        return! Wasm.while_ (refIsNotNull cur.Val) (wasm {
+        while! (refIsNotNull cur.Val) do
             do! body i.Val (s.Head cur.Val)
             do! i.Set(add i.Val (i32Const 1))
-            return! cur.Set(s.Tail cur.Val)
-        })
+            do! cur.Set(s.Tail cur.Val)
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,11 +195,10 @@ let listMapi
             let! cur = mutTy s.BaseTy list
             let! acc = mutTy rs.BaseTy rs.Nil
             let! i = mut (i32Const 0)
-            do! Wasm.while_ (refIsNotNull cur.Val) (wasm {
+            while! (refIsNotNull cur.Val) do
                 do! acc.Set(rs.Cons (mapper i.Val (s.Head cur.Val)) acc.Val)
                 do! i.Set(add i.Val (i32Const 1))
-                return! cur.Set(s.Tail cur.Val)
-            })
+                do! cur.Set(s.Tail cur.Val)
             return acc.Val
         }
     listRev gen rs rev
@@ -306,10 +302,9 @@ let indexedLoop (gen: LabelGen) (len: WExpr) (body: WExpr -> WExpr) : WExpr =
     wasm {
         let! n = len
         let! i = mut (i32Const 0)
-        return! Wasm.while_ (ltS i.Val n) (wasm {
+        while! (ltS i.Val n) do
             do! body i.Val
-            return! i.Set(add i.Val (i32Const 1))
-        })
+            do! i.Set(add i.Val (i32Const 1))
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -330,10 +325,9 @@ let arrayToListRev
     wasm {
         let! ri  = mut (sub len (i32Const 1))
         let! acc = mutTy s.BaseTy s.Nil
-        do! Wasm.while_ (geS ri.Val (i32Const 0)) (wasm {
+        while! (geS ri.Val (i32Const 0)) do
             do! acc.Set(s.Cons (getElem arr ri.Val) acc.Val)
-            return! ri.Set(sub ri.Val (i32Const 1))
-        })
+            do! ri.Set(sub ri.Val (i32Const 1))
         return acc.Val
     }
 
@@ -356,19 +350,15 @@ let insertionSortInPlace
         : WExpr =
     wasm {
         let! si = mut (i32Const 1)
-        return! Wasm.while_ (ltS si.Val len)
-            (wasm {
-                let! se = readElem arr si.Val
-                let! sj = mut (sub si.Val (i32Const 1))
-                do! Wasm.while_
-                        (wasmAnd (geS sj.Val (i32Const 0))
-                                 (gtS (cmp (readElem arr sj.Val) se) (i32Const 0))) (wasm {
-                    do! writeElem arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
-                    return! sj.Set(sub sj.Val (i32Const 1))
-                })
-                do! writeElem arr (add sj.Val (i32Const 1)) se
-                return! si.Set(add si.Val (i32Const 1))
-            })
+        while! (ltS si.Val len) do
+            let! se = readElem arr si.Val
+            let! sj = mut (sub si.Val (i32Const 1))
+            while! (wasmAnd (geS sj.Val (i32Const 0))
+                            (gtS (cmp (readElem arr sj.Val) se) (i32Const 0))) do
+                do! writeElem arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
+                do! sj.Set(sub sj.Val (i32Const 1))
+            do! writeElem arr (add sj.Val (i32Const 1)) se
+            do! si.Set(add si.Val (i32Const 1))
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,10 +456,9 @@ let arrayFold
         let! n = a.Len src
         let! acc = mutTy accTy initAcc
         let! i = mut (i32Const 0)
-        do! Wasm.while_ (ltS i.Val n) (wasm {
+        while! (ltS i.Val n) do
             do! acc.Set(folder acc.Val (a.Get(src, i.Val)))
-            return! i.Set(add i.Val (i32Const 1))
-        })
+            do! i.Set(add i.Val (i32Const 1))
         return acc.Val
     }
 
