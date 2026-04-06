@@ -14,6 +14,11 @@ open Fable.Transforms.WasmGc
 // Keyed by project file path; cleared when the last file has been processed.
 let private sharedCtxs = ConcurrentDictionary<string, WasmGcTypes.Ctx>()
 
+// Per-project lock objects — serialize processFileIntoCtx calls per project
+// so that all shared mutable Ctx fields (TypeDefs, Dictionaries, etc.) are
+// updated atomically without concurrent modification exceptions.
+let private compilationLocks = ConcurrentDictionary<string, obj>()
+
 // Per-project count of files processed.
 // Uses atomic AddOrUpdate; when count reaches com.SourceFiles.Length, emission happens.
 let private processedCounts = ConcurrentDictionary<string, int>()
@@ -109,21 +114,6 @@ let private runCmd (exe: string) (args: string) : bool =
 ///   outPath   — path for the .wasm output (stem is also used for .wat sidecar)
 let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath: string) =
     async {
-        // Get or create shared Ctx for this project.
-        let ctx =
-            match sharedCtxs.TryGetValue(projectFile) with
-            | true, existing -> existing
-            | _ ->
-                // Allow the host to opt into i16 string storage via an env var.
-                // Set WASMGC_STRING_MODE=i16 before invoking Fable to enable packed strings.
-                let stringMode =
-                    match System.Environment.GetEnvironmentVariable("WASMGC_STRING_MODE") with
-                    | "i16" -> WasmGcTypes.I16
-                    | _     -> WasmGcTypes.I32
-                let fresh = WasmGcTypes.Ctx.Create(com, stringMode)
-                sharedCtxs.[projectFile] <- fresh
-                fresh
-
         // Front-end: F# → Fable AST → Fable IR (language-agnostic transforms)
         let fableFile =
             FSharp2Fable.Compiler.transformFile com
@@ -141,10 +131,30 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             || System.IO.Path.GetFileName(currentFile) = "Interop.fs"
         let isLastFile = not isLibraryFile
 
-        let finalCtx = Fable2WasmGc.processFileIntoCtx ctx com fableFile isLastFile
-        // Write BEFORE incrementing count so that when the emitting file reads the ctx,
-        // all prior files' declarations are visible (ConcurrentDictionary provides the barrier).
-        sharedCtxs.[projectFile] <- finalCtx
+        // Serialize ALL Ctx mutations per-project — the shared Ctx contains many
+        // non-thread-safe mutable fields (TypeDefs ResizeArray, Dictionaries, etc.).
+        // The F# front-end (transformFile above) is thread-safe; only the WasmGC
+        // transform phase needs to be sequential.
+        let compilationMutex = compilationLocks.GetOrAdd(projectFile, fun _ -> obj())
+        let finalCtx =
+            lock compilationMutex (fun () ->
+                // Re-read the latest ctx inside the lock so each file sees all
+                // declarations accumulated by previously completed files.
+                let latestCtx =
+                    match sharedCtxs.TryGetValue(projectFile) with
+                    | true, c -> c
+                    | _ ->
+                        let stringMode =
+                            match System.Environment.GetEnvironmentVariable("WASMGC_STRING_MODE") with
+                            | "i16" -> WasmGcTypes.I16
+                            | _     -> WasmGcTypes.I32
+                        let fresh = WasmGcTypes.Ctx.Create(com, stringMode)
+                        sharedCtxs.[projectFile] <- fresh
+                        fresh
+                let ctx = Fable2WasmGc.processFileIntoCtx latestCtx com fableFile isLastFile
+                // Write BEFORE releasing lock so subsequent files see the update.
+                sharedCtxs.[projectFile] <- ctx
+                ctx)
 
         // Track the correct output path from the app (non-library) file.
         if not isLibraryFile then

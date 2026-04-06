@@ -29,6 +29,8 @@
     <Compile Include="Collections/Map.fs" />
     <!-- Set<'T> — stub; full implementation planned when generics land -->
     <Compile Include="Collections/Set.fs" />
+    <!-- List helpers: pairwise, distinct, distinctBy, countBy, groupBy (int-only) -->
+    <Compile Include="Collections/ListHelpers.fs" />
   </ItemGroup>
 
 </Project>
