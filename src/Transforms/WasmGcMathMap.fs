@@ -24,17 +24,16 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
     | "abs", [arg], WType.F64 -> WExpr.Unary(WUnaryOp.Abs, arg, WType.F64)
     | "abs", [arg], WType.F32 -> WExpr.Unary(WUnaryOp.Abs, arg, WType.F32)
     | "abs", [arg], WType.I32 ->
-        let tmp = "$abs_tmp"
-        WExpr.Let(tmp, arg,
-            WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 0)),
-                WExpr.Binary(WBinaryOp.Sub, WExpr.Const(WConst.I32 0), WExpr.LocalGet(tmp, WType.I32), WType.I32),
-                WExpr.LocalGet(tmp, WType.I32), WType.I32))
+        wasm {
+            let! tmp = arg
+            return wasmIf (ltS tmp (i32Const 0)) (sub (i32Const 0) tmp) tmp
+        }
     | "abs", [arg], WType.I64 ->
-        let tmp = "$abs_tmp"
-        WExpr.Let(tmp, arg,
-            WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(tmp, WType.I64), WExpr.Const(WConst.I64 0L)),
-                WExpr.Binary(WBinaryOp.Sub, WExpr.Const(WConst.I64 0L), WExpr.LocalGet(tmp, WType.I64), WType.I64),
-                WExpr.LocalGet(tmp, WType.I64), WType.I64))
+        wasm {
+            let! tmp = arg
+            return wasmIf (ltS tmp (i64Const 0L))
+                (WExpr.Binary(WBinaryOp.Sub, i64Const 0L, tmp, WType.I64)) tmp
+        }
     // sqrt
     | "sqrt", [arg], WType.F64 -> WExpr.Unary(WUnaryOp.Sqrt, arg, WType.F64)
     | "sqrt", [arg], WType.F32 -> WExpr.Unary(WUnaryOp.Sqrt, arg, WType.F32)
@@ -55,43 +54,29 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
     // min
     | "min", [a; b], WType.F64 -> WExpr.Binary(WBinaryOp.Min, a, b, WType.F64)
     | "min", [a; b], WType.F32 -> WExpr.Binary(WBinaryOp.Min, a, b, WType.F32)
-    | "min", [a; b], WType.I32 ->
-        let ta = "$min_a"
-        let tb = "$min_b"
-        WExpr.Let(ta, a, WExpr.Let(tb, b,
-            WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(ta, WType.I32), WExpr.LocalGet(tb, WType.I32)),
-                WExpr.LocalGet(ta, WType.I32), WExpr.LocalGet(tb, WType.I32), WType.I32)))
-    | "min", [a; b], WType.I64 ->
-        let ta = "$min_a"
-        let tb = "$min_b"
-        WExpr.Let(ta, a, WExpr.Let(tb, b,
-            WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(ta, WType.I64), WExpr.LocalGet(tb, WType.I64)),
-                WExpr.LocalGet(ta, WType.I64), WExpr.LocalGet(tb, WType.I64), WType.I64)))
+    | "min", [a; b], (WType.I32 | WType.I64) ->
+        wasm {
+            let! ta = a
+            let! tb = b
+            return wasmIf (ltS ta tb) ta tb
+        }
     // max
     | "max", [a; b], WType.F64 -> WExpr.Binary(WBinaryOp.Max, a, b, WType.F64)
     | "max", [a; b], WType.F32 -> WExpr.Binary(WBinaryOp.Max, a, b, WType.F32)
-    | "max", [a; b], WType.I32 ->
-        let ta = "$max_a"
-        let tb = "$max_b"
-        WExpr.Let(ta, a, WExpr.Let(tb, b,
-            WExpr.If(WExpr.Compare(WCompareOp.GtS, WExpr.LocalGet(ta, WType.I32), WExpr.LocalGet(tb, WType.I32)),
-                WExpr.LocalGet(ta, WType.I32), WExpr.LocalGet(tb, WType.I32), WType.I32)))
-    | "max", [a; b], WType.I64 ->
-        let ta = "$max_a"
-        let tb = "$max_b"
-        WExpr.Let(ta, a, WExpr.Let(tb, b,
-            WExpr.If(WExpr.Compare(WCompareOp.GtS, WExpr.LocalGet(ta, WType.I64), WExpr.LocalGet(tb, WType.I64)),
-                WExpr.LocalGet(ta, WType.I64), WExpr.LocalGet(tb, WType.I64), WType.I64)))
+    | "max", [a; b], (WType.I32 | WType.I64) ->
+        wasm {
+            let! ta = a
+            let! tb = b
+            return wasmIf (gtS ta tb) ta tb
+        }
     // sign
     | "sign", [arg], _ ->
-        let tmp = "$sign_tmp"
-        WExpr.Let(tmp, arg,
-            WExpr.If(WExpr.Compare(WCompareOp.GtS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 0)),
-                WExpr.Const(WConst.I32 1),
-                WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 0)),
-                    WExpr.Const(WConst.I32 (-1)),
-                    WExpr.Const(WConst.I32 0), WType.I32),
-                WType.I32))
+        wasm {
+            let! tmp = arg
+            return wasmIf (gtS tmp (i32Const 0))
+                (i32Const 1)
+                (wasmIf (ltS tmp (i32Const 0)) (i32Const (-1)) (i32Const 0))
+        }
     | _ ->
         eprintfn "[WasmGc] WARNING: unhandled Math call '%s' — emitting I32 0" name
         WExpr.Const(WConst.I32 0)
