@@ -31,10 +31,9 @@ let tryListTakeSkipSortInline
             Some(wasm {
                 let! n = mut wN
                 let! ptr = mutTy s.BaseTy wLst
-                do! Wasm.while_ (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) (wasm {
+                while! (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) do
                     do! ptr.Set(s.Tail ptr.Val)
-                    return! n.Set(sub n.Val (i32Const 1))
-                })
+                    do! n.Set(sub n.Val (i32Const 1))
                 return ptr.Val
             })
         | None -> None
@@ -52,11 +51,10 @@ let tryListTakeSkipSortInline
                     let! n   = mut wN
                     let! ptr = mutTy s.BaseTy wLst
                     let! acc = mutTy s.BaseTy s.Nil
-                    do! Wasm.while_ (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) (wasm {
+                    while! (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) do
                         do! acc.Set(s.Cons (s.Head ptr.Val) acc.Val)
                         do! ptr.Set(s.Tail ptr.Val)
-                        return! n.Set(sub n.Val (i32Const 1))
-                    })
+                        do! n.Set(sub n.Val (i32Const 1))
                     return acc.Val
                 }
             // Phase 2: reverse
@@ -99,7 +97,7 @@ let tryListTakeSkipSortInline
             // Insertion sort on key array
             let sortPhase = wasm {
                 let! si = mut (i32Const 1)
-                return! Wasm.while_ (ltS si.Val len) (wasm {
+                while! (ltS si.Val len) do
                     let! se = arrayGet arr si.Val elemT
                     let! sk = arrayGet keyArr si.Val keyT
                     let! sj = mut (sub si.Val (i32Const 1))
@@ -108,15 +106,13 @@ let tryListTakeSkipSortInline
                             (WExpr.Compare(
                                 (if descending then WCompareOp.LtS else WCompareOp.GtS),
                                 arrayGet keyArr sj.Val keyT, sk))
-                    do! Wasm.while_ jCond (wasm {
+                    while! jCond do
                         do! arraySet arr (add sj.Val (i32Const 1)) (arrayGet arr sj.Val elemT)
                         do! arraySet keyArr (add sj.Val (i32Const 1)) (arrayGet keyArr sj.Val keyT)
-                        return! sj.Set(sub sj.Val (i32Const 1))
-                    })
+                        do! sj.Set(sub sj.Val (i32Const 1))
                     do! arraySet arr (add sj.Val (i32Const 1)) se
                     do! arraySet keyArr (add sj.Val (i32Const 1)) sk
-                    return! si.Set(add si.Val (i32Const 1))
-                })
+                    do! si.Set(add si.Val (i32Const 1))
             }
             // Rebuild list from array (reverse order)
             let rebuildPhase = arrayToListRev gen s arr len (fun a i -> arrayGet a i elemT)
@@ -162,27 +158,24 @@ let tryListTakeSkipSortInline
                     | _ -> WExpr.Compare(ltOp, se, readElem arr sj)
                 let sortPhase = wasm {
                     let! si = mut (i32Const 1)
-                    return! Wasm.while_ (ltS si.Val len) (wasm {
+                    while! (ltS si.Val len) do
                         let! se = readElem arr si.Val
                         let! sj = mut (sub si.Val (i32Const 1))
                         let jCond =
                             wasmAnd (geS sj.Val (i32Const 0)) (cmpSeArrJ se sj.Val)
-                        do! Wasm.while_ jCond (wasm {
+                        while! jCond do
                             do! arraySet arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
-                            return! sj.Set(sub sj.Val (i32Const 1))
-                        })
+                            do! sj.Set(sub sj.Val (i32Const 1))
                         do! arraySet arr (add sj.Val (i32Const 1)) se
-                        return! si.Set(add si.Val (i32Const 1))
-                    })
+                        do! si.Set(add si.Val (i32Const 1))
                 }
                 // Rebuild list
                 let rebuildPhase = wasm {
                     let! ri  = mut (sub len (i32Const 1))
                     let! acc = mutTy s.BaseTy s.Nil
-                    do! Wasm.while_ (geS ri.Val (i32Const 0)) (wasm {
+                    while! (geS ri.Val (i32Const 0)) do
                         do! acc.Set(s.Cons (readElem arr ri.Val) acc.Val)
-                        return! ri.Set(sub ri.Val (i32Const 1))
-                    })
+                        do! ri.Set(sub ri.Val (i32Const 1))
                     return acc.Val
                 }
                 do! fillPhase
@@ -235,28 +228,25 @@ let tryListTakeSkipSortInline
             // Sort
             let sortPhase = wasm {
                 let! si = mut (i32Const 1)
-                return! Wasm.while_ (ltS si.Val len) (wasm {
+                while! (ltS si.Val len) do
                     let! e  = readElem arr si.Val
                     let! sj = mut (sub si.Val (i32Const 1))
                     let jCond =
                         wasmAnd (geS sj.Val (i32Const 0))
                             (gtS (inlineCmp (readElem arr sj.Val) e) (i32Const 0))
-                    do! Wasm.while_ jCond (wasm {
+                    while! jCond do
                         do! arraySet arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
-                        return! sj.Set(sub sj.Val (i32Const 1))
-                    })
+                        do! sj.Set(sub sj.Val (i32Const 1))
                     do! arraySet arr (add sj.Val (i32Const 1)) e
-                    return! si.Set(add si.Val (i32Const 1))
-                })
+                    do! si.Set(add si.Val (i32Const 1))
             }
             // Rebuild
             let rebuildPhase = wasm {
                 let! ri  = mut (sub len (i32Const 1))
                 let! acc = mutTy s.BaseTy s.Nil
-                do! Wasm.while_ (geS ri.Val (i32Const 0)) (wasm {
+                while! (geS ri.Val (i32Const 0)) do
                     do! acc.Set(s.Cons (readElem arr ri.Val) acc.Val)
-                    return! ri.Set(sub ri.Val (i32Const 1))
-                })
+                    do! ri.Set(sub ri.Val (i32Const 1))
                 return acc.Val
             }
             do! fillPhase
@@ -322,13 +312,12 @@ let tryListTakeSkipSortInline
                 let! xp  = mutTy sX.BaseTy wXs
                 let! yp  = mutTy sY.BaseTy wYs
                 let! acc = mutTy sOut.BaseTy sOut.Nil
-                do! Wasm.while_ (wasmAnd (refIsNotNull xp.Val) (refIsNotNull yp.Val)) (wasm {
+                while! (wasmAnd (refIsNotNull xp.Val) (refIsNotNull yp.Val)) do
                     do! acc.Set(sOut.Cons
                         (structNew tupleIdx [sX.Head xp.Val; sY.Head yp.Val] tupleRefT)
                         acc.Val)
                     do! xp.Set(sX.Tail xp.Val)
-                    return! yp.Set(sY.Tail yp.Val)
-                })
+                    do! yp.Set(sY.Tail yp.Val)
                 return! listRev gen sOut acc.Val
             })
         | _ -> None
@@ -361,14 +350,13 @@ let tryListTakeSkipSortInline
                 let! xp  = mutTy sX.BaseTy wXs
                 let! yp  = mutTy sY.BaseTy wYs
                 let! acc = mutTy sOut.BaseTy sOut.Nil
-                do! Wasm.while_ (wasmAnd (refIsNotNull xp.Val) (refIsNotNull yp.Val)) (wasm {
+                while! (wasmAnd (refIsNotNull xp.Val) (refIsNotNull yp.Val)) do
                     do! acc.Set(sOut.Cons
                         (WExpr.Let(farg1.Name, sX.Head xp.Val,
                             WExpr.Let(farg2.Name, sY.Head yp.Val, wBody)))
                         acc.Val)
                     do! xp.Set(sX.Tail xp.Val)
-                    return! yp.Set(sY.Tail yp.Val)
-                })
+                    do! yp.Set(sY.Tail yp.Val)
                 return! listRev gen sOut acc.Val
             })
         | _ -> None
@@ -490,10 +478,9 @@ let tryListPrimitiveInline
             Some(wasm {
                 let! cnt = mut nExpr
                 let! ptr = mutTy s.BaseTy wList
-                do! Wasm.while_ (gtS cnt.Val (i32Const 0)) (wasm {
+                while! (gtS cnt.Val (i32Const 0)) do
                     do! ptr.Set(s.Tail ptr.Val)
-                    return! cnt.Set(sub cnt.Val (i32Const 1))
-                })
+                    do! cnt.Set(sub cnt.Val (i32Const 1))
                 return s.Head ptr.Val
             })
         | _ -> None
@@ -570,10 +557,9 @@ let tryListPrimitiveInline
                 let! nn  = s.CastNN lst
                 let! v   = mutTy elemT (structGet nn 0 elemT)
                 let! ptr = mutTy s.BaseTy (structGet nn 1 s.BaseTy)
-                do! Wasm.while_ (refIsNotNull ptr.Val) (wasm {
+                while! (refIsNotNull ptr.Val) do
                     do! v.Set(s.Head ptr.Val)
-                    return! ptr.Set(s.Tail ptr.Val)
-                })
+                    do! ptr.Set(s.Tail ptr.Val)
                 return v.Val
             })
         | _ -> None

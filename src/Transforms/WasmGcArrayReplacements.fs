@@ -146,10 +146,9 @@ let tryArrayInline
                 Some(wasm {
                     let! lim = add wStart wCount
                     let! i = mut wStart
-                    return! Wasm.while_ (ltS i.Val lim) (wasm {
+                    while! (ltS i.Val lim) do
                         do! arraySet wArr i.Val wVal
-                        return! i.Set(add i.Val (i32Const 1))
-                    })
+                        do! i.Set(add i.Val (i32Const 1))
                 })
             | _ -> None
     // Array.iter / iterate
@@ -388,11 +387,10 @@ let tryArrayInline
                     let! len = arrayLen src
                     let! acc = mutTy elemT (arrayGet src (i32Const 0) elemT)
                     let! i = mut (i32Const 1)
-                    do! Wasm.while_ (ltS i.Val len) (wasm {
+                    while! (ltS i.Val len) do
                         do! acc.Set(WExpr.Let(farg1.Name, acc.Val,
                                 WExpr.Let(farg2.Name, arrayGet src i.Val elemT, wBody)))
-                        return! i.Set(add i.Val (i32Const 1))
-                    })
+                        do! i.Set(add i.Val (i32Const 1))
                     return acc.Val
                 })
             | None -> None
@@ -439,11 +437,10 @@ let tryArrayInline
                     let! len = arrayLen src
                     let! acc = mutTy elemT (arrayGet src (i32Const 0) elemT)
                     let! i = mut (i32Const 1)
-                    do! Wasm.while_ (ltS i.Val len) (wasm {
+                    while! (ltS i.Val len) do
                         let! e = arrayGet src i.Val elemT
                         do! acc.Set(updateAcc acc.Val e)
-                        return! i.Set(add i.Val (i32Const 1))
-                    })
+                        do! i.Set(add i.Val (i32Const 1))
                     return acc.Val
                 })
             | None -> None
@@ -1040,11 +1037,10 @@ let tryArrayInstanceCall
                     let! len = arrayLen src
                     let! acc = mutTy elemT (arrayGet src (i32Const 0) elemT)
                     let! i = mut (i32Const 1)
-                    do! Wasm.while_ (ltS i.Val len) (wasm {
+                    while! (ltS i.Val len) do
                         do! acc.Set(WExpr.Let(farg1.Name, acc.Val,
                                 WExpr.Let(farg2.Name, arrayGet src i.Val elemT, wBody)))
-                        return! i.Set(add i.Val (i32Const 1))
-                    })
+                        do! i.Set(add i.Val (i32Const 1))
                     return acc.Val
                 })
             | None -> None

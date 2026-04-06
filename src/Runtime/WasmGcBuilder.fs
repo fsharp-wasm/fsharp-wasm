@@ -68,9 +68,8 @@ let inline (<==) (v: WVar) (expr: WExpr) = v.Set(expr)
 ///   wasm {
 ///       let! i = mut (i32Const 0)             // mutable i32
 ///       let! p = mutTy s.BaseTy wList         // mutable with explicit type
-///       do! Wasm.while_ (cond) (wasm {
+///       while! (cond) do
 ///           do! i.Set(add i.Val (i32Const 1))
-///       })
 ///       return i.Val
 ///   }
 [<Struct>]
@@ -99,6 +98,15 @@ let mutTy (ty: WType) (init: WExpr) : MutInit = { Init = init; Ty = ty }
 /// Use `v.Val` to read, `v.Set(newVal)` to assign.
 ///
 /// `do! e` sequences a void-typed expression without naming its result.
+///
+/// `while! guard do body` constructs a loop with a WExpr condition.
+/// This uses the `Bind(WExpr, bool -> WExpr)` overload to capture the guard,
+/// paired with the `While` method to emit Block/Loop/If/Break/Continue.
+/// No more nested `wasm { ... return! last }` blocks required.
+
+/// Internal stack for while! guard expressions (module-level for struct-safe access).
+let private _whileBangGuards = System.Collections.Generic.Stack<WExpr>()
+
 type WasmBuilder() =
 
     /// `let! x = e in k x` — introduce a binding.
@@ -133,9 +141,41 @@ type WasmBuilder() =
         | WExpr.Nop -> expr
         | _ -> WExpr.Sequence [expr; body]
 
+    /// `while! guard do body` — loop with a WExpr condition.
+    /// F# desugars `while! e do body` as `Bind(e, fun v -> While(fun () -> v, body))`.
+    /// We capture the guard in a stack and reconstruct it in `While`.
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
+    member _.Bind(guard: WExpr, k: bool -> WExpr) : WExpr =
+        _whileBangGuards.Push(guard)
+        k true
+
+    /// While — paired with `Bind(WExpr, bool -> WExpr)` for `while!`.
+    /// Pops the WExpr guard from the stack and constructs Block/Loop/If.
+    member _.While(guard: unit -> bool, body: WExpr) : WExpr =
+        if _whileBangGuards.Count > 0 then
+            let g = _whileBangGuards.Pop()
+            let loopLbl = freshName ()
+            let exitLbl = loopLbl + "_exit"
+            WExpr.Block(exitLbl,
+                WExpr.Loop(loopLbl,
+                    WExpr.If(g,
+                        WExpr.Sequence [body; WExpr.Continue(loopLbl, [])],
+                        WExpr.Break(exitLbl, None),
+                        WType.Void),
+                    WType.Void),
+                WType.Void)
+        else
+            body
+
     /// `return e` — wrap a value.
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
     member _.Return(expr: WExpr) = expr
+
+    /// `return ()` / implicit return from `do!` — produces Nop.
+    /// F# desugars `do! e` as `Bind(e, fun () -> Return(()))`.
+    /// Without this overload, `do!` inside `while!` bodies fails with FS0001.
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
+    member _.Return(_: unit) = WExpr.Nop
 
     /// `return! e` — return an already-built WExpr directly.
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
@@ -510,7 +550,8 @@ module WArray =
 module Wasm =
 
     /// While loop — auto-generates labels.
-    ///   Wasm.while_ (cond) body
+    /// Prefer `while! cond do ... ` inside `wasm { }` blocks.
+    /// This helper remains for use in non-CE contexts or as callback bodies.
     let while_ (cond: WExpr) (body: WExpr) : WExpr =
         let lbl = freshName ()
         whileLoop lbl cond body
