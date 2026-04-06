@@ -31,6 +31,10 @@
     <Compile Include="Collections/Set.fs" />
     <!-- List helpers: pairwise, distinct, distinctBy, countBy, groupBy (int-only) -->
     <Compile Include="Collections/ListHelpers.fs" />
+
+    <!-- ── Tier 3: Math helpers ─────────────────────────────────────────────── -->
+    <!-- Software math: powi, powf, clamp; future: sin, cos, log, exp -->
+    <Compile Include="Math/MathHelpers.fs" />
   </ItemGroup>
 
 </Project>
