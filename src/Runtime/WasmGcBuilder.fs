@@ -53,6 +53,11 @@ type WVar = { Name: string; Ty: WType }
         /// Assign the result of a function applied to the current value.
         member v.Update(f: WExpr -> WExpr) = WExpr.Assign(v.Name, f (WExpr.LocalGet(v.Name, v.Ty)))
 
+/// Mutation shorthand: `v <== expr` is equivalent to `v.Set(expr)`.
+/// Use with `do!` inside a `wasm { }` block:
+///   do! acc <== folder acc.Val elem
+let inline (<==) (v: WVar) (expr: WExpr) = v.Set(expr)
+
 // ─────────────────────────────────────────────────────────────────
 // MutInit — mutable binding marker for the CE
 // ─────────────────────────────────────────────────────────────────
