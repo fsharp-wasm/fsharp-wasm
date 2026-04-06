@@ -118,12 +118,12 @@ let tryArrayInline
                 let arrRef = WType.Ref(arrTypeIdx, false)
                 let wSrc = List.head wArgs
                 let gen = LabelGen("acpy")
-                Some(letVal gen "src" arrRef wSrc (fun src ->
-                    letVal gen "dst" arrRef (arrayNew arrTypeIdx (arrayLen src) (makeZero elemT) arrRef) (fun dst ->
-                        sequence [
-                            arrayCopy dst (i32Const 0) src (i32Const 0) (arrayLen src)
-                            dst
-                        ])))
+                Some(wasm {
+                    let! src = wSrc
+                    let! dst = arrayNew arrTypeIdx (arrayLen src) (makeZero elemT) arrRef
+                    do! arrayCopy dst (i32Const 0) src (i32Const 0) (arrayLen src)
+                    return dst
+                })
             | None -> None
         | _ -> None
     // Array.fill
@@ -143,13 +143,14 @@ let tryArrayInline
             | [arrArg; _; _; _], [wArr; wStart; wCount; wVal]
                   when getArrElemT arrArg.Type |> Option.isSome ->
                 let gen = LabelGen("fill")
-                Some(letVal gen "lim" WType.I32 (add wStart wCount) (fun lim ->
-                    letMut gen "i" WType.I32 wStart (fun i setI ->
-                        whileLoop (gen.Next("lp")) (ltS i lim)
-                            (sequence [
-                                arraySet wArr i wVal
-                                setI (add i (i32Const 1))
-                            ]))))
+                Some(wasm {
+                    let! lim = add wStart wCount
+                    let! i = mut wStart
+                    return! Wasm.while_ (ltS i.Val lim) (wasm {
+                        do! arraySet wArr i.Val wVal
+                        return! i.Set(add i.Val (i32Const 1))
+                    })
+                })
             | _ -> None
     // Array.iter / iterate
     | ("iter" | "iterate") ->
@@ -360,15 +361,13 @@ let tryArrayInline
             let gen = LabelGen("ainit")
             let ctx' = ctx.WithLocal(farg.Name, WType.I32)
             let wBody = transform ctx' fbody
-            Some(letVal gen "res" resultArrRefT
-                (arrayNew resultArrIdx wLen (makeZero resultElemT) resultArrRefT)
-                (fun res ->
-                    sequence [
-                        indexedLoop gen (arrayLen res) (fun idx ->
-                            WExpr.Let(farg.Name, idx,
-                                arraySet res idx wBody))
-                        res
-                    ]))
+            Some(wasm {
+                let! res = arrayNew resultArrIdx wLen (makeZero resultElemT) resultArrRefT
+                do! Wasm.for_ (arrayLen res) (fun idx ->
+                        WExpr.Let(farg.Name, idx,
+                            arraySet res idx wBody))
+                return res
+            })
         | None -> None
     // ── Array.reduce f arr — fold from first element as accumulator ──
     | "reduce" | "reduceBack" ->
@@ -384,19 +383,18 @@ let tryArrayInline
                 let gen        = LabelGen("ared")
                 let ctx'       = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
                 let wBody      = transform ctx' fbody
-                Some(letVal gen "arr" arrRefT wArr (fun src ->
-                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
-                    letMut gen "acc" elemT (arrayGet src (i32Const 0) elemT) (fun acc setAcc ->
-                    letMut gen "i" WType.I32 (i32Const 1) (fun i setI ->
-                        sequence [
-                            whileLoop (gen.Next("lp")) (ltS i len)
-                                (sequence [
-                                    setAcc (WExpr.Let(farg1.Name, acc,
-                                        WExpr.Let(farg2.Name, arrayGet src i elemT, wBody)))
-                                    setI (add i (i32Const 1))
-                                ])
-                            acc
-                        ])))))
+                Some(wasm {
+                    let! src = wArr
+                    let! len = arrayLen src
+                    let! acc = mutTy elemT (arrayGet src (i32Const 0) elemT)
+                    let! i = mut (i32Const 1)
+                    do! Wasm.while_ (ltS i.Val len) (wasm {
+                        do! acc.Set(WExpr.Let(farg1.Name, acc.Val,
+                                WExpr.Let(farg2.Name, arrayGet src i.Val elemT, wBody)))
+                        return! i.Set(add i.Val (i32Const 1))
+                    })
+                    return acc.Val
+                })
             | None -> None
         | _ -> None
     // ── Array.sum arr — fold with additive zero ──
@@ -436,19 +434,18 @@ let tryArrayInline
                         WExpr.Binary(bop, acc, eVar, elemT)
                     | _ ->
                         WExpr.If(WExpr.Compare(cmpOp, eVar, acc), eVar, acc, elemT)
-                Some(letVal gen "arr" arrRefT wArr (fun src ->
-                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
-                    letMut gen "acc" elemT (arrayGet src (i32Const 0) elemT) (fun acc setAcc ->
-                    letMut gen "i" WType.I32 (i32Const 1) (fun i setI ->
-                        sequence [
-                            whileLoop (gen.Next("lp")) (ltS i len)
-                                (sequence [
-                                    letVal gen "e" elemT (arrayGet src i elemT) (fun e ->
-                                        setAcc (updateAcc acc e))
-                                    setI (add i (i32Const 1))
-                                ])
-                            acc
-                        ])))))
+                Some(wasm {
+                    let! src = wArr
+                    let! len = arrayLen src
+                    let! acc = mutTy elemT (arrayGet src (i32Const 0) elemT)
+                    let! i = mut (i32Const 1)
+                    do! Wasm.while_ (ltS i.Val len) (wasm {
+                        let! e = arrayGet src i.Val elemT
+                        do! acc.Set(updateAcc acc.Val e)
+                        return! i.Set(add i.Val (i32Const 1))
+                    })
+                    return acc.Val
+                })
             | None -> None
         | None -> None
     // ── Array.rev arr — new array with elements in reverse order ──
@@ -463,14 +460,14 @@ let tryArrayInline
                 let arrRefT    = WType.Ref(arrTypeIdx, false)
                 let wArr       = transform ctx arrArg
                 let gen        = LabelGen("arv")
-                Some(letVal gen "src" arrRefT wArr (fun src ->
-                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
-                    letVal gen "res" arrRefT (arrayNew arrTypeIdx len (makeZero elemT) arrRefT) (fun res ->
-                        sequence [
-                            indexedLoop gen len (fun i ->
-                                arraySet res i (arrayGet src (sub (sub len (i32Const 1)) i) elemT))
-                            res
-                        ]))))
+                Some(wasm {
+                    let! src = wArr
+                    let! len = arrayLen src
+                    let! res = arrayNew arrTypeIdx len (makeZero elemT) arrRefT
+                    do! Wasm.for_ len (fun i ->
+                            arraySet res i (arrayGet src (sub (sub len (i32Const 1)) i) elemT))
+                    return res
+                })
             | None -> None
         | None -> None
     // ── Array.zip arr1 arr2 — parallel arrays → array of pairs ──
@@ -509,17 +506,17 @@ let tryArrayInline
                 let gen = LabelGen("azip")
                 let a1ArrIdx = getOrAddArrayType ctx e1T
                 let a2ArrIdx = getOrAddArrayType ctx e2T
-                Some(letVal gen "a1" (WType.Ref(a1ArrIdx, false)) wArr1 (fun a1 ->
-                    letVal gen "a2" (WType.Ref(a2ArrIdx, false)) wArr2 (fun a2 ->
-                    letVal gen "res" resArrRefT (arrayNew resArrIdx (arrayLen a1) tupleDefault resArrRefT) (fun res ->
-                        sequence [
-                            indexedLoop gen (arrayLen a1) (fun idx ->
-                                arraySet res idx
-                                    (structNew tupleIdx
-                                        [arrayGet a1 idx e1T; arrayGet a2 idx e2T]
-                                        tupleRefT))
-                            res
-                        ]))))
+                Some(wasm {
+                    let! a1 = wArr1
+                    let! a2 = wArr2
+                    let! res = arrayNew resArrIdx (arrayLen a1) tupleDefault resArrRefT
+                    do! Wasm.for_ (arrayLen a1) (fun idx ->
+                            arraySet res idx
+                                (structNew tupleIdx
+                                    [arrayGet a1 idx e1T; arrayGet a2 idx e2T]
+                                    tupleRefT))
+                    return res
+                })
             | _ -> None
         | _ -> None
     // ── Array.unzip arr — array of pairs → two arrays ─────────────────────
@@ -556,19 +553,18 @@ let tryArrayInline
                         | WType.F64 -> WExpr.Const(WConst.F64 0.0)
                         | WType.Ref(i, _) -> WExpr.Const(WConst.Null(WType.Ref(i, true)))
                         | _ -> i32Const 0
-                    Some(letVal gen "src" pairArrRefT wArr (fun src ->
-                        letVal gen "n" WType.I32 (arrayLen src) (fun n ->
-                        letVal gen "a" aArrRefT (arrayNew aArrIdx n (makeZeroFor aT) aArrRefT) (fun aArr ->
-                        letVal gen "b" bArrRefT (arrayNew bArrIdx n (makeZeroFor bT) bArrRefT) (fun bArr ->
-                            sequence [
-                                indexedLoop gen n (fun idx ->
-                                    letVal gen "p" pairT (arrayGet src idx pairT) (fun p ->
-                                        sequence [
-                                            arraySet aArr idx (structGet p 0 aT)
-                                            arraySet bArr idx (structGet p 1 bT)
-                                        ]))
-                                structNew resultTupleIdx [aArr; bArr] resultTupleRefT
-                            ])))))
+                    Some(wasm {
+                        let! src = wArr
+                        let! n = arrayLen src
+                        let! aArr = arrayNew aArrIdx n (makeZeroFor aT) aArrRefT
+                        let! bArr = arrayNew bArrIdx n (makeZeroFor bT) bArrRefT
+                        do! Wasm.for_ n (fun idx -> wasm {
+                            let! p = arrayGet src idx pairT
+                            do! arraySet aArr idx (structGet p 0 aT)
+                            return! arraySet bArr idx (structGet p 1 bT)
+                        })
+                        return structNew resultTupleIdx [aArr; bArr] resultTupleRefT
+                    })
                 | _ -> None
             | _ -> None
         | _ -> None
@@ -600,18 +596,18 @@ let tryArrayInline
                 let wArr2 = transform ctx arr2Arg
                 let wBody = transform ctx fbody
                 let gen = LabelGen("am2")
-                Some(letVal gen "a1" (WType.Ref(arr1ArrIdx, false)) wArr1 (fun a1 ->
-                    letVal gen "a2" (WType.Ref(arr2ArrIdx, false)) wArr2 (fun a2 ->
-                    letVal gen "n" WType.I32 (arrayLen a1) (fun n ->
-                    letVal gen "res" resArrRefT (arrayNew resArrIdx n (makeNumericZero resultET) resArrRefT) (fun res ->
-                        sequence [
-                            indexedLoop gen n (fun idx ->
-                                arraySet res idx
-                                    (WExpr.Let(farg1.Name, arrayGet a1 idx e1T,
-                                        WExpr.Let(farg2.Name, arrayGet a2 idx e2T,
-                                            wBody))))
-                            res
-                        ])))))
+                Some(wasm {
+                    let! a1 = wArr1
+                    let! a2 = wArr2
+                    let! n = arrayLen a1
+                    let! res = arrayNew resArrIdx n (makeNumericZero resultET) resArrRefT
+                    do! Wasm.for_ n (fun idx ->
+                            arraySet res idx
+                                (WExpr.Let(farg1.Name, arrayGet a1 idx e1T,
+                                    WExpr.Let(farg2.Name, arrayGet a2 idx e2T,
+                                        wBody))))
+                    return res
+                })
             | _ -> None
         | _ -> None
     // ── Array.sortWith cmp arr — insertion sort with inline comparator ──
@@ -664,14 +660,14 @@ let tryArrayInline
                 WExpr.Let(farg2.Name, bExpr,
                     wCmp))
         let gen = LabelGen("asw")
-        Some(letVal gen "src" arrRefT wArr (fun src ->
-            letVal gen "len" WType.I32 (arrayLen src) (fun len ->
-            letVal gen "res" arrRefT (arrayNew arrTypeIdx len arrDefault arrRefT) (fun res ->
-                sequence [
-                    arrayCopy res (i32Const 0) src (i32Const 0) len
-                    insertionSortInPlace gen res len elemT readElem writeElem inlineCmp
-                    res
-                ]))))
+        Some(wasm {
+            let! src = wArr
+            let! len = arrayLen src
+            let! res = arrayNew arrTypeIdx len arrDefault arrRefT
+            do! arrayCopy res (i32Const 0) src (i32Const 0) len
+            do! insertionSortInPlace gen res len elemT readElem writeElem inlineCmp
+            return res
+        })
     // ── Array.sort — insertion sort into a fresh copy ──
     | "sort" | "sortDescending" | "sortBy" ->
         let arrArgOpt = fableArgs |> List.tryFind (fun a -> getArrElemT a.Type |> Option.isSome)
@@ -693,14 +689,14 @@ let tryArrayInline
                         i32Const -1,
                         WExpr.If(WExpr.Compare(WCompareOp.Eq, a, b), i32Const 0, i32Const 1, WType.I32),
                         WType.I32)
-                Some(letVal gen "src" arrRefT wArr (fun src ->
-                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
-                    letVal gen "res" arrRefT (arrayNew arrTypeIdx len (makeZero elemT) arrRefT) (fun res ->
-                        sequence [
-                            arrayCopy res (i32Const 0) src (i32Const 0) len
-                            insertionSortInPlace gen res len elemT readElem writeElem cmpFn
-                            res
-                        ]))))
+                Some(wasm {
+                    let! src = wArr
+                    let! len = arrayLen src
+                    let! res = arrayNew arrTypeIdx len (makeZero elemT) arrRefT
+                    do! arrayCopy res (i32Const 0) src (i32Const 0) len
+                    do! insertionSortInPlace gen res len elemT readElem writeElem cmpFn
+                    return res
+                })
             | None -> None
         | None -> None
     // ── Array.findIndex pred arr — first index where pred holds, -1 if none ──
@@ -738,9 +734,11 @@ let tryArrayInline
                 let gen        = LabelGen("acont")
                 let wArr       = transform ctx arrArg
                 let wNeedle    = transform ctx needle
-                Some(letVal gen "needle" elemT wNeedle (fun needle ->
-                    arrayExists gen a wArr
-                        (fun elem -> eq elem needle)))
+                Some(wasm {
+                    let! needle = wNeedle
+                    return! arrayExists gen a wArr
+                        (fun elem -> eq elem needle)
+                })
             | None -> None
         | None -> None
     // ── Array.scan f init arr — fold storing all intermediate accumulators ─────
@@ -763,23 +761,19 @@ let tryArrayInline
                 let gen = LabelGen("scan")
                 let ctx'  = ctx.WithLocal(farg1.Name, accT).WithLocal(farg2.Name, elemT)
                 let wBody = transform ctx' fbody
-                Some(letVal gen "src" srcRefT wArr (fun src ->
-                    letVal gen "res" accArrRefT
-                        (arrayNew accArrIdx (add (arrayLen src) (i32Const 1)) (makeZero accT) accArrRefT)
-                        (fun res ->
-                    letMut gen "acc" accT wInit (fun acc setAcc ->
-                        sequence [
-                            arraySet res (i32Const 0) acc
-                            arrayIteri gen srcA src (fun idx elem ->
-                                let step = WExpr.Let(farg1.Name, acc,
-                                            WExpr.Let(farg2.Name, elem,
-                                                sequence [
-                                                    setAcc wBody
-                                                    arraySet res (add idx (i32Const 1)) acc
-                                                ]))
-                                step)
-                            res
-                        ]))))
+                Some(wasm {
+                    let! src = wArr
+                    let! res = arrayNew accArrIdx (add (arrayLen src) (i32Const 1)) (makeZero accT) accArrRefT
+                    let! acc = mutTy accT wInit
+                    do! arraySet res (i32Const 0) acc.Val
+                    do! arrayIteri gen srcA src (fun idx elem ->
+                            WExpr.Let(farg1.Name, acc.Val,
+                                WExpr.Let(farg2.Name, elem, wasm {
+                                    do! acc.Set(wBody)
+                                    return! arraySet res (add idx (i32Const 1)) acc.Val
+                                })))
+                    return res
+                })
             | None -> None
         | _ -> None
     // ── Array.toList arr — convert GC array to linked list (right-to-left cons) ──
@@ -797,9 +791,11 @@ let tryArrayInline
             let gen    = LabelGen("atl")
             let wArr   = transform ctx arrArg
             let arrRefT = mapTypeKnown ctx arrArg.Type
-            Some(letVal gen "arr" arrRefT wArr (fun a ->
-                arrayToListRev gen s a (arrayLen a)
-                    (fun ar i -> arrayGet ar i elemT)))
+            Some(wasm {
+                let! a = wArr
+                return! arrayToListRev gen s a (arrayLen a)
+                    (fun ar i -> arrayGet ar i elemT)
+            })
     // ── Array.append arr1 arr2 — new array = arr1 ++ arr2 ────────────────────
     | "append" ->
         match fableArgs with
@@ -813,17 +809,15 @@ let tryArrayInline
                 let wArr1 = transform ctx arrArg1
                 let wArr2 = transform ctx arrArg2
                 let gen = LabelGen("app")
-                Some(letVal gen "a1" arrRefT wArr1 (fun a1 ->
-                    letVal gen "a2" arrRefT wArr2 (fun a2 ->
-                    letVal gen "l1" WType.I32 (arrayLen a1) (fun l1 ->
-                    letVal gen "res" arrRefT
-                        (arrayNew arrTypeIdx (add l1 (arrayLen a2)) (makeZero elemT) arrRefT)
-                        (fun res ->
-                            sequence [
-                                arrayCopy res (i32Const 0) a1 (i32Const 0) l1
-                                arrayCopy res l1 a2 (i32Const 0) (arrayLen a2)
-                                res
-                            ])))))
+                Some(wasm {
+                    let! a1 = wArr1
+                    let! a2 = wArr2
+                    let! l1 = arrayLen a1
+                    let! res = arrayNew arrTypeIdx (add l1 (arrayLen a2)) (makeZero elemT) arrRefT
+                    do! arrayCopy res (i32Const 0) a1 (i32Const 0) l1
+                    do! arrayCopy res l1 a2 (i32Const 0) (arrayLen a2)
+                    return res
+                })
             | None -> None
         | _ -> None
     // ── Array.choose f arr — apply f, keep Some values, unwrap ──────────────
@@ -863,33 +857,37 @@ let tryArrayInline
             let gen        = LabelGen("acho")
             // Pass 1: count Somes
             let countExpr src =
-                letMut gen "cnt" WType.I32 (i32Const 0) (fun cnt setCnt ->
-                    sequence [
-                        indexedLoop gen (arrayLen src) (fun i ->
-                            WExpr.Let(farg.Name, arrayGet src i inElemT,
-                                letVal gen "opt" optNullT wBody (fun opt ->
-                                    wasmWhen (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull opt, WType.I32))
-                                        (setCnt (add cnt (i32Const 1))))))
-                        cnt
-                    ])
+                wasm {
+                    let! cnt = mut (i32Const 0)
+                    do! Wasm.for_ (arrayLen src) (fun i ->
+                            WExpr.Let(farg.Name, arrayGet src i inElemT, wasm {
+                                let! opt = wBody
+                                return! wasmWhen (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull opt, WType.I32))
+                                    (cnt.Set(add cnt.Val (i32Const 1)))
+                            }))
+                    return cnt.Val
+                }
             // Pass 2: fill result
             let fillExpr src res =
-                letMut gen "wi" WType.I32 (i32Const 0) (fun wi setWi ->
-                    sequence [
-                        indexedLoop gen (arrayLen src) (fun i ->
-                            WExpr.Let(farg.Name, arrayGet src i inElemT,
-                                letVal gen "opt2" optNullT wBody (fun opt ->
-                                    wasmWhen (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull opt, WType.I32))
-                                        (sequence [
-                                            arraySet res wi (structGet (cast opt optNonNull) 0 outElemT)
-                                            setWi (add wi (i32Const 1))
-                                        ]))))
-                        res
-                    ])
-            Some(letVal gen "src" inArrRefT wArr (fun src ->
-                letVal gen "count" WType.I32 (countExpr src) (fun count ->
-                letVal gen "res" outArrRefT (arrayNew outArrIdx count (makeZero outElemT) outArrRefT) (fun res ->
-                    fillExpr src res))))
+                wasm {
+                    let! wi = mut (i32Const 0)
+                    do! Wasm.for_ (arrayLen src) (fun i ->
+                            WExpr.Let(farg.Name, arrayGet src i inElemT, wasm {
+                                let! opt = wBody
+                                return! wasmWhen (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull opt, WType.I32))
+                                    (wasm {
+                                        do! arraySet res wi.Val (structGet (cast opt optNonNull) 0 outElemT)
+                                        return! wi.Set(add wi.Val (i32Const 1))
+                                    })
+                            }))
+                    return res
+                }
+            Some(wasm {
+                let! src = wArr
+                let! count = countExpr src
+                let! res = arrayNew outArrIdx count (makeZero outElemT) outArrRefT
+                return! fillExpr src res
+            })
         | _ -> None
     // ── Array.collect f arr — apply f (returns array), concatenate results ───
     | "collect" ->
@@ -921,31 +919,33 @@ let tryArrayInline
         let gen = LabelGen("acol")
         // Pass 1: compute total output length
         let countExpr src =
-            letMut gen "tot" WType.I32 (i32Const 0) (fun tot setTot ->
-                sequence [
-                    indexedLoop gen (arrayLen src) (fun i ->
-                        WExpr.Let(farg.Name, arrayGet src i inElemT,
-                            letVal gen "sub" outArrRefT wBody (fun sub ->
-                                setTot (add tot (arrayLen sub)))))
-                    tot
-                ])
+            wasm {
+                let! tot = mut (i32Const 0)
+                do! Wasm.for_ (arrayLen src) (fun i ->
+                        WExpr.Let(farg.Name, arrayGet src i inElemT, wasm {
+                            let! sub = wBody
+                            return! tot.Set(add tot.Val (arrayLen sub))
+                        }))
+                return tot.Val
+            }
         // Pass 2: allocate + fill
         let fillExpr src res =
-            letMut gen "out" WType.I32 (i32Const 0) (fun out setOut ->
-                sequence [
-                    indexedLoop gen (arrayLen src) (fun i ->
-                        WExpr.Let(farg.Name, arrayGet src i inElemT,
-                            letVal gen "sub" outArrRefT wBody (fun sub ->
-                                sequence [
-                                    arrayCopy res out sub (i32Const 0) (arrayLen sub)
-                                    setOut (add out (arrayLen sub))
-                                ])))
-                    res
-                ])
-        Some(letVal gen "src" inArrRefT wArr (fun src ->
-            letVal gen "count" WType.I32 (countExpr src) (fun count ->
-            letVal gen "res" outArrRefT (arrayNew outArrIdx count (makeZero outElemT) outArrRefT) (fun res ->
-                fillExpr src res))))
+            wasm {
+                let! out = mut (i32Const 0)
+                do! Wasm.for_ (arrayLen src) (fun i ->
+                        WExpr.Let(farg.Name, arrayGet src i inElemT, wasm {
+                            let! sub = wBody
+                            do! arrayCopy res out.Val sub (i32Const 0) (arrayLen sub)
+                            return! out.Set(add out.Val (arrayLen sub))
+                        }))
+                return res
+            }
+        Some(wasm {
+            let! src = wArr
+            let! count = countExpr src
+            let! res = arrayNew outArrIdx count (makeZero outElemT) outArrRefT
+            return! fillExpr src res
+        })
     | _ -> None
 // These arrive as Get(arr, FieldGet "filter/some/every/forEach") as callee
 // ─────────────────────────────────────────────────────────────────
@@ -1035,19 +1035,18 @@ let tryArrayInstanceCall
                 let gen        = LabelGen("ired")
                 let ctx'       = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
                 let wBody      = transform ctx' fbody
-                Some(letVal gen "arr" arrRefT wArr (fun src ->
-                    letVal gen "len" WType.I32 (arrayLen src) (fun len ->
-                    letMut gen "acc" elemT (arrayGet src (i32Const 0) elemT) (fun acc setAcc ->
-                    letMut gen "i" WType.I32 (i32Const 1) (fun i setI ->
-                        sequence [
-                            whileLoop (gen.Next("lp")) (ltS i len)
-                                (sequence [
-                                    setAcc (WExpr.Let(farg1.Name, acc,
-                                        WExpr.Let(farg2.Name, arrayGet src i elemT, wBody)))
-                                    setI (add i (i32Const 1))
-                                ])
-                            acc
-                        ])))))
+                Some(wasm {
+                    let! src = wArr
+                    let! len = arrayLen src
+                    let! acc = mutTy elemT (arrayGet src (i32Const 0) elemT)
+                    let! i = mut (i32Const 1)
+                    do! Wasm.while_ (ltS i.Val len) (wasm {
+                        do! acc.Set(WExpr.Let(farg1.Name, acc.Val,
+                                WExpr.Let(farg2.Name, arrayGet src i.Val elemT, wBody)))
+                        return! i.Set(add i.Val (i32Const 1))
+                    })
+                    return acc.Val
+                })
             | None -> None
         | None -> None
     | _ -> None
