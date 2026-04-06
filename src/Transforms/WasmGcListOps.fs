@@ -28,15 +28,15 @@ let tryListTakeSkipSortInline
             let gen = LabelGen("skip")
             let wN   = transform ctx nArg
             let wLst = transform ctx listArg
-            Some(
-                letMut gen "n" WType.I32 wN (fun n setN ->
-                letMut gen "ptr" s.BaseTy wLst (fun ptr setPtr ->
-                    sequence [
-                        whileLoop (gen.Next("lp"))
-                            (wasmAnd (gtS n (i32Const 0)) (refIsNotNull ptr))
-                            (sequence [setPtr (s.Tail ptr); setN (sub n (i32Const 1))])
-                        ptr
-                    ])))
+            Some(wasm {
+                let! n = mut wN
+                let! ptr = mutTy s.BaseTy wLst
+                do! Wasm.while_ (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) (wasm {
+                    do! ptr.Set(s.Tail ptr.Val)
+                    return! n.Set(sub n.Val (i32Const 1))
+                })
+                return ptr.Val
+            })
         | None -> None
     // ── List.take n xs ─────────────────────────────────────────────
     | "take", (nArg :: listArg :: _) ->
@@ -48,19 +48,17 @@ let tryListTakeSkipSortInline
             let wLst = transform ctx listArg
             // Phase 1: collect first n elements reversed
             let revCollect =
-                letMut gen "n" WType.I32 wN (fun n setN ->
-                letMut gen "ptr" s.BaseTy wLst (fun ptr setPtr ->
-                letMut gen "acc" s.BaseTy s.Nil (fun acc setAcc ->
-                    sequence [
-                        whileLoop (gen.Next("lp"))
-                            (wasmAnd (gtS n (i32Const 0)) (refIsNotNull ptr))
-                            (sequence [
-                                setAcc (s.Cons (s.Head ptr) acc)
-                                setPtr (s.Tail ptr)
-                                setN (sub n (i32Const 1))
-                            ])
-                        acc
-                    ])))
+                wasm {
+                    let! n   = mut wN
+                    let! ptr = mutTy s.BaseTy wLst
+                    let! acc = mutTy s.BaseTy s.Nil
+                    do! Wasm.while_ (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) (wasm {
+                        do! acc.Set(s.Cons (s.Head ptr.Val) acc.Val)
+                        do! ptr.Set(s.Tail ptr.Val)
+                        return! n.Set(sub n.Val (i32Const 1))
+                    })
+                    return acc.Val
+                }
             // Phase 2: reverse
             Some(listRev gen s revCollect)
         | None -> None
@@ -82,49 +80,50 @@ let tryListTakeSkipSortInline
         let wKey = transform ctx' fbody
         let wLst = transform ctx listArg
         let cmpOp = if descending then WCompareOp.GtS else WCompareOp.LtS
-        Some(
-            letVal gen "lst" s.BaseTy wLst (fun lst ->
-            letVal gen "len" WType.I32 (listLength gen s lst) (fun len ->
-            letVal gen "arr" arrRefT (arrayNew arrTypeIdx len (makeNumericZero elemT) arrRefT) (fun arr ->
-            letVal gen "key" keyArrRefT (arrayNew keyArrIdx len (makeNumericZero keyT) keyArrRefT) (fun keyArr ->
-                // Fill arrays
-                let fillPhase =
-                    listFold gen s lst (i32Const 0) WType.I32
-                        (fun idx elem ->
-                            letVal gen "fe" elemT elem (fun fe ->
-                            letVal gen "fk" keyT (WExpr.Let(farg.Name, fe, wKey)) (fun fk ->
-                                sequence [
-                                    arraySet arr idx fe
-                                    arraySet keyArr idx fk
-                                    add idx (i32Const 1)
-                                ])))
-                // Insertion sort on key array
-                let sortPhase =
-                    letMut gen "si" WType.I32 (i32Const 1) (fun si setSi ->
-                        whileLoop (gen.Next("sil")) (ltS si len)
-                            (letVal gen "se" elemT (arrayGet arr si elemT) (fun se ->
-                            letVal gen "sk" keyT (arrayGet keyArr si keyT) (fun sk ->
-                            letMut gen "sj" WType.I32 (sub si (i32Const 1)) (fun sj setSj ->
-                                let jCond =
-                                    wasmAnd (geS sj (i32Const 0))
-                                        (WExpr.Compare(
-                                            (if descending then WCompareOp.LtS else WCompareOp.GtS),
-                                            arrayGet keyArr sj keyT, sk))
-                                sequence [
-                                    whileLoop (gen.Next("sjl")) jCond
-                                        (sequence [
-                                            arraySet arr (add sj (i32Const 1)) (arrayGet arr sj elemT)
-                                            arraySet keyArr (add sj (i32Const 1)) (arrayGet keyArr sj keyT)
-                                            setSj (sub sj (i32Const 1))
-                                        ])
-                                    arraySet arr (add sj (i32Const 1)) se
-                                    arraySet keyArr (add sj (i32Const 1)) sk
-                                    setSi (add si (i32Const 1))
-                                ])))))
-                // Rebuild list from array (reverse order)
-                let rebuildPhase = arrayToListRev gen s arr len (fun a i -> arrayGet a i elemT)
-                sequence [fillPhase; WExpr.Nop; sortPhase; rebuildPhase]
-            )))))
+        Some(wasm {
+            let! lst    = wLst
+            let! len    = listLength gen s lst
+            let! arr    = arrayNew arrTypeIdx len (makeNumericZero elemT) arrRefT
+            let! keyArr = arrayNew keyArrIdx len (makeNumericZero keyT) keyArrRefT
+            // Fill arrays
+            let fillPhase =
+                listFold gen s lst (i32Const 0) WType.I32
+                    (fun idx elem ->
+                        wasm {
+                            let! fe = elem
+                            let! fk = WExpr.Let(farg.Name, fe, wKey)
+                            do! arraySet arr idx fe
+                            do! arraySet keyArr idx fk
+                            return! add idx (i32Const 1)
+                        })
+            // Insertion sort on key array
+            let sortPhase = wasm {
+                let! si = mut (i32Const 1)
+                return! Wasm.while_ (ltS si.Val len) (wasm {
+                    let! se = arrayGet arr si.Val elemT
+                    let! sk = arrayGet keyArr si.Val keyT
+                    let! sj = mut (sub si.Val (i32Const 1))
+                    let jCond =
+                        wasmAnd (geS sj.Val (i32Const 0))
+                            (WExpr.Compare(
+                                (if descending then WCompareOp.LtS else WCompareOp.GtS),
+                                arrayGet keyArr sj.Val keyT, sk))
+                    do! Wasm.while_ jCond (wasm {
+                        do! arraySet arr (add sj.Val (i32Const 1)) (arrayGet arr sj.Val elemT)
+                        do! arraySet keyArr (add sj.Val (i32Const 1)) (arrayGet keyArr sj.Val keyT)
+                        return! sj.Set(sub sj.Val (i32Const 1))
+                    })
+                    do! arraySet arr (add sj.Val (i32Const 1)) se
+                    do! arraySet keyArr (add sj.Val (i32Const 1)) sk
+                    return! si.Set(add si.Val (i32Const 1))
+                })
+            }
+            // Rebuild list from array (reverse order)
+            let rebuildPhase = arrayToListRev gen s arr len (fun a i -> arrayGet a i elemT)
+            do! fillPhase
+            do! sortPhase
+            return! rebuildPhase
+        })
     // ── List.sort / List.sortDescending ────────────────────────────
     | ("sort" | "sortDescending"), (listArg :: _) ->
         let descending = selector = "sortDescending"
@@ -145,52 +144,51 @@ let tryListTakeSkipSortInline
             let arrRefT    = WType.Ref(arrTypeIdx, false)
             let wLst       = transform ctx listArg
             let ltOp = if descending then WCompareOp.GtS else WCompareOp.LtS
-            Some(
-                letVal gen "lst" s.BaseTy wLst (fun lst ->
-                letVal gen "len" WType.I32 (listLength gen s lst) (fun len ->
-                letVal gen "arr" arrRefT (arrayNew arrTypeIdx len arrDefault arrRefT) (fun arr ->
-                    // Fill array from list
-                    let fillPhase =
-                        listFold gen s lst (i32Const 0) WType.I32
-                            (fun idx elem ->
-                                sequence [arraySet arr idx elem; add idx (i32Const 1)])
-                    // Insertion sort
-                    let cmpSeArrJ (se: WExpr) (sj: WExpr) =
-                        match elemT with
-                        | WType.Ref(si, _) when si = StringTypeIdx ->
-                            let cmpRes = WExpr.Call(ctx.UseHelper("$strCompare"), [se; readElem arr sj], WType.I32)
-                            WExpr.Compare(ltOp, cmpRes, i32Const 0)
-                        | _ -> WExpr.Compare(ltOp, se, readElem arr sj)
-                    let sortPhase =
-                        letMut gen "si" WType.I32 (i32Const 1) (fun si setSi ->
-                            whileLoop (gen.Next("sil")) (ltS si len)
-                                (letVal gen "se" elemT (readElem arr si) (fun se ->
-                                letMut gen "sj" WType.I32 (sub si (i32Const 1)) (fun sj setSj ->
-                                    let jCond =
-                                        wasmAnd (geS sj (i32Const 0)) (cmpSeArrJ se sj)
-                                    sequence [
-                                        whileLoop (gen.Next("sjl")) jCond
-                                            (sequence [
-                                                arraySet arr (add sj (i32Const 1)) (readElem arr sj)
-                                                setSj (sub sj (i32Const 1))
-                                            ])
-                                        arraySet arr (add sj (i32Const 1)) se
-                                        setSi (add si (i32Const 1))
-                                    ]))))
-                    // Rebuild list
-                    let rebuildPhase =
-                        letMut gen "ri" WType.I32 (sub len (i32Const 1)) (fun ri setRi ->
-                        letMut gen "acc" s.BaseTy s.Nil (fun acc setAcc ->
-                            sequence [
-                                whileLoop (gen.Next("ril")) (geS ri (i32Const 0))
-                                    (sequence [
-                                        setAcc (s.Cons (readElem arr ri) acc)
-                                        setRi (sub ri (i32Const 1))
-                                    ])
-                                acc
-                            ]))
-                    sequence [fillPhase; WExpr.Nop; sortPhase; rebuildPhase]
-                ))))
+            Some(wasm {
+                let! lst = wLst
+                let! len = listLength gen s lst
+                let! arr = arrayNew arrTypeIdx len arrDefault arrRefT
+                // Fill array from list
+                let fillPhase =
+                    listFold gen s lst (i32Const 0) WType.I32
+                        (fun idx elem ->
+                            sequence [arraySet arr idx elem; add idx (i32Const 1)])
+                // Insertion sort
+                let cmpSeArrJ (se: WExpr) (sj: WExpr) =
+                    match elemT with
+                    | WType.Ref(si, _) when si = StringTypeIdx ->
+                        let cmpRes = WExpr.Call(ctx.UseHelper("$strCompare"), [se; readElem arr sj], WType.I32)
+                        WExpr.Compare(ltOp, cmpRes, i32Const 0)
+                    | _ -> WExpr.Compare(ltOp, se, readElem arr sj)
+                let sortPhase = wasm {
+                    let! si = mut (i32Const 1)
+                    return! Wasm.while_ (ltS si.Val len) (wasm {
+                        let! se = readElem arr si.Val
+                        let! sj = mut (sub si.Val (i32Const 1))
+                        let jCond =
+                            wasmAnd (geS sj.Val (i32Const 0)) (cmpSeArrJ se sj.Val)
+                        do! Wasm.while_ jCond (wasm {
+                            do! arraySet arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
+                            return! sj.Set(sub sj.Val (i32Const 1))
+                        })
+                        do! arraySet arr (add sj.Val (i32Const 1)) se
+                        return! si.Set(add si.Val (i32Const 1))
+                    })
+                }
+                // Rebuild list
+                let rebuildPhase = wasm {
+                    let! ri  = mut (sub len (i32Const 1))
+                    let! acc = mutTy s.BaseTy s.Nil
+                    do! Wasm.while_ (geS ri.Val (i32Const 0)) (wasm {
+                        do! acc.Set(s.Cons (readElem arr ri.Val) acc.Val)
+                        return! ri.Set(sub ri.Val (i32Const 1))
+                    })
+                    return acc.Val
+                }
+                do! fillPhase
+                do! sortPhase
+                return! rebuildPhase
+            })
         | None -> None
     // ── List.sortWith cmp xs ──────────────────────────────────────
     | "sortWith", (cmpArg :: listArg :: _) ->
@@ -225,47 +223,46 @@ let tryListTakeSkipSortInline
         let wCmp  = transform ctx'' fbody
         let wLst  = transform ctx listArg
         let inlineCmp a b = WExpr.Let(farg1.Name, a, WExpr.Let(farg2.Name, b, wCmp))
-        Some(
-            letVal gen "lst" s.BaseTy wLst (fun lst ->
-            letVal gen "len" WType.I32 (listLength gen s lst) (fun len ->
-            letVal gen "arr" arrRefT (arrayNew arrTypeIdx len arrDefault arrRefT) (fun arr ->
-                // Fill
-                let fillPhase =
-                    listFold gen s lst (i32Const 0) WType.I32
-                        (fun idx elem ->
-                            sequence [arraySet arr idx elem; add idx (i32Const 1)])
-                // Sort
-                let sortPhase =
-                    letMut gen "si" WType.I32 (i32Const 1) (fun si setSi ->
-                        whileLoop (gen.Next("sil")) (ltS si len)
-                            (letVal gen "e" elemT (readElem arr si) (fun e ->
-                            letMut gen "sj" WType.I32 (sub si (i32Const 1)) (fun sj setSj ->
-                                let jCond =
-                                    wasmAnd (geS sj (i32Const 0))
-                                        (gtS (inlineCmp (readElem arr sj) e) (i32Const 0))
-                                sequence [
-                                    whileLoop (gen.Next("sjl")) jCond
-                                        (sequence [
-                                            arraySet arr (add sj (i32Const 1)) (readElem arr sj)
-                                            setSj (sub sj (i32Const 1))
-                                        ])
-                                    arraySet arr (add sj (i32Const 1)) e
-                                    setSi (add si (i32Const 1))
-                                ]))))
-                // Rebuild
-                let rebuildPhase =
-                    letMut gen "ri" WType.I32 (sub len (i32Const 1)) (fun ri setRi ->
-                    letMut gen "acc" s.BaseTy s.Nil (fun acc setAcc ->
-                        sequence [
-                            whileLoop (gen.Next("ril")) (geS ri (i32Const 0))
-                                (sequence [
-                                    setAcc (s.Cons (readElem arr ri) acc)
-                                    setRi (sub ri (i32Const 1))
-                                ])
-                            acc
-                        ]))
-                sequence [fillPhase; WExpr.Nop; sortPhase; rebuildPhase]
-            ))))
+        Some(wasm {
+            let! lst = wLst
+            let! len = listLength gen s lst
+            let! arr = arrayNew arrTypeIdx len arrDefault arrRefT
+            // Fill
+            let fillPhase =
+                listFold gen s lst (i32Const 0) WType.I32
+                    (fun idx elem ->
+                        sequence [arraySet arr idx elem; add idx (i32Const 1)])
+            // Sort
+            let sortPhase = wasm {
+                let! si = mut (i32Const 1)
+                return! Wasm.while_ (ltS si.Val len) (wasm {
+                    let! e  = readElem arr si.Val
+                    let! sj = mut (sub si.Val (i32Const 1))
+                    let jCond =
+                        wasmAnd (geS sj.Val (i32Const 0))
+                            (gtS (inlineCmp (readElem arr sj.Val) e) (i32Const 0))
+                    do! Wasm.while_ jCond (wasm {
+                        do! arraySet arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
+                        return! sj.Set(sub sj.Val (i32Const 1))
+                    })
+                    do! arraySet arr (add sj.Val (i32Const 1)) e
+                    return! si.Set(add si.Val (i32Const 1))
+                })
+            }
+            // Rebuild
+            let rebuildPhase = wasm {
+                let! ri  = mut (sub len (i32Const 1))
+                let! acc = mutTy s.BaseTy s.Nil
+                do! Wasm.while_ (geS ri.Val (i32Const 0)) (wasm {
+                    do! acc.Set(s.Cons (readElem arr ri.Val) acc.Val)
+                    return! ri.Set(sub ri.Val (i32Const 1))
+                })
+                return acc.Val
+            }
+            do! fillPhase
+            do! sortPhase
+            return! rebuildPhase
+        })
     // ── List.flatten / List.concat ─────────────────────────────────
     | ("flatten" | "concat"), (listArg :: _) ->
         let elemFableT =
@@ -321,22 +318,19 @@ let tryListTakeSkipSortInline
             let wXs  = transform ctx xsArg
             let wYs  = transform ctx ysArg
             // Walk both lists in lockstep, consing reversed pairs
-            Some(
-                letMut gen "xp" sX.BaseTy wXs (fun xp setXp ->
-                letMut gen "yp" sY.BaseTy wYs (fun yp setYp ->
-                letMut gen "acc" sOut.BaseTy sOut.Nil (fun acc setAcc ->
-                    sequence [
-                        whileLoop (gen.Next("lp"))
-                            (wasmAnd (refIsNotNull xp) (refIsNotNull yp))
-                            (sequence [
-                                setAcc (sOut.Cons
-                                    (structNew tupleIdx [sX.Head xp; sY.Head yp] tupleRefT)
-                                    acc)
-                                setXp (sX.Tail xp)
-                                setYp (sY.Tail yp)
-                            ])
-                        listRev gen sOut acc
-                    ]))))
+            Some(wasm {
+                let! xp  = mutTy sX.BaseTy wXs
+                let! yp  = mutTy sY.BaseTy wYs
+                let! acc = mutTy sOut.BaseTy sOut.Nil
+                do! Wasm.while_ (wasmAnd (refIsNotNull xp.Val) (refIsNotNull yp.Val)) (wasm {
+                    do! acc.Set(sOut.Cons
+                        (structNew tupleIdx [sX.Head xp.Val; sY.Head yp.Val] tupleRefT)
+                        acc.Val)
+                    do! xp.Set(sX.Tail xp.Val)
+                    return! yp.Set(sY.Tail yp.Val)
+                })
+                return! listRev gen sOut acc.Val
+            })
         | _ -> None
     // ── List.map2 f xs ys ──────────────────────────────────────────
     | "map2", (cmpArg :: xsArg :: ysArg :: _) ->
@@ -363,23 +357,20 @@ let tryListTakeSkipSortInline
             let wBody = transform ctx' fbody
             let wXs   = transform ctx xsArg
             let wYs   = transform ctx ysArg
-            Some(
-                letMut gen "xp" sX.BaseTy wXs (fun xp setXp ->
-                letMut gen "yp" sY.BaseTy wYs (fun yp setYp ->
-                letMut gen "acc" sOut.BaseTy sOut.Nil (fun acc setAcc ->
-                    sequence [
-                        whileLoop (gen.Next("lp"))
-                            (wasmAnd (refIsNotNull xp) (refIsNotNull yp))
-                            (sequence [
-                                setAcc (sOut.Cons
-                                    (WExpr.Let(farg1.Name, sX.Head xp,
-                                        WExpr.Let(farg2.Name, sY.Head yp, wBody)))
-                                    acc)
-                                setXp (sX.Tail xp)
-                                setYp (sY.Tail yp)
-                            ])
-                        listRev gen sOut acc
-                    ]))))
+            Some(wasm {
+                let! xp  = mutTy sX.BaseTy wXs
+                let! yp  = mutTy sY.BaseTy wYs
+                let! acc = mutTy sOut.BaseTy sOut.Nil
+                do! Wasm.while_ (wasmAnd (refIsNotNull xp.Val) (refIsNotNull yp.Val)) (wasm {
+                    do! acc.Set(sOut.Cons
+                        (WExpr.Let(farg1.Name, sX.Head xp.Val,
+                            WExpr.Let(farg2.Name, sY.Head yp.Val, wBody)))
+                        acc.Val)
+                    do! xp.Set(sX.Tail xp.Val)
+                    return! yp.Set(sY.Tail yp.Val)
+                })
+                return! listRev gen sOut acc.Val
+            })
         | _ -> None
     | _ -> None
 
@@ -496,14 +487,15 @@ let tryListPrimitiveInline
         | true, consIdx ->
             let s   = mkListShape realElemT consIdx
             let gen = LabelGen("item")
-            Some(
-                letMut gen "cnt" WType.I32 nExpr (fun cnt setCnt ->
-                letMut gen "ptr" s.BaseTy wList (fun ptr setPtr ->
-                    sequence [
-                        whileLoop (gen.Next("lp")) (gtS cnt (i32Const 0))
-                            (sequence [setPtr (s.Tail ptr); setCnt (sub cnt (i32Const 1))])
-                        s.Head ptr
-                    ])))
+            Some(wasm {
+                let! cnt = mut nExpr
+                let! ptr = mutTy s.BaseTy wList
+                do! Wasm.while_ (gtS cnt.Val (i32Const 0)) (wasm {
+                    do! ptr.Set(s.Tail ptr.Val)
+                    return! cnt.Set(sub cnt.Val (i32Const 1))
+                })
+                return s.Head ptr.Val
+            })
         | _ -> None
     | (("min" | "max") as sel), (wListArg :: _)
         when (match fableArgs with ha :: _ -> (match ha.Type with | Fable.Type.List _ -> true | _ -> false) | _ -> false) ->
@@ -514,19 +506,20 @@ let tryListPrimitiveInline
             let s   = mkListShape elemT consIdx
             let gen = LabelGen("listmm")
             let cmpOp = if isMin then WCompareOp.LtS else WCompareOp.GtS
-            Some(
-                letVal gen "lst" s.BaseTy wListArg (fun lst ->
-                letVal gen "nn" s.NonNullTy (s.CastNN lst) (fun nn ->
-                    let headElem = structGet nn 0 elemT
-                    let headTail = structGet nn 1 s.BaseTy
-                    letMut gen "best" elemT headElem (fun best setBest ->
-                        sequence [
-                            listIter gen s headTail (fun elem ->
-                                letVal gen "h" elemT elem (fun h ->
-                                    WExpr.If(WExpr.Compare(cmpOp, h, best),
-                                        setBest h, WExpr.Nop, WType.Void)))
-                            best
-                        ]))))
+            Some(wasm {
+                let! lst = wListArg
+                let! nn  = s.CastNN lst
+                let headElem = structGet nn 0 elemT
+                let headTail = structGet nn 1 s.BaseTy
+                let! best = mutTy elemT headElem
+                do! listIter gen s headTail (fun elem ->
+                    wasm {
+                        let! h = elem
+                        return! WExpr.If(WExpr.Compare(cmpOp, h, best.Val),
+                            best.Set h, WExpr.Nop, WType.Void)
+                    })
+                return best.Val
+            })
         | None -> None
     | "contains", (wNeedle :: wListArg :: _)
         when (match fableArgs with | _ :: ha :: _ -> (match ha.Type with | Fable.Type.List _ -> true | _ -> false) | _ -> false) ->
@@ -535,12 +528,13 @@ let tryListPrimitiveInline
         | Some(elemT, consIdx) ->
             let s   = mkListShape elemT consIdx
             let gen = LabelGen("lcont")
-            Some(
-                letVal gen "needle" elemT wNeedle (fun needle ->
-                    listSearch gen s wListArg WType.I32
-                        (fun elem -> eq elem needle)
-                        (fun _ -> i32Const 1)
-                        (i32Const 0)))
+            Some(wasm {
+                let! needle = wNeedle
+                return! listSearch gen s wListArg WType.I32
+                    (fun elem -> eq elem needle)
+                    (fun _ -> i32Const 1)
+                    (i32Const 0)
+            })
         | None -> None
     | ("ofArray" | "ofSeq"), [wArr] ->
         match List.tryHead fableArgs with
@@ -554,9 +548,11 @@ let tryListPrimitiveInline
                 let s       = mkListShape elemT consIdx
                 let gen     = LabelGen("ofa")
                 let arrRefT = mapTypeKnown ctx arrFableArg.Type
-                Some(letVal gen "arr" arrRefT wArr (fun arr ->
-                    arrayToListRev gen s arr (arrayLen arr)
-                        (fun a i -> arrayGet a i elemT)))
+                Some(wasm {
+                    let! arr = wArr
+                    return! arrayToListRev gen s arr (arrayLen arr)
+                        (fun a i -> arrayGet a i elemT)
+                })
         | _ -> None
     | "last", [wList] ->
         let innerFableType =
@@ -569,16 +565,17 @@ let tryListPrimitiveInline
         | true, consIdx ->
             let s   = mkListShape elemT consIdx
             let gen = LabelGen("last")
-            Some(
-                letVal gen "lst" s.BaseTy wList (fun lst ->
-                letVal gen "nn" s.NonNullTy (s.CastNN lst) (fun nn ->
-                    letMut gen "val" elemT (structGet nn 0 elemT) (fun v setV ->
-                    letMut gen "ptr" s.BaseTy (structGet nn 1 s.BaseTy) (fun ptr setPtr ->
-                        sequence [
-                            whileLoop (gen.Next("lp")) (refIsNotNull ptr)
-                                (sequence [setV (s.Head ptr); setPtr (s.Tail ptr)])
-                            v
-                        ])))))
+            Some(wasm {
+                let! lst = wList
+                let! nn  = s.CastNN lst
+                let! v   = mutTy elemT (structGet nn 0 elemT)
+                let! ptr = mutTy s.BaseTy (structGet nn 1 s.BaseTy)
+                do! Wasm.while_ (refIsNotNull ptr.Val) (wasm {
+                    do! v.Set(s.Head ptr.Val)
+                    return! ptr.Set(s.Tail ptr.Val)
+                })
+                return v.Val
+            })
         | _ -> None
     | _ -> None
 
@@ -614,14 +611,15 @@ let tryListTryHeadInline
                     ctx.OptionRegistry.[key] <- idx
                     idx
             let gen = LabelGen("tryH")
-            Some(
-                letVal gen "tmp" (WType.Ref(ListBaseTypeIdx, true)) wList (fun tmp ->
-                    WExpr.If(WExpr.RefIsNull tmp,
-                        nullConst ty,
-                        structNew optTypeIdx
-                            [structGet (cast tmp listNNRefT) 0 elemT]
-                            ty,
-                        ty)))
+            Some(wasm {
+                let! tmp = wList
+                return! WExpr.If(WExpr.RefIsNull tmp,
+                    nullConst ty,
+                    structNew optTypeIdx
+                        [structGet (cast tmp listNNRefT) 0 elemT]
+                        ty,
+                    ty)
+            })
         | _ -> None
     | _ -> None
 
@@ -676,46 +674,48 @@ let tryListTryFindInline
                         idx
                 let exitLbl = gen.Next("exit")
                 let lpLbl   = gen.Next("lp")
-                Some(
-                    letMut gen "cur" s.BaseTy wList (fun cur setCur ->
-                    letMut gen "idx" WType.I32 (i32Const 0) (fun idx setIdx ->
-                        WExpr.Block(exitLbl,
-                            sequence [
-                                WExpr.Loop(lpLbl,
-                                    wasmIf (refIsNotNull cur)
-                                        (wasmIf (WExpr.Let(farg.Name, s.Head cur, wPred))
-                                            (WExpr.Break(exitLbl, Some(structNew optTypeIdx [idx] ty)))
-                                            (sequence [
-                                                setIdx (add idx (i32Const 1))
-                                                setCur (s.Tail cur)
-                                                continue_ lpLbl
-                                            ]))
-                                        WExpr.Nop,
-                                    WType.Void)
-                                nullConst ty
-                            ],
-                            ty))))
+                Some(wasm {
+                    let! cur = mutTy s.BaseTy wList
+                    let! idx = mut (i32Const 0)
+                    return! WExpr.Block(exitLbl,
+                        sequence [
+                            WExpr.Loop(lpLbl,
+                                wasmIf (refIsNotNull cur.Val)
+                                    (wasmIf (WExpr.Let(farg.Name, s.Head cur.Val, wPred))
+                                        (WExpr.Break(exitLbl, Some(structNew optTypeIdx [idx.Val] ty)))
+                                        (sequence [
+                                            idx.Set(add idx.Val (i32Const 1))
+                                            cur.Set(s.Tail cur.Val)
+                                            continue_ lpLbl
+                                        ]))
+                                    WExpr.Nop,
+                                WType.Void)
+                            nullConst ty
+                        ],
+                        ty)
+                })
             else
                 let exitLbl = gen.Next("exit")
                 let lpLbl   = gen.Next("lp")
-                Some(
-                    letMut gen "cur" s.BaseTy wList (fun cur setCur ->
-                    letMut gen "idx" WType.I32 (i32Const 0) (fun idx setIdx ->
-                        WExpr.Block(exitLbl,
-                            sequence [
-                                WExpr.Loop(lpLbl,
-                                    wasmIf (refIsNotNull cur)
-                                        (wasmIf (WExpr.Let(farg.Name, s.Head cur, wPred))
-                                            (WExpr.Break(exitLbl, Some idx))
-                                            (sequence [
-                                                setIdx (add idx (i32Const 1))
-                                                setCur (s.Tail cur)
-                                                continue_ lpLbl
-                                            ]))
-                                        WExpr.Nop,
-                                    WType.Void)
-                                i32Const (-1)
-                            ],
-                            WType.I32))))
+                Some(wasm {
+                    let! cur = mutTy s.BaseTy wList
+                    let! idx = mut (i32Const 0)
+                    return! WExpr.Block(exitLbl,
+                        sequence [
+                            WExpr.Loop(lpLbl,
+                                wasmIf (refIsNotNull cur.Val)
+                                    (wasmIf (WExpr.Let(farg.Name, s.Head cur.Val, wPred))
+                                        (WExpr.Break(exitLbl, Some idx.Val))
+                                        (sequence [
+                                            idx.Set(add idx.Val (i32Const 1))
+                                            cur.Set(s.Tail cur.Val)
+                                            continue_ lpLbl
+                                        ]))
+                                    WExpr.Nop,
+                                WType.Void)
+                            i32Const (-1)
+                        ],
+                        WType.I32)
+                })
         | None -> None
     | _ -> None
