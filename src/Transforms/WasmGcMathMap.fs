@@ -144,11 +144,9 @@ let trySetInline
         match Map.tryFind "Set_ofList" ctx.KnownFuncs with
         | Some (_, retTy) -> Some(WExpr.Call("Set_ofList", [wList], retTy))
         | None -> None
-    // Set.ofArray [items; _comparer]
-    | "ofArray", [wArr; _comparer] ->
-        match Map.tryFind "Set_ofList" ctx.KnownFuncs with
-        | Some (_, retTy) -> Some(WExpr.Call("Set_ofList", [wArr], retTy))
-        | None -> None
+    // Set.ofArray [items; _comparer] — not yet supported (no Set_ofArray in BCL)
+    // TODO: implement Set_ofArray or convert array→list first
+    | "ofArray", _ -> None
     // Set.empty [_comparer]
     | "empty", [_comparer] ->
         match Map.tryFind "Set_empty" ctx.KnownFuncs with
