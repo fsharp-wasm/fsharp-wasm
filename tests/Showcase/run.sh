@@ -25,4 +25,4 @@ fi
 
 echo ""
 echo "=== 3/3  Running showcase test suite ==="
-node "$HERE/test-runner.mjs"
+node --experimental-wasm-exnref "$HERE/test-runner.mjs"

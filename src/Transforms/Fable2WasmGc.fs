@@ -662,10 +662,24 @@ and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: st
         captures |> List.mapi (fun i (name, ty) ->
             { Name = $"cap_{i}_{name}"; Type = ty; Mutable = false })
     let codeField = { Name = "code"; Type = codeFieldType; Mutable = false }
+
+    // Ensure a base closure type exists for this functype (code-only, extends $AnyFn).
+    // All concrete closure types extend this base so ref.cast in library functions works.
+    let baseClosureTypeIdx =
+        match ctx.ClosureBaseTypeMap.TryGetValue(funcTypeIdx) with
+        | true, idx -> idx
+        | false, _ ->
+            let idx = ctx.TypeDefs.Count
+            ctx.TypeDefs.Add(
+                { Name = $"ClosureBase_{idx}"
+                  Def = WTypeDef.Struct([codeField], Some AnyFnTypeIdx) })
+            ctx.ClosureBaseTypeMap.[funcTypeIdx] <- idx
+            idx
+
     let closureTypeIdx = ctx.TypeDefs.Count
     ctx.TypeDefs.Add(
         { Name = $"ClosureType_{closureTypeIdx}"
-          Def = WTypeDef.Struct(codeField :: captureFields, Some AnyFnTypeIdx) })
+          Def = WTypeDef.Struct(codeField :: captureFields, Some baseClosureTypeIdx) })
     ctx.ClosureRegistry.[funcName] <- (closureTypeIdx, funcTypeIdx, captureCount)
     // Also map funcTypeIdx → closureTypeIdx for CurriedApply resolution
     if not (ctx.FuncTypeToClosureMap.ContainsKey(funcTypeIdx)) then
@@ -1105,9 +1119,20 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         match trySpecializeCall ctx ident.Name info typ with
         | Some specialized -> specialized
         | None ->
-        // Direct function call (non-generic or unregistered generic).
-        // In library context, FuncNameAlias maps short→qualified for same-file recursive calls.
+        // Check if the identifier is a local variable typed as a closure (ref $AnyFn).
+        // If so, this is a higher-order call — emit ClosureApply instead of a direct Call.
         let actualName = ctx.FuncNameAlias |> Map.tryFind ident.Name |> Option.defaultValue ident.Name
+        match Map.tryFind ident.Name ctx.Locals with
+        | Some(WType.Ref(idx, _)) when idx = AnyFnTypeIdx ->
+            // This is a closure parameter — dispatch via ClosureApply.
+            // Use closureTypeIdx = 0 (sentinel) so fixClosureApply resolves it after all
+            // closure types are registered.
+            let wClosure = WExpr.LocalGet(ident.Name, WType.Ref(AnyFnTypeIdx, false))
+            let argTypes = wArgs |> List.map exprWType |> List.filter (fun t -> t <> WType.Void)
+            let funcTypeIdx = ctx.GetOrAddFuncType(argTypes, ty)
+            WExpr.ClosureApply(wClosure, wArgs, funcTypeIdx, 0, 0, ty)
+        | _ ->
+        // Direct function call (non-generic or unregistered generic).
         WExpr.Call(actualName, wArgs, ty)
     | Fable.Expr.Import(importInfo, _, _) ->
         // For string instance methods (IndexOf, Substring, etc.), Fable puts the
@@ -1144,6 +1169,8 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 fun () -> tryResultInline             transformExpr ctx sel info.Args ty
                 // ── Map module: drop injected IComparer for ofList/empty ───────────────
                 fun () -> tryMapInline               ctx importStem sel wArgs
+                // ── Set module: drop injected IComparer ─────────────────────────────────
+                fun () -> trySetInline               ctx importStem sel wArgs
                 // ── Array module primitives ────────────────────────────────────────────
                 fun () -> tryArrayInline              transformExpr ctx sel info.Args wArgs typ
                 // ── List/Option primitives ─────────────────────────────────────────────
@@ -2226,6 +2253,7 @@ let buildWModule (ctx: Ctx) : WModule =
                     Some { InternalName = f.Name; ExportName = f.Name; Kind = ExportFunc }
                 else None)
         DataSegments = []
+        Tags = [ { Name = "$fsharp_exn"; ParamTypes = [] } ]
         Start = None
     }
 

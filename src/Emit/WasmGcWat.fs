@@ -733,8 +733,12 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         | None -> ()
         w ")"
 
-    | WExpr.Throw(_exn) ->
-        w "unreachable ;; throw not yet implemented"
+    | WExpr.Throw(exnExpr) ->
+        // Emit the exception expression (evaluate for side effects), drop its result, throw.
+        emitExpr typeNames arrayElemTypes depth sb exnExpr
+        let exnTy = exprType exnExpr
+        if exnTy <> WType.Void then w "drop"
+        w "throw $fsharp_exn"
 
 // ─────────────────────────────────────────────────────────────────
 // WFuncDecl → WAT function text
@@ -888,6 +892,18 @@ let moduleToWat (wmod: WModule) : string =
         sb.AppendLine("  ;; ── Imports ────────────────────────────────────────") |> ignore
         for imp in wmod.Imports do
             sb.AppendLine(importToWat typeNames imp) |> ignore
+
+    // ── Tags (exception handling) ─────────────────────────
+    if not wmod.Tags.IsEmpty then
+        sb.AppendLine("  ;; ── Tags (exception handling) ──────────────────────") |> ignore
+        for tag in wmod.Tags do
+            let pStrs =
+                tag.ParamTypes
+                |> List.filter (fun t -> t <> WType.Void)
+                |> List.map (wtypeToStr typeNames)
+                |> List.map (sprintf "(param %s)")
+            let paramsStr = if pStrs.IsEmpty then "" else " " + (pStrs |> String.concat " ")
+            sb.AppendLine(sprintf "  (tag %s%s)" (watId tag.Name) paramsStr) |> ignore
 
     // ── Functions ─────────────────────────────────────────
     if not wmod.Functions.IsEmpty then

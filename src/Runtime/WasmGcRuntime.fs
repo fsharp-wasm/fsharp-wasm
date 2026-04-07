@@ -726,6 +726,20 @@ let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) 
                 | WType.Ref(funcTypeIdx, _) -> Some(funcTypeIdx, i)
                 | _ -> None
             | _ -> None)
+        // Group by funcTypeIdx and pick the closure type with fewest fields
+        // (the "base" closure type = just the code field). All concrete closure
+        // types extend this base, so ref.cast to it works for any closure of
+        // the same functype regardless of captures.
+        |> Seq.groupBy fst
+        |> Seq.map (fun (fti, pairs) ->
+            let bestClosureIdx =
+                pairs
+                |> Seq.map snd
+                |> Seq.minBy (fun ci ->
+                    match (Seq.item ci typeDefs).Def with
+                    | WTypeDef.Struct(fields, _) -> List.length fields
+                    | _ -> 999)
+            fti, bestClosureIdx)
         |> dict
 
     let rec fix (expr: WExpr) : WExpr =
@@ -749,6 +763,20 @@ let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) 
             WExpr.JoinPoint(l, p, fix body, fix cont, ty)
         | WExpr.SwitchInt(s, cases, def, ty) ->
             WExpr.SwitchInt(fix s, List.map (fun (v, e) -> v, fix e) cases, fix def, ty)
+        | WExpr.StructNew(typeIdx, fields, ty) ->
+            WExpr.StructNew(typeIdx, List.map fix fields, ty)
+        | WExpr.ArrayNewFixed(typeIdx, elems, ty) ->
+            WExpr.ArrayNewFixed(typeIdx, List.map fix elems, ty)
+        | WExpr.TryCatch(body, catch, fin, ty) ->
+            let fixCatch = catch |> Option.map (fun (n, e) -> n, fix e)
+            let fixFin = fin |> Option.map fix
+            WExpr.TryCatch(fix body, fixCatch, fixFin, ty)
+        | WExpr.Assign(n, v) -> WExpr.Assign(n, fix v)
+        | WExpr.StructSet(obj, idx, v) -> WExpr.StructSet(fix obj, idx, fix v)
+        | WExpr.Unary(op, operand, ty) -> WExpr.Unary(op, fix operand, ty)
+        | WExpr.Binary(op, a, b, ty) -> WExpr.Binary(op, fix a, fix b, ty)
+        | WExpr.Compare(op, a, b) -> WExpr.Compare(op, fix a, fix b)
+        | WExpr.Throw(e) -> WExpr.Throw(fix e)
         | _ -> expr
 
     functions |> List.map (fun f -> { f with Body = fix f.Body })

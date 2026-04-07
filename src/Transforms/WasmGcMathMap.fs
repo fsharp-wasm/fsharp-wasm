@@ -114,4 +114,49 @@ let tryMapInline
         match Map.tryFind "Map_empty" ctx.KnownFuncs with
         | Some (_, retTy) -> Some(WExpr.Call("Map_empty", [], retTy))
         | None -> None
+    // Map.map routes to Map_mapValues (since "map" conflicts in F#)
+    | "map", wArgs ->
+        match Map.tryFind "Map_mapValues" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Map_mapValues", wArgs, retTy))
+        | None -> None
+    // Map.iter — Fable emits "iterate" as the selector
+    | "iterate", wArgs ->
+        match Map.tryFind "Map_iter" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Map_iter", wArgs, retTy))
+        | None -> None
+    | _ -> None
+
+// ─────────────────────────────────────────────────────────────────
+// Set module intercept
+// ─────────────────────────────────────────────────────────────────
+/// Intercept standard F# `Set.*` calls that come through Fable's `setModule`
+/// replacement.  Operations that receive an injected IComparer have it dropped.
+let trySetInline
+        (ctx: Ctx)
+        (importStem: string)
+        (selector: string)
+        (wArgs: WExpr list) : WExpr option =
+    if importStem <> "Set" then None
+    else
+    match selector, wArgs with
+    // Set.ofList [items; _comparer] — drop injected comparer
+    | "ofList", [wList; _comparer] ->
+        match Map.tryFind "Set_ofList" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Set_ofList", [wList], retTy))
+        | None -> None
+    // Set.ofArray [items; _comparer]
+    | "ofArray", [wArr; _comparer] ->
+        match Map.tryFind "Set_ofList" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Set_ofList", [wArr], retTy))
+        | None -> None
+    // Set.empty [_comparer]
+    | "empty", [_comparer] ->
+        match Map.tryFind "Set_empty" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Set_empty", [], retTy))
+        | None -> None
+    // Set.singleton [value; _comparer]
+    | "singleton", [wVal; _comparer] ->
+        match Map.tryFind "Set_add" ctx.KnownFuncs, Map.tryFind "Set_empty" ctx.KnownFuncs with
+        | Some (_, retTy), Some _ -> Some(WExpr.Call("Set_add", [wVal; WExpr.Call("Set_empty", [], retTy)], retTy))
+        | _ -> None
     | _ -> None
