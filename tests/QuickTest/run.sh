@@ -49,4 +49,4 @@ fi
 
 echo ""
 echo "=== 4/4  Running Node.js test suite ==="
-node "$HERE/test-runner.mjs"
+node --experimental-wasm-exnref "$HERE/test-runner.mjs"

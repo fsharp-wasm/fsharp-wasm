@@ -25,6 +25,8 @@ type EmitCtx =
         GlobalIndex: Map<string, int>
         /// Type index → array element WType; used for packed-type (i16) array.get_s selection.
         ArrayElemTypes: Map<int, WType>
+        /// Index of the generic F# exception tag (for throw/catch)
+        ExceptionTagIdx: int
     }
 
     member this.GetFuncIdx(name: string) =
@@ -493,10 +495,13 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
                 @ [Instr.Br 1])]
             @ handlerInstrs)]
 
-    | WExpr.Throw(_exn) ->
-        // Without a defined exception tag we can't produce a meaningful throw yet.
-        // Emit unreachable so the program traps rather than silently misbehaving.
-        [Instr.Unreachable]
+    | WExpr.Throw(exnExpr) ->
+        // Emit the exception expression (for side effects), then drop the result
+        // and throw using the generic F# exception tag (tag index = importTagCount + 0).
+        let exnInstrs = emitExpr ctx exnExpr
+        let exnTy = exprResultType exnExpr
+        let dropInstrs = if exnTy <> WType.Void then [Instr.Drop] else []
+        exnInstrs @ dropInstrs @ [Instr.Throw ctx.ExceptionTagIdx]
 
 // ─────────────────────────────────────────────────────────────────
 // Determine result type of a WExpr (for drop decisions)
@@ -707,6 +712,8 @@ type WasmModule =
         StartFunc: int option
         /// Function indices declared via ref.func (must appear in declarative elem segment)
         DeclaredFuncRefs: int list
+        /// Module-level exception tag declarations: list of (func type index for tag params)
+        Tags: int list
     }
 
 // ─────────────────────────────────────────────────────────────────
@@ -785,6 +792,18 @@ let emitModule (wmod: WModule) : WasmModule =
         |> List.mapi (fun i g -> g.Name, i)
         |> Map.ofList
 
+    // 3d. Register tag types and compute tag indices.
+    // Imported tags come first (counted from imports), then local tags.
+    let importTagCount =
+        wmod.Imports |> List.sumBy (fun imp -> match imp.Desc with | ImportTag _ -> 1 | _ -> 0)
+    let tagTypeIndices =
+        wmod.Tags
+        |> List.map (fun tag ->
+            let paramTypes = tag.ParamTypes |> List.filter (fun t -> t <> WType.Void)
+            getOrAddFuncType paramTypes [])
+    // The first local tag index starts after imported tags
+    let exceptionTagIdx = importTagCount  // index of the first local tag (the generic F# exn tag)
+
     // 3d. Build array element type map: type index → element WType (for packed i16 read selection)
     let arrayElemTypes =
         wmod.Types
@@ -836,6 +855,7 @@ let emitModule (wmod: WModule) : WasmModule =
                     ImportFuncCount = importFuncCount
                     GlobalIndex = globalIndex
                     ArrayElemTypes = arrayElemTypes
+                    ExceptionTagIdx = exceptionTagIdx
                 }
 
             let bodyInstrs = emitExpr ctx f.Body
@@ -866,6 +886,7 @@ let emitModule (wmod: WModule) : WasmModule =
                     ImportFuncCount = importFuncCount
                     GlobalIndex = globalIndex
                     ArrayElemTypes = arrayElemTypes
+                    ExceptionTagIdx = exceptionTagIdx
                 }
             let initInstrs = emitExpr initCtx g.Init
             {
@@ -925,4 +946,5 @@ let emitModule (wmod: WModule) : WasmModule =
         DataSegments = wmod.DataSegments
         StartFunc = None
         DeclaredFuncRefs = declaredFuncRefs
+        Tags = tagTypeIndices
     }

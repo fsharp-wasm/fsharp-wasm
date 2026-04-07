@@ -318,6 +318,14 @@ type WTypeDef =
     | Array of elem: WType * mutable_: bool
     | Func of parms: WType list * result: WType
 
+/// A module-level exception tag declaration.
+/// WASM tags have a function type (params only, no results).
+and WTagDecl =
+    {
+        Name: string
+        ParamTypes: WType list
+    }
+
 /// A complete WASM module in our IR.
 type WModule =
     {
@@ -327,6 +335,7 @@ type WModule =
         Globals: WGlobalDecl list
         Exports: WExport list
         DataSegments: WDataSegment list
+        Tags: WTagDecl list
         Start: string option
     }
 
@@ -338,6 +347,7 @@ type WModule =
             Globals = []
             Exports = []
             DataSegments = []
+            Tags = []
             Start = None
         }
 

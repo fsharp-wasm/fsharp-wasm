@@ -607,6 +607,16 @@ let encodeFunctionSection (buf: ResizeArray<byte>) (funcTypeIndices: int list) =
         encodeLEB128Unsigned content (uint32 idx)
     writeSection buf SectionId.Function content
 
+/// Encode the Tag Section (section 13): exception tag declarations.
+/// Each tag entry is: attribute (0x00 = exception) + type index.
+let encodeTagSection (buf: ResizeArray<byte>) (tagTypeIndices: int list) =
+    let content = ResizeArray<byte>()
+    encodeLEB128Unsigned content (uint32 tagTypeIndices.Length)
+    for typeIdx in tagTypeIndices do
+        content.Add(0x00uy)  // attribute: 0x00 = exception
+        encodeLEB128Unsigned content (uint32 typeIdx)
+    writeSection buf SectionId.Tag content
+
 /// Encode the Import Section (section 2): function and memory imports
 let encodeImportSection (buf: ResizeArray<byte>) (imports: WImport list) (importTypeIndices: int list) =
     let content = ResizeArray<byte>()
@@ -783,6 +793,10 @@ let encodeModule (wmod: WasmGcEmit.WasmModule) : byte array =
     // Section 3: Functions (type indices)
     if not (List.isEmpty wmod.FuncTypeIndices) then
         encodeFunctionSection buf wmod.FuncTypeIndices
+
+    // Section 13: Tags (exception tags)
+    if not (List.isEmpty wmod.Tags) then
+        encodeTagSection buf wmod.Tags
 
     // Section 6: Globals
     if not (List.isEmpty wmod.Globals) then

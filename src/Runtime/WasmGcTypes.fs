@@ -71,6 +71,9 @@ type Ctx =
         ClosureRegistry: System.Collections.Generic.Dictionary<string, int * int * int>
         /// funcTypeIdx → closureTypeIdx
         FuncTypeToClosureMap: System.Collections.Generic.Dictionary<int, int>
+        /// funcTypeIdx → base closure type index (struct with only the code field, sub $AnyFn).
+        /// Used for ref.cast in library functions that accept closure parameters.
+        ClosureBaseTypeMap: System.Collections.Generic.Dictionary<int, int>
         /// Runtime helpers actually used in this module — demand-driven emission.
         UsedHelpers: System.Collections.Generic.HashSet<string>
         /// Structural equality functions generated on-demand.
@@ -161,6 +164,7 @@ type Ctx =
             FuncTypeRegistry = System.Collections.Generic.Dictionary<string, int>()
             ClosureRegistry = System.Collections.Generic.Dictionary<string, int * int * int>()
             FuncTypeToClosureMap = System.Collections.Generic.Dictionary<int, int>()
+            ClosureBaseTypeMap = System.Collections.Generic.Dictionary<int, int>()
             UsedHelpers = System.Collections.Generic.HashSet<string>()
             EqualityRegistry = System.Collections.Generic.Dictionary<int, string>()
             GenericFuncRegistry = System.Collections.Generic.Dictionary<string, Compiler * obj>()
