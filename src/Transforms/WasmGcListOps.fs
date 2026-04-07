@@ -127,61 +127,40 @@ let tryListTakeSkipSortInline
         | Some(elemT, consIdx) ->
             let s   = mkListShape elemT consIdx
             let gen = LabelGen("lsrt")
-            let (arrElemT, arrDefault) =
-                match elemT with
-                | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
-                | t -> t, makeNumericZero t
-            let readElem (arrExpr: WExpr) (idxExpr: WExpr) =
-                match elemT with
-                | WType.Ref(idx, false) ->
-                    cast (arrayGet arrExpr idxExpr (WType.Ref(idx, true))) (WType.Ref(idx, false))
-                | _ -> arrayGet arrExpr idxExpr elemT
-            let arrTypeIdx = getOrAddArrayType ctx arrElemT
-            let arrRefT    = WType.Ref(arrTypeIdx, false)
-            let wLst       = transform ctx listArg
-            let ltOp = if descending then WCompareOp.GtS else WCompareOp.LtS
-            Some(wasm {
-                let! lst = wLst
-                let! len = listLength gen s lst
-                let! arr = arrayNew arrTypeIdx len arrDefault arrRefT
-                // Fill array from list
-                let fillPhase =
-                    listFold gen s lst (i32Const 0) WType.I32
-                        (fun idx elem ->
-                            sequence [arraySet arr idx elem; add idx (i32Const 1)])
-                // Insertion sort
-                let cmpSeArrJ (se: WExpr) (sj: WExpr) =
+            let wLst = transform ctx listArg
+            match elemT with
+            | WType.Ref(idx, _) ->
+                // For reference-typed elements, use nullable array + cast-back pattern
+                let arrElemT   = WType.Ref(idx, true)
+                let arrDefault = WExpr.Const(WConst.Null(arrElemT))
+                let arrTypeIdx = getOrAddArrayType ctx arrElemT
+                let arrRefT    = WType.Ref(arrTypeIdx, false)
+                let readElem arrExpr idxExpr =
+                    cast (arrayGet arrExpr idxExpr arrElemT) (WType.Ref(idx, false))
+                let writeElem arrExpr idxExpr valExpr = arraySet arrExpr idxExpr valExpr
+                let ltOp = if descending then WCompareOp.GtS else WCompareOp.LtS
+                let inlineCmp a b =
                     match elemT with
                     | WType.Ref(si, _) when si = StringTypeIdx ->
-                        let cmpRes = WExpr.Call(ctx.UseHelper("$strCompare"), [se; readElem arr sj], WType.I32)
+                        let cmpRes = WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
                         WExpr.Compare(ltOp, cmpRes, i32Const 0)
-                    | _ -> WExpr.Compare(ltOp, se, readElem arr sj)
-                let sortPhase = wasm {
-                    let! si = mut (i32Const 1)
-                    while! (ltS si.Val len) do
-                        let! se = readElem arr si.Val
-                        let! sj = mut (sub si.Val (i32Const 1))
-                        let jCond =
-                            wasmAnd (geS sj.Val (i32Const 0)) (cmpSeArrJ se sj.Val)
-                        while! jCond do
-                            do! arraySet arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
-                            do! sj.Set(sub sj.Val (i32Const 1))
-                        do! arraySet arr (add sj.Val (i32Const 1)) se
-                        do! si.Set(add si.Val (i32Const 1))
-                }
-                // Rebuild list
-                let rebuildPhase = wasm {
-                    let! ri  = mut (sub len (i32Const 1))
-                    let! acc = mutTy s.BaseTy s.Nil
-                    while! (geS ri.Val (i32Const 0)) do
-                        do! acc.Set(s.Cons (readElem arr ri.Val) acc.Val)
-                        do! ri.Set(sub ri.Val (i32Const 1))
-                    return acc.Val
-                }
-                do! fillPhase
-                do! sortPhase
-                return! rebuildPhase
-            })
+                    | _ -> WExpr.Compare(ltOp, a, b)
+                Some(wasm {
+                    let! lst = wLst
+                    let! len = listLength gen s lst
+                    let! arr = arrayNew arrTypeIdx len arrDefault arrRefT
+                    let fillPhase =
+                        listFold gen s lst (i32Const 0) WType.I32
+                            (fun idx elem -> sequence [arraySet arr idx elem; add idx (i32Const 1)])
+                    do! fillPhase
+                    do! insertionSortInPlace gen arr len elemT readElem writeElem
+                            (fun a b -> wasmIf (inlineCmp a b) (i32Const -1) (i32Const 1))
+                    return! arrayToListRev gen s arr len (fun a i -> readElem a i)
+                })
+            | _ ->
+                // For numeric element types, delegate to the buildListSort combinator
+                let arrTypeIdx = getOrAddArrayType ctx elemT
+                Some(buildListSort gen s arrTypeIdx wLst descending)
         | None -> None
     // ── List.sortWith cmp xs ──────────────────────────────────────
     | "sortWith", (cmpArg :: listArg :: _) ->
@@ -209,6 +188,7 @@ let tryListTakeSkipSortInline
             | WType.Ref(idx, false) ->
                 cast (arrayGet arrExpr idxExpr arrElemT) (WType.Ref(idx, false))
             | _ -> arrayGet arrExpr idxExpr elemT
+        let writeElem arrExpr idxExpr valExpr = arraySet arrExpr idxExpr valExpr
         let arrTypeIdx = getOrAddArrayType ctx arrElemT
         let arrRefT    = WType.Ref(arrTypeIdx, false)
         let ctx'  = ctx.WithLocal(farg1.Name, elemT)
@@ -220,38 +200,13 @@ let tryListTakeSkipSortInline
             let! lst = wLst
             let! len = listLength gen s lst
             let! arr = arrayNew arrTypeIdx len arrDefault arrRefT
-            // Fill
             let fillPhase =
                 listFold gen s lst (i32Const 0) WType.I32
                     (fun idx elem ->
                         sequence [arraySet arr idx elem; add idx (i32Const 1)])
-            // Sort
-            let sortPhase = wasm {
-                let! si = mut (i32Const 1)
-                while! (ltS si.Val len) do
-                    let! e  = readElem arr si.Val
-                    let! sj = mut (sub si.Val (i32Const 1))
-                    let jCond =
-                        wasmAnd (geS sj.Val (i32Const 0))
-                            (gtS (inlineCmp (readElem arr sj.Val) e) (i32Const 0))
-                    while! jCond do
-                        do! arraySet arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
-                        do! sj.Set(sub sj.Val (i32Const 1))
-                    do! arraySet arr (add sj.Val (i32Const 1)) e
-                    do! si.Set(add si.Val (i32Const 1))
-            }
-            // Rebuild
-            let rebuildPhase = wasm {
-                let! ri  = mut (sub len (i32Const 1))
-                let! acc = mutTy s.BaseTy s.Nil
-                while! (geS ri.Val (i32Const 0)) do
-                    do! acc.Set(s.Cons (readElem arr ri.Val) acc.Val)
-                    do! ri.Set(sub ri.Val (i32Const 1))
-                return acc.Val
-            }
             do! fillPhase
-            do! sortPhase
-            return! rebuildPhase
+            do! insertionSortInPlace gen arr len elemT readElem writeElem inlineCmp
+            return! arrayToListRev gen s arr len (fun a i -> readElem a i)
         })
     // ── List.flatten / List.concat ─────────────────────────────────
     | ("flatten" | "concat"), (listArg :: _) ->
