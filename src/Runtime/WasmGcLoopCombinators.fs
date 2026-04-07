@@ -390,15 +390,12 @@ let buildListSort
         let! len = listLength gen s lst
         let! arr = arrayNew arrTypeIdx len (makeNumericZero s.ElemTy) arrRefTy
 
-        // Fill the array from the list
+        // Fill the array from the list (index is the accumulator)
         let arrGet arr i = arrayGet arr i s.ElemTy
         let arrSet arr i v = arraySet arr i v
-        let! fi = mut (i32Const 0)
-        do! listFold gen s lst WExpr.Nop WType.Void
-                (fun _ elem -> wasm {
-                    do! arrSet arr fi.Val elem
-                    return! fi.Set(add fi.Val (i32Const 1))
-                })
+        do! listFold gen s lst (i32Const 0) WType.I32
+                (fun idx elem ->
+                    sequence [arrSet arr idx elem; add idx (i32Const 1)])
 
         // Insertion sort in-place
         do! insertionSortInPlace gen arr len s.ElemTy

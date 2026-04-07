@@ -377,9 +377,8 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
-                let arrRefT    = WType.Ref(arrTypeIdx, false)
-                let wArr       = transform ctx arrArg
                 let gen        = LabelGen("ared")
+                let wArr       = transform ctx arrArg
                 let ctx'       = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
                 let wBody      = transform ctx' fbody
                 Some(wasm {
@@ -1027,9 +1026,8 @@ let tryArrayInstanceCall
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
                 let arrTypeIdx = getOrAddArrayType ctx elemT
-                let arrRefT    = WType.Ref(arrTypeIdx, false)
-                let wArr       = transform ctx arrExpr
                 let gen        = LabelGen("ired")
+                let wArr       = transform ctx arrExpr
                 let ctx'       = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
                 let wBody      = transform ctx' fbody
                 Some(wasm {
