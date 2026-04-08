@@ -2735,4 +2735,24 @@ let testSetModuleFold () : int =
     let s = SetModule.empty intCmp |> SetModule.add 10 |> SetModule.add 20 |> SetModule.add 30
     SetModule.fold (fun acc x -> acc + x) 0 s  // 60
 
+// ── Sprint 25e: Mutual LetRec closures ─────────────────────────
+
+/// Mutual recursion via let rec … and …: even checks — is-even/is-odd.
+let testMutualLetRec () : int =
+    let rec isEven (n: int) : bool =
+        if n = 0 then true else isOdd (n - 1)
+    and isOdd (n: int) : bool =
+        if n = 0 then false else isEven (n - 1)
+    if isEven 4 && isOdd 3 then 1 else 0  // 1
+
+/// Two mutually recursive functions that ping-pong until a limit.
+let testMutualLetRecPingPong () : int =
+    let rec ping (n: int) : int =
+        if n >= 10 then n
+        else pong (n + 1)
+    and pong (n: int) : int =
+        if n >= 10 then n
+        else ping (n + 1)
+    ping 0   // 10
+
 // ── Phase 5: Async — requires backend wiring (Sprint 25) ────────

@@ -104,8 +104,24 @@ let mutTy (ty: WType) (init: WExpr) : MutInit = { Init = init; Ty = ty }
 /// paired with the `While` method to emit Block/Loop/If/Break/Continue.
 /// No more nested `wasm { ... return! last }` blocks required.
 
-/// Internal stack for while! guard expressions (module-level for struct-safe access).
+/// Internal stack for while! guard expressions.
+/// Used as fallback when compiled with the STANDARD (unpatched) F# compiler.
+/// When compiled with the PATCHED compiler (vendor/fsharp), WhileBang takes
+/// priority and this stack is never touched.
 let private _whileBangGuards = System.Collections.Generic.Stack<WExpr>()
+
+/// Construct a WASM while-loop: Block { Loop { If(guard, body+continue, break) } }
+let private makeWhileLoop (guard: WExpr) (body: WExpr) : WExpr =
+    let loopLbl = freshName ()
+    let exitLbl = loopLbl + "_exit"
+    WExpr.Block(exitLbl,
+        WExpr.Loop(loopLbl,
+            WExpr.If(guard,
+                WExpr.Sequence [body; WExpr.Continue(loopLbl, [])],
+                WExpr.Break(exitLbl, None),
+                WType.Void),
+            WType.Void),
+        WType.Void)
 
 type WasmBuilder() =
 
@@ -141,29 +157,42 @@ type WasmBuilder() =
         | WExpr.Nop -> expr
         | _ -> WExpr.Sequence [expr; body]
 
-    /// `while! guard do body` — loop with a WExpr condition.
-    /// F# desugars `while! e do body` as `Bind(e, fun v -> While(fun () -> v, body))`.
-    /// We capture the guard in a stack and reconstruct it in `While`.
+    // ── while! support ────────────────────────────────────────────────────────
+    // TODO: this doesn't look like a clean solution. it should be on compiler level not here
+    //
+    // PATCHED COMPILER PATH (vendor/fsharp, branch features/ce-enhancements-desugaring):
+    //   `while! guard do body` desugars to:
+    //     builder.WhileBang(guard, builder.Delay(fun () -> body))
+    //   WhileBang receives the WExpr guard directly — no bool constraint.
+    //   The Bind(WExpr, bool->WExpr) + While hack is NOT called.
+    //
+    // STANDARD COMPILER FALLBACK:
+    //   `while! guard do body` desugars to:
+    //     Bind(guard, fun res -> While(fun () -> res, translatedBody))
+    //   We capture the guard in _whileBangGuards via Bind(WExpr, bool->WExpr),
+    //   then reconstruct the loop in While().
+
+    /// `while! guard do body` — PATCHED COMPILER PATH.
+    /// Called directly when compiled with vendor/fsharp (WhileBang takes priority).
+    /// Guard is a WExpr — no bool coercion, no stack hack needed.
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
+    member _.WhileBang(guard: WExpr, body: WExpr) : WExpr =
+        makeWhileLoop guard body
+
+    /// `while! guard do body` — STANDARD COMPILER FALLBACK.
+    /// The guard is captured here (stack hack) and reconstructed in While.
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
     member _.Bind(guard: WExpr, k: bool -> WExpr) : WExpr =
         _whileBangGuards.Push(guard)
         k true
 
-    /// While — paired with `Bind(WExpr, bool -> WExpr)` for `while!`.
+    /// `while!` loop construction — STANDARD COMPILER FALLBACK.
+    /// Paired with Bind(WExpr, bool->WExpr) above.
     /// Pops the WExpr guard from the stack and constructs Block/Loop/If.
     member _.While(guard: unit -> bool, body: WExpr) : WExpr =
         if _whileBangGuards.Count > 0 then
             let g = _whileBangGuards.Pop()
-            let loopLbl = freshName ()
-            let exitLbl = loopLbl + "_exit"
-            WExpr.Block(exitLbl,
-                WExpr.Loop(loopLbl,
-                    WExpr.If(g,
-                        WExpr.Sequence [body; WExpr.Continue(loopLbl, [])],
-                        WExpr.Break(exitLbl, None),
-                        WType.Void),
-                    WType.Void),
-                WType.Void)
+            makeWhileLoop g body
         else
             body
 

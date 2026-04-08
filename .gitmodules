@@ -1,3 +1,6 @@
 [submodule "vendor/Fable"]
 	path = vendor/Fable
 	url = https://github.com/fsharp-wasm/Fable.git
+[submodule "vendor/fsharp"]
+	path = vendor/fsharp
+	url = https://github.com/fsharp-wasm/fsharp

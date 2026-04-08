@@ -1,0 +1,22 @@
+<Project>
+  <!--
+    Patched F# compiler support.
+
+    When FSHARP_COMPILER env var is set (done by .envrc when the binary exists),
+    override FscToolPath to use the patched fsc.dll from vendor/fsharp.
+
+    To build the patched compiler:
+      cd vendor/fsharp
+      DOTNET_INSTALL_DIR=dotnet-root ./build.sh -configuration Release
+
+    FSHARP_COMPILER is set to:
+      vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+  -->
+  <PropertyGroup Condition="'$(FSHARP_COMPILER)' != ''">
+    <!-- <FscToolPath>$([System.IO.Path]::GetDirectoryName('$(FSHARP_COMPILER)'))</FscToolPath> -->
+    <!-- <FscToolExe>fsc.dll</FscToolExe> -->
+    <!-- Override the dotnet fsc compiler path with the patched version. -->
+    <!-- The standard SDK uses DotnetFscCompilerPath for managed (dotnet) fsc invocations. -->
+    <DotnetFscCompilerPath>$(FSHARP_COMPILER)</DotnetFscCompilerPath>
+  </PropertyGroup>
+</Project>

@@ -768,6 +768,10 @@ check("MapModule remove reduces count → 2",                  2, exp.testMapMod
 check("MapModule toList length → 3",                         3, exp.testMapModuleToList());
 check("SetModule fold sum → 60",                            60, exp.testSetModuleFold());
 
+console.log("\n─── Sprint 25e: Mutual LetRec closures ─────────────────────");
+check("Mutual letRec isEven/isOdd → 1",                       1, exp.testMutualLetRec());
+check("Mutual letRec ping/pong → 10",                       10, exp.testMutualLetRecPingPong());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

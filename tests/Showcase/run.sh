@@ -8,9 +8,8 @@ OUT="$HERE/output"
 
 echo ""
 echo "=== 1/3  Compiling F# → WasmGc ==="
-dotnet run --project "$ROOT/vendor/Fable/src/Fable.Cli" -- \
+dotnet run --project "$ROOT/tools/fsharp-wasm-cli" -- \
     "$HERE" \
-    --lang wasmgc \
     --outDir "$OUT" \
     --noCache
 
