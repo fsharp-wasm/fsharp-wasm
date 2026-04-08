@@ -144,9 +144,11 @@ let trySetInline
         match Map.tryFind "Set_ofList" ctx.KnownFuncs with
         | Some (_, retTy) -> Some(WExpr.Call("Set_ofList", [wList], retTy))
         | None -> None
-    // Set.ofArray [items; _comparer] — not yet supported (no Set_ofArray in BCL)
-    // TODO: implement Set_ofArray or convert array→list first
-    | "ofArray", _ -> None
+    // Set.ofArray [items; _comparer] — drop injected comparer
+    | "ofArray", [wArr; _comparer] ->
+        match Map.tryFind "Set_ofArray" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Set_ofArray", [wArr], retTy))
+        | None -> None
     // Set.empty [_comparer]
     | "empty", [_comparer] ->
         match Map.tryFind "Set_empty" ctx.KnownFuncs with
@@ -154,7 +156,31 @@ let trySetInline
         | None -> None
     // Set.singleton [value; _comparer]
     | "singleton", [wVal; _comparer] ->
+        match Map.tryFind "Set_singleton" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Set_singleton", [wVal], retTy))
+        | None ->
         match Map.tryFind "Set_add" ctx.KnownFuncs, Map.tryFind "Set_empty" ctx.KnownFuncs with
         | Some (_, retTy), Some _ -> Some(WExpr.Call("Set_add", [wVal; WExpr.Call("Set_empty", [], retTy)], retTy))
         | _ -> None
+    // Set.map [mapping; set; _comparer] — drop injected comparer
+    | "map", [wMapping; wSet; _comparer] ->
+        match Map.tryFind "Set_map" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Set_map", [wMapping; wSet], retTy))
+        | None -> None
+    // Set.iterate → Set_iter (naming mismatch)
+    | "iterate", wArgs ->
+        match Map.tryFind "Set_iter" ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call("Set_iter", wArgs, retTy))
+        | None -> None
+    // Direct-mapping operations (no comparer injection, pass args as-is)
+    | sel, wArgs when
+        sel = "add" || sel = "contains" || sel = "remove" || sel = "count" ||
+        sel = "isEmpty" || sel = "fold" || sel = "toList" ||
+        sel = "filter" || sel = "exists" || sel = "forAll" ||
+        sel = "union" || sel = "intersect" || sel = "difference" ||
+        sel = "isSubset" || sel = "minElement" || sel = "maxElement" ->
+        let funcName = $"Set_{sel}"
+        match Map.tryFind funcName ctx.KnownFuncs with
+        | Some (_, retTy) -> Some(WExpr.Call(funcName, wArgs, retTy))
+        | None -> None
     | _ -> None

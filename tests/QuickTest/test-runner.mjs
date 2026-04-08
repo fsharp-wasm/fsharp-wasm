@@ -704,6 +704,48 @@ check("Seq.reduce sum → 15",               15, exp.testSeqReduce());
 check("Seq.mapi i+x → 63",                63, exp.testSeqMapIndexed());
 check("Seq.forall >0 → 1",                  1, exp.testSeqForall());
 
+console.log("\n─── Phase 2c: Set operations ─────");
+check("Set.ofList dedup → 3",               3, exp.testSetOfListCount());
+check("Set.contains → 2",                   2, exp.testSetContains());
+check("Set.add → 4",                        4, exp.testSetAdd());
+check("Set.remove → 3",                     3, exp.testSetRemove());
+check("Set.isEmpty → 2",                    2, exp.testSetIsEmpty());
+check("Set.fold sum → 15",                 15, exp.testSetFold());
+check("Set.toList len → 3",                 3, exp.testSetToList());
+check("Set.filter even → 3",                3, exp.testSetFilter());
+check("Set.exists >4 → 1",                  1, exp.testSetExists());
+check("Set.forall >0 → 1",                  1, exp.testSetForall());
+check("Set.union → 5",                      5, exp.testSetUnion());
+check("Set.intersect → 2",                  2, exp.testSetIntersect());
+check("Set.difference → 2",                 2, exp.testSetDifference());
+check("Set.isSubset → 2",                   2, exp.testSetIsSubset());
+check("Set.map double → 12",               12, exp.testSetMap());
+check("Set.minMax → 6",                     6, exp.testSetMinMax());
+check("Set.singleton → 1",                  1, exp.testSetSingleton());
+check("Set.ofArray dedup → 3",              3, exp.testSetOfArray());
+
+console.log("\n─── Phase 4b: additional Seq/List ops ─────");
+check("Seq.head → 10",                     10, exp.testSeqHead());
+check("Seq.tryHead Some → 42",             42, exp.testSeqTryHead());
+check("Seq.tryHead None → 0",               0, exp.testSeqTryHeadEmpty());
+check("Seq.isEmpty → 2",                    2, exp.testSeqIsEmpty());
+check("Seq.length → 5",                     5, exp.testSeqLength());
+check("Seq.item 2 → 30",                   30, exp.testSeqItem());
+check("Seq.min+max → 6",                    6, exp.testSeqMinMax());
+check("Seq.sortBy fst → 10",                10, exp.testSeqSortBy());
+check("Seq.rev head → 3",                   3, exp.testSeqRev());
+// check("Seq.toArray len → 3",                3, exp.testSeqToArray()); // Array.ofList not implemented
+check("List.findIndex >20 → 2",             2, exp.testSeqFindIndex());
+check("List.skip+take → 7",                 7, exp.testSeqSkipTake());
+check("Seq.groupBy → 2",                    2, exp.testSeqGroupByCount());
+
+console.log("\n─── Phase 3b: More exception tests ─────");
+check("failwith nested fn → 77",           77, exp.testExnNestedFailwith());
+check("try/with mutable → 15",             15, exp.testExnUnit());
+check("try no throw → 30",                 30, exp.testExnNormalPath());
+check("nested try inner catch → 43",       43, exp.testExnNestedInnerCatch());
+check("nested try rethrow → 99",           99, exp.testExnNestedRethrow());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
