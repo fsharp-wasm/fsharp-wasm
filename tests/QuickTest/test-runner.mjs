@@ -757,6 +757,17 @@ check("closureCapSetFold: offset=100, Set.fold → 306",      306, exp.testClosu
 check("closureCapListExists: exists 7 → 1",                   1, exp.testClosureCapListExists());
 check("closureCapListForAll: forall <10 → 1",                 1, exp.testClosureCapListForAll());
 
+console.log("\n─── Sprint 25c: Generic Map/Set with stored comparator ─────");
+check("Map reverse cmp fold sum → 60",                      60, exp.testMapCustomCmpReverse());
+check("MapModule containsKey 20 → 1",                        1, exp.testMapModuleContainsKey());
+check("MapModule find 7 + tryFind 8 → 165",                165, exp.testMapModuleFindRoundTrip());
+check("SetModule add 3 distinct → count 3",                  3, exp.testSetModuleBasic());
+check("SetModule dedup → count 2",                           2, exp.testSetModuleDedup());
+check("SetModule contains 42 → 1",                           1, exp.testSetModuleContains());
+check("MapModule remove reduces count → 2",                  2, exp.testMapModuleRemove());
+check("MapModule toList length → 3",                         3, exp.testMapModuleToList());
+check("SetModule fold sum → 60",                            60, exp.testSetModuleFold());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

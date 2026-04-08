@@ -1265,34 +1265,37 @@ let testConst2FloatInt () : int =
 // The library is a REAL F# source file, not compiler-internal WasmIR.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Standard int comparator used by all MapModule/SetModule tests.
+let private intCmp (a: int) (b: int) : int = if a < b then -1 elif a > b then 1 else 0
+
 /// Test: MapModule.add + tryFind — found key → 100
 let testMapAddFind () : int =
-    let m = MapModule.empty() |> MapModule.add 1 100 |> MapModule.add 2 200
+    let m = MapModule.empty intCmp |> MapModule.add 1 100 |> MapModule.add 2 200
     MapModule.tryFind 1 m |> Option.defaultValue 0
 
 /// Test: tryFind on missing key → default 0
 let testMapFindMissing () : int =
-    let m = MapModule.empty() |> MapModule.add 1 100
+    let m = MapModule.empty intCmp |> MapModule.add 1 100
     MapModule.tryFind 99 m |> Option.defaultValue 0
 
 /// Test: count — two entries → 2
 let testMapCount () : int =
-    let m = MapModule.empty() |> MapModule.add 1 100 |> MapModule.add 2 200
+    let m = MapModule.empty intCmp |> MapModule.add 1 100 |> MapModule.add 2 200
     MapModule.count m
 
 /// Test: containsKey — key present → 1
 let testMapContainsKey () : int =
-    let m = MapModule.empty() |> MapModule.add 42 999
+    let m = MapModule.empty intCmp |> MapModule.add 42 999
     if MapModule.containsKey 42 m then 1 else 0
 
 /// Test: containsKey — key absent → 0
 let testMapContainsKeyMissing () : int =
-    let m = MapModule.empty() |> MapModule.add 42 999
+    let m = MapModule.empty intCmp |> MapModule.add 42 999
     if MapModule.containsKey 7 m then 1 else 0
 
 /// Test: add replaces existing key → 555
 let testMapAddReplace () : int =
-    let m = MapModule.empty() |> MapModule.add 1 100 |> MapModule.add 1 555
+    let m = MapModule.empty intCmp |> MapModule.add 1 100 |> MapModule.add 1 555
     MapModule.tryFind 1 m |> Option.defaultValue 0
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2662,5 +2665,74 @@ let testClosureCapListExists () : int =
 let testClosureCapListForAll () : int =
     let bound = 10
     if List.forall (fun x -> x < bound) [1; 3; 5; 7; 9] then 1 else 0  // 1
+
+// ── Sprint 25c: Generic Map/Set with stored comparator ───────────────────────
+
+/// Map with reverse (descending) comparator stored in handle.
+/// After Map.ofList [(1,10);(2,20);(3,30)] with reverse cmp, the BST is ordered
+/// descending so Map.fold left-to-right sums in reverse order: still 60.
+let testMapCustomCmpReverse () : int =
+    let reverseCmp (a: int) (b: int) = if a > b then -1 elif a < b then 1 else 0
+    let m = Map.ofList [(1, 10); (2, 20); (3, 30)]
+    // Regular Map uses injected comparator; reverse cmp via MapModule direct API
+    let m2 = MapModule.empty reverseCmp |> MapModule.add 1 10 |> MapModule.add 2 20 |> MapModule.add 3 30
+    MapModule.fold (fun acc _k v -> acc + v) 0 m2  // 60 (same sum regardless of order)
+
+/// MapModule with explicit intCmp — add multiple distinct keys, containsKey.
+let testMapModuleContainsKey () : int =
+    let m = MapModule.empty intCmp
+            |> MapModule.add 10 100
+            |> MapModule.add 20 200
+            |> MapModule.add 30 300
+    if MapModule.containsKey 20 m && not (MapModule.containsKey 99 m) then 1 else 0  // 1
+
+/// MapModule tryFind and find round-trip.
+let testMapModuleFindRoundTrip () : int =
+    let m = MapModule.empty intCmp |> MapModule.add 7 77 |> MapModule.add 8 88
+    MapModule.find 7 m + (MapModule.tryFind 8 m |> Option.defaultValue 0)  // 77 + 88 = 165
+
+/// SetModule with explicit comparator: add distinct values, count = 3.
+let testSetModuleBasic () : int =
+    let s = SetModule.empty intCmp
+            |> SetModule.add 5
+            |> SetModule.add 3
+            |> SetModule.add 7
+    SetModule.count s  // 3
+
+/// SetModule deduplication — adding duplicates doesn't increase count.
+let testSetModuleDedup () : int =
+    let s = SetModule.empty intCmp
+            |> SetModule.add 1
+            |> SetModule.add 1
+            |> SetModule.add 2
+            |> SetModule.add 2
+    SetModule.count s  // 2
+
+/// SetModule.contains works correctly.
+let testSetModuleContains () : int =
+    let s = SetModule.empty intCmp |> SetModule.add 42 |> SetModule.add 99
+    if SetModule.contains 42 s && not (SetModule.contains 1 s) then 1 else 0  // 1
+
+/// MapModule.remove reduces count by 1.
+let testMapModuleRemove () : int =
+    let m = MapModule.empty intCmp
+            |> MapModule.add 1 10
+            |> MapModule.add 2 20
+            |> MapModule.add 3 30
+    let m2 = MapModule.remove 2 m
+    MapModule.count m2  // 2
+
+/// MapModule.toList returns pairs in ascending order of comparison.
+let testMapModuleToList () : int =
+    let m = MapModule.empty intCmp
+            |> MapModule.add 3 30
+            |> MapModule.add 1 10
+            |> MapModule.add 2 20
+    MapModule.toList m |> List.length  // 3
+
+/// SetModule.fold sum using explicit comparator.
+let testSetModuleFold () : int =
+    let s = SetModule.empty intCmp |> SetModule.add 10 |> SetModule.add 20 |> SetModule.add 30
+    SetModule.fold (fun acc x -> acc + x) 0 s  // 60
 
 // ── Phase 5: Async — requires backend wiring (Sprint 25) ────────

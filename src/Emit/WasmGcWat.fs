@@ -656,30 +656,32 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         w $"struct.new {watId name}"
 
     | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, _captureCount, _) ->
+        // Self-parameter convention (Sprint 25b):
+        //   cast → save in tmp → push $self → push args → cast again → struct.get code → call_ref
+        let ftName  = typeNames |> Map.tryFind funcTypeIdx   |> Option.defaultValue (string funcTypeIdx)
+        let cloName = typeNames |> Map.tryFind closureTypeIdx |> Option.defaultValue (string closureTypeIdx)
         emit closure
+        if closureTypeIdx > 0 then w $"ref.cast (ref {watId cloName})"
         w "local.tee $clo_apply_tmp"
         w "drop"
+        w "local.get $clo_apply_tmp"    // $self (first arg)
         for a in args do emit a
         w "local.get $clo_apply_tmp"
-        if closureTypeIdx > 0 then
-            let name = typeNames |> Map.tryFind closureTypeIdx |> Option.defaultValue (sprintf "%d" closureTypeIdx)
-            w $"ref.cast (ref {watId name})"
-        let ftName = typeNames |> Map.tryFind funcTypeIdx |> Option.defaultValue (string funcTypeIdx)
-        let cloName = typeNames |> Map.tryFind closureTypeIdx |> Option.defaultValue (string closureTypeIdx)
+        if closureTypeIdx > 0 then w $"ref.cast (ref {watId cloName})"
         w $"struct.get {watId cloName} 0"
         w $"call_ref {watId ftName}"
 
     | WExpr.TailCallRef(closure, args, funcTypeIdx, closureTypeIdx, _captureCount, _) ->
+        let ftName  = typeNames |> Map.tryFind funcTypeIdx   |> Option.defaultValue (string funcTypeIdx)
+        let cloName = typeNames |> Map.tryFind closureTypeIdx |> Option.defaultValue (string closureTypeIdx)
         emit closure
+        if closureTypeIdx > 0 then w $"ref.cast (ref {watId cloName})"
         w "local.tee $clo_apply_tmp"
         w "drop"
+        w "local.get $clo_apply_tmp"    // $self (first arg)
         for a in args do emit a
         w "local.get $clo_apply_tmp"
-        if closureTypeIdx > 0 then
-            let name = typeNames |> Map.tryFind closureTypeIdx |> Option.defaultValue (string closureTypeIdx)
-            w $"ref.cast (ref {watId name})"
-        let ftName = typeNames |> Map.tryFind funcTypeIdx |> Option.defaultValue (string funcTypeIdx)
-        let cloName = typeNames |> Map.tryFind closureTypeIdx |> Option.defaultValue (string closureTypeIdx)
+        if closureTypeIdx > 0 then w $"ref.cast (ref {watId cloName})"
         w $"struct.get {watId cloName} 0"
         w $"return_call_ref {watId ftName}"
 

@@ -159,7 +159,7 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
             argInstrs @ [Instr.Call 0; Instr.Return] // unreachable fallback
 
     | WExpr.TailCallRef(closure, args, funcTypeIdx, closureTypeIdx, _captureCount, _) ->
-        // return_call_ref: tail call via function reference (for closure tail calls)
+        // Same self-parameter pattern as ClosureApply but using return_call_ref.
         let closureInstrs = emitExpr ctx closure
         let argsInstrs = args |> List.collect (emitExpr ctx)
         let tmpIdx = ctx.GetLocalIdx("$clo_apply_tmp")
@@ -169,7 +169,9 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
                 [Instr.RefCast rt]
             else []
         closureInstrs
+        @ castInstr
         @ [Instr.LocalTee tmpIdx; Instr.Drop]
+        @ [Instr.LocalGet tmpIdx]                // push $self (first arg)
         @ argsInstrs
         @ [Instr.LocalGet tmpIdx]
         @ castInstr
@@ -410,15 +412,15 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         [Instr.RefFunc funcIdx]
 
     | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, _captureCount, _) ->
-        // Emit:
-        //   <closure>                          push closure (ref $AnyFn or specific)
-        //   local.tee $clo_apply_tmp           save in tmp, leaves value on stack
-        //   drop                               discard stack value (we use $tmp below)
-        //   <args...>                          push args
-        //   local.get $clo_apply_tmp           re-push closure
-        //   ref.cast (ref $SpecificClosure)    downcast to specific struct if needed
-        //   struct.get $SpecificClosure 0      load code_ref field
-        //   call_ref $funcTypeIdx              indirect call
+        // Self-parameter calling convention (Sprint 25b):
+        //   1. Eval closure → cast to ClosureBase → save in $clo_apply_tmp (type ref $AnyFn)
+        //   2. Push $clo_apply_tmp as $self (first arg, type ref $AnyFn — functype requires this)
+        //   3. Push remaining args
+        //   4. Push $clo_apply_tmp → re-cast to ClosureBase → struct.get 0 → code ptr
+        //   5. call_ref $funcTypeIdx (where funcTypeIdx = (ref $AnyFn, arg1...) → R)
+        //
+        // Two ref.casts of the same value cost negligible overhead and are valid because
+        // $clo_apply_tmp (type ref $AnyFn) holds a value that is actually ref $ClosureBase_X.
         let closureInstrs = emitExpr ctx closure
         let argsInstrs = args |> List.collect (emitExpr ctx)
         let tmpIdx = ctx.GetLocalIdx("$clo_apply_tmp")
@@ -428,10 +430,12 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
                 [Instr.RefCast rt]
             else []
         closureInstrs
-        @ [Instr.LocalTee tmpIdx; Instr.Drop]
-        @ argsInstrs
-        @ [Instr.LocalGet tmpIdx]
-        @ castInstr
+        @ castInstr                              // cast to ClosureBase (for struct.get later)
+        @ [Instr.LocalTee tmpIdx; Instr.Drop]    // save (stored as ref $AnyFn in local)
+        @ [Instr.LocalGet tmpIdx]                // push $self (first arg: ref $AnyFn)
+        @ argsInstrs                             // push other args
+        @ [Instr.LocalGet tmpIdx]                // push for struct.get
+        @ castInstr                              // cast to ClosureBase again
         @ [Instr.StructGet(closureTypeIdx, 0); Instr.CallRef funcTypeIdx]
 
     // ── Numeric operations ────────────────────────────────
@@ -922,6 +926,8 @@ let emitModule (wmod: WModule) : WasmModule =
             | Instr.If(_, thenBody, elseBody) ->
                 collectRefFuncs thenBody @ collectRefFuncs elseBody
             | Instr.Block(_, body) | Instr.Loop(_, body) ->
+                collectRefFuncs body
+            | Instr.TryTable(_, _, body) ->
                 collectRefFuncs body
             | _ -> [])
 
