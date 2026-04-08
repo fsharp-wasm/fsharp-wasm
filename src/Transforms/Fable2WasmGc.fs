@@ -609,6 +609,20 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             WExpr.Throw(wExpr)
         | _ -> WExpr.Nop
 
+    // ── ObjectExpr: IComparer-like interface objects ───────
+    // Fable emits makeComparer as ObjectExpr { Compare = fun x y -> compare x y }.
+    // We extract the Compare (or Equals/GetHashCode) member body and translate it.
+    // For IComparer, the body is a Delegate — buildClosure handles it and returns
+    // a (ref $AnyFn) closure that can be stored as MapHandle/SetHandle.Cmp.
+    | Fable.Expr.ObjectExpr(members, _, _) ->
+        // Prefer "Compare" for IComparer, fall back to first member for other objects
+        let target =
+            members |> List.tryFind (fun m -> m.Name = "Compare")
+            |> Option.orElse (List.tryHead members)
+        match target with
+        | Some m -> transformExpr ctx m.Body
+        | None -> WExpr.Nop
+
     // ── Catch-all ─────────────────────────────────────────
     | _ ->
         WExpr.Nop // TODO: emit warning for unhandled expression
@@ -883,6 +897,7 @@ and transformValue (ctx: Ctx) (kind: ValueKind) : WExpr =
                                 |> List.map (fun f ->
                                     let concreteType = substituteType f.FieldType
                                     { Name = f.Name; Type = mapTypeKnown ctx concreteType; Mutable = false })
+                                |> List.filter (fun f -> f.Type <> WType.Void)
                             ctx.TypeDefs.Add(
                                 { Name = $"{instKey}#{i}"
                                   Def = WTypeDef.Struct(
@@ -1865,7 +1880,7 @@ and trySpecializeCall
     // 7. Get generic param names in declaration order via the declaring compiler.
     //    Use declCom (the compiler for the file that DECLARES the generic function)
     //    so that entity lookups resolve correctly even for cross-file generics.
-    let paramNamesOpt =
+    let paramNamesOpt = // TODO: rewrite with Option.bind or add OptionBuilder for our staircases here! Who shold read this!
         match memberDecl.MemberRef with
         | MemberRef(entityRef, memberRefInfo) ->
             match declCom.TryGetEntity(entityRef) with
@@ -2093,6 +2108,7 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                         case.UnionCaseFields
                         |> List.map (fun f ->
                             { Name = f.Name; Type = mapTypeKnown ctx'' f.FieldType; Mutable = false })
+                        |> List.filter (fun f -> f.Type <> WType.Void)
                     ctx.TypeDefs.Add(
                         { Name = $"{classDecl.Entity.FullName}#{i}"
                           Def = WTypeDef.Struct(

@@ -1,196 +1,234 @@
-/// fable-library-wasmgc — Set collection.
+/// fable-library-wasmgc — Generic Set collection.
 /// Written in pure F# — compiled by the WasmGC Fable backend.
-/// Int-only BST (same strategy as Map.fs).
+/// Supports any element type ('T) comparable via a provided cmp function.
+/// The comparison function is stored in the SetHandle wrapper.
 module SetModule
 
-// ─── Data type ───────────────────────────────────────────────────────────────
+// ─── Internal tree node ──────────────────────────────────────────────────────
 
-type SetNode =
+type SetNode<'T> =
     | Empty
-    | Node of int * SetNode * SetNode
-    //         value  left     right
+    | Node of value: 'T * left: SetNode<'T> * right: SetNode<'T>
+    //         ───────   ────────────────────  ────────────────────
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// ─── Set handle ──────────────────────────────────────────────────────────────
 
-/// Empty set.
-let empty () : SetNode = Empty
+type SetHandle<'T> =
+    { Root: SetNode<'T>; Cmp: 'T -> 'T -> int }
 
-/// True when the set has no elements.
-let isEmpty (tree: SetNode) : bool =
-    match tree with
-    | Empty -> true
-    | _ -> false
+// ─── Internal tree operations ────────────────────────────────────────────────
 
-/// Add an element.
-let rec add (value: int) (tree: SetNode) : SetNode =
-    match tree with
+let rec private nodeAdd (cmp: 'T -> 'T -> int) (value: 'T) (node: SetNode<'T>) : SetNode<'T> =
+    match node with
     | Empty -> Node(value, Empty, Empty)
     | Node(v, l, r) ->
-        if value < v then Node(v, add value l, r)
-        elif value > v then Node(v, l, add value r)
-        else tree  // already present
+        let c = cmp value v
+        if c < 0 then Node(v, nodeAdd cmp value l, r)
+        elif c > 0 then Node(v, l, nodeAdd cmp value r)
+        else node  // already present
 
-/// Check if element is present.
-let rec contains (value: int) (tree: SetNode) : bool =
-    match tree with
+let rec private nodeContains (cmp: 'T -> 'T -> int) (value: 'T) (node: SetNode<'T>) : bool =
+    match node with
     | Empty -> false
     | Node(v, l, r) ->
-        if value < v then contains value l
-        elif value > v then contains value r
+        let c = cmp value v
+        if c < 0 then nodeContains cmp value l
+        elif c > 0 then nodeContains cmp value r
         else true
 
-/// Helper: merge two subtrees by inserting all elements of source into target.
-let rec private setMergeInto (source: SetNode) (target: SetNode) : SetNode =
+let rec private nodeMergeInto (cmp: 'T -> 'T -> int) (source: SetNode<'T>) (target: SetNode<'T>) : SetNode<'T> =
     match source with
     | Empty -> target
     | Node(sv, sl, sr) ->
-        setMergeInto sr (setMergeInto sl (add sv target))
+        nodeMergeInto cmp sr (nodeMergeInto cmp sl (nodeAdd cmp sv target))
 
-/// Remove an element by rebuilding without it.
-let rec remove (value: int) (tree: SetNode) : SetNode =
-    match tree with
+let rec private nodeRemove (cmp: 'T -> 'T -> int) (value: 'T) (node: SetNode<'T>) : SetNode<'T> =
+    match node with
     | Empty -> Empty
     | Node(v, l, r) ->
-        if value < v then Node(v, remove value l, r)
-        elif value > v then Node(v, l, remove value r)
-        else setMergeInto r l
+        let c = cmp value v
+        if c < 0 then Node(v, nodeRemove cmp value l, r)
+        elif c > 0 then Node(v, l, nodeRemove cmp value r)
+        else nodeMergeInto cmp r l
 
-/// Total number of elements.
-let rec count (tree: SetNode) : int =
-    match tree with
-    | Empty -> 0
-    | Node(_, l, r) -> 1 + count l + count r
-
-/// Convert to a list in ascending order.
-let rec private toListAcc (acc: int list) (n: SetNode) : int list =
-    match n with
-    | Empty -> acc
-    | Node(v, l, r) -> toListAcc (v :: toListAcc acc r) l
-
-let toList (node: SetNode) : int list = toListAcc [] node
-
-/// Fold over all elements in ascending order (left → root → right).
-let rec fold (folder: int -> int -> int) (state: int) (node: SetNode) : int =
+let rec private nodeFold (folder: 'S -> 'T -> 'S) (state: 'S) (node: SetNode<'T>) : 'S =
     match node with
     | Empty -> state
     | Node(v, l, r) ->
-        let s1 = fold folder state l
+        let s1 = nodeFold folder state l
         let s2 = folder s1 v
-        fold folder s2 r
+        nodeFold folder s2 r
 
-/// Iterate over all elements in ascending order.
-let rec iter (action: int -> unit) (node: SetNode) : unit =
+let rec private nodeIter (action: 'T -> unit) (node: SetNode<'T>) : unit =
     match node with
     | Empty -> ()
     | Node(v, l, r) ->
-        iter action l
+        nodeIter action l
         action v
-        iter action r
+        nodeIter action r
 
-/// Filter elements by predicate, rebuilding the tree.
-let rec filter (predicate: int -> bool) (node: SetNode) : SetNode =
+let rec private nodeFilter (cmp: 'T -> 'T -> int) (predicate: 'T -> bool) (node: SetNode<'T>) : SetNode<'T> =
     match node with
     | Empty -> Empty
     | Node(v, l, r) ->
-        let fl = filter predicate l
-        let fr = filter predicate r
+        let fl = nodeFilter cmp predicate l
+        let fr = nodeFilter cmp predicate r
         if predicate v then Node(v, fl, fr)
-        else setMergeInto fr fl
+        else nodeMergeInto cmp fr fl
 
-/// Check if any element satisfies the predicate.
-let rec exists (predicate: int -> bool) (node: SetNode) : bool =
+let rec private nodeExists (predicate: 'T -> bool) (node: SetNode<'T>) : bool =
     match node with
     | Empty -> false
     | Node(v, l, r) ->
         if predicate v then true
-        elif exists predicate l then true
-        else exists predicate r
+        elif nodeExists predicate l then true
+        else nodeExists predicate r
 
-/// Check if all elements satisfy the predicate.
-let rec forAll (predicate: int -> bool) (node: SetNode) : bool =
+let rec private nodeForAll (predicate: 'T -> bool) (node: SetNode<'T>) : bool =
     match node with
     | Empty -> true
     | Node(v, l, r) ->
         if not (predicate v) then false
-        elif not (forAll predicate l) then false
-        else forAll predicate r
+        elif not (nodeForAll predicate l) then false
+        else nodeForAll predicate r
 
-/// Union of two sets.
-let rec union (a: SetNode) (b: SetNode) : SetNode =
+let rec private nodeUnion (cmp: 'T -> 'T -> int) (a: SetNode<'T>) (b: SetNode<'T>) : SetNode<'T> =
     match a with
     | Empty -> b
     | Node(v, l, r) ->
-        union r (union l (add v b))
+        nodeUnion cmp r (nodeUnion cmp l (nodeAdd cmp v b))
 
-/// Intersection of two sets — keep elements from a that exist in b.
-let rec private intersectAcc (b: SetNode) (node: SetNode) (acc: SetNode) : SetNode =
+let rec private nodeIntersectAcc (cmp: 'T -> 'T -> int) (b: SetNode<'T>) (node: SetNode<'T>) (acc: SetNode<'T>) : SetNode<'T> =
     match node with
     | Empty -> acc
     | Node(v, l, r) ->
-        let acc1 = intersectAcc b l acc
-        let acc2 = if contains v b then add v acc1 else acc1
-        intersectAcc b r acc2
+        let acc1 = nodeIntersectAcc cmp b l acc
+        let acc2 = if nodeContains cmp v b then nodeAdd cmp v acc1 else acc1
+        nodeIntersectAcc cmp b r acc2
 
-let intersect (a: SetNode) (b: SetNode) : SetNode =
-    intersectAcc b a Empty
-
-/// Difference: elements in a but not in b.
-let rec private differenceAcc (b: SetNode) (node: SetNode) (acc: SetNode) : SetNode =
+let rec private nodeDifferenceAcc (cmp: 'T -> 'T -> int) (b: SetNode<'T>) (node: SetNode<'T>) (acc: SetNode<'T>) : SetNode<'T> =
     match node with
     | Empty -> acc
     | Node(v, l, r) ->
-        let acc1 = differenceAcc b l acc
-        let acc2 = if contains v b then acc1 else add v acc1
-        differenceAcc b r acc2
+        let acc1 = nodeDifferenceAcc cmp b l acc
+        let acc2 = if nodeContains cmp v b then acc1 else nodeAdd cmp v acc1
+        nodeDifferenceAcc cmp b r acc2
 
-let difference (a: SetNode) (b: SetNode) : SetNode =
-    differenceAcc b a Empty
-
-/// Check if a is a subset of b.
-/// Check whether a is a subset of b (every element of a is in b).
-let rec isSubset (a: SetNode) (b: SetNode) : bool =
+let rec private nodeIsSubset (cmp: 'T -> 'T -> int) (a: SetNode<'T>) (b: SetNode<'T>) : bool =
     match a with
     | Empty -> true
     | Node(v, l, r) ->
-        contains v b && isSubset l b && isSubset r b
+        nodeContains cmp v b && nodeIsSubset cmp l b && nodeIsSubset cmp r b
 
-/// Build a set from a list.
-let rec private ofListAcc (acc: SetNode) (xs: int list) : SetNode =
-    match xs with
-    | [] -> acc
-    | x :: rest -> ofListAcc (add x acc) rest
+let rec private nodeToListAcc (acc: 'T list) (node: SetNode<'T>) : 'T list =
+    match node with
+    | Empty -> acc
+    | Node(v, l, r) -> nodeToListAcc (v :: nodeToListAcc acc r) l
 
-let ofList (xs: int list) : SetNode = ofListAcc Empty xs
-
-/// Build a set from an array.
-let ofArray (xs: int array) : SetNode =
-    Array.fold (fun acc x -> add x acc) Empty xs
-
-/// Singleton set.
-let singleton (x: int) : SetNode = Node(x, Empty, Empty)
-
-/// Map elements through a function, building a new set.
-/// Top-level helper avoids closure-capture in nested let rec.
-let rec private mapAcc (mapping: int -> int) (lst: int list) (acc: SetNode) : SetNode =
-    match lst with
-    | [] -> acc
-    | x :: rest -> mapAcc mapping rest (add (mapping x) acc)
-
-let map (mapping: int -> int) (node: SetNode) : SetNode =
-    mapAcc mapping (toList node) Empty
-
-/// Minimum element (in-order traversal: leftmost node).
-let rec minElement (node: SetNode) : int =
+let rec private nodeMinElement (node: SetNode<'T>) : 'T =
     match node with
     | Empty -> failwith "Set is empty"
     | Node(v, l, _) ->
-        if isEmpty l then v
-        else minElement l
+        match l with
+        | Empty -> v
+        | _ -> nodeMinElement l
 
-/// Maximum element (in-order traversal: rightmost node).
-let rec maxElement (node: SetNode) : int =
+let rec private nodeMaxElement (node: SetNode<'T>) : 'T =
     match node with
     | Empty -> failwith "Set is empty"
     | Node(v, _, r) ->
-        if isEmpty r then v
-        else maxElement r
+        match r with
+        | Empty -> v
+        | _ -> nodeMaxElement r
+
+// ─── Public API (operates on SetHandle) ──────────────────────────────────────
+
+/// Create an empty set with the given comparison function.
+let empty (cmp: 'T -> 'T -> int) : SetHandle<'T> =
+    { Root = Empty; Cmp = cmp }
+
+/// True when the set has no elements.
+let isEmpty (s: SetHandle<'T>) : bool =
+    match s.Root with Empty -> true | _ -> false
+
+/// Add an element.
+let add (value: 'T) (s: SetHandle<'T>) : SetHandle<'T> =
+    { s with Root = nodeAdd s.Cmp value s.Root }
+
+/// Check if element is present.
+let contains (value: 'T) (s: SetHandle<'T>) : bool =
+    nodeContains s.Cmp value s.Root
+
+/// Remove an element.
+let remove (value: 'T) (s: SetHandle<'T>) : SetHandle<'T> =
+    { s with Root = nodeRemove s.Cmp value s.Root }
+
+/// Total number of elements.
+let count (s: SetHandle<'T>) : int =
+    nodeFold (fun n _ -> n + 1) 0 s.Root
+
+/// Fold over all elements in ascending order.
+let fold (folder: 'S -> 'T -> 'S) (state: 'S) (s: SetHandle<'T>) : 'S =
+    nodeFold folder state s.Root
+
+/// Iterate over all elements in ascending order.
+let iter (action: 'T -> unit) (s: SetHandle<'T>) : unit =
+    nodeIter action s.Root
+
+/// Filter elements by predicate.
+let filter (predicate: 'T -> bool) (s: SetHandle<'T>) : SetHandle<'T> =
+    { s with Root = nodeFilter s.Cmp predicate s.Root }
+
+/// Check if any element satisfies the predicate.
+let exists (predicate: 'T -> bool) (s: SetHandle<'T>) : bool =
+    nodeExists predicate s.Root
+
+/// Check if all elements satisfy the predicate.
+let forAll (predicate: 'T -> bool) (s: SetHandle<'T>) : bool =
+    nodeForAll predicate s.Root
+
+/// Map elements through a function, building a new set with the same type comparer.
+let map (mapping: 'T -> 'T) (s: SetHandle<'T>) : SetHandle<'T> =
+    let mapped = nodeFold (fun acc v -> nodeAdd s.Cmp (mapping v) acc) Empty s.Root
+    { s with Root = mapped }
+
+/// Union of two sets (must use same comparer).
+let union (a: SetHandle<'T>) (b: SetHandle<'T>) : SetHandle<'T> =
+    { a with Root = nodeUnion a.Cmp a.Root b.Root }
+
+/// Intersection of two sets.
+let intersect (a: SetHandle<'T>) (b: SetHandle<'T>) : SetHandle<'T> =
+    { a with Root = nodeIntersectAcc a.Cmp b.Root a.Root Empty }
+
+/// Difference: elements in a but not in b.
+let difference (a: SetHandle<'T>) (b: SetHandle<'T>) : SetHandle<'T> =
+    { a with Root = nodeDifferenceAcc a.Cmp b.Root a.Root Empty }
+
+/// Check if a is a subset of b.
+let isSubset (a: SetHandle<'T>) (b: SetHandle<'T>) : bool =
+    nodeIsSubset a.Cmp a.Root b.Root
+
+/// Convert to a list in ascending order.
+let toList (s: SetHandle<'T>) : 'T list =
+    nodeToListAcc [] s.Root
+
+/// Build a set from a list using the given comparer.
+/// Fable injects the comparer as first argument via ReplacementsInject.
+let ofList (cmp: 'T -> 'T -> int) (xs: 'T list) : SetHandle<'T> =
+    List.fold (fun acc x -> add x acc) (empty cmp) xs
+
+/// Build a set from an array using the given comparer.
+let ofArray (cmp: 'T -> 'T -> int) (xs: 'T array) : SetHandle<'T> =
+    Array.fold (fun acc x -> add x acc) (empty cmp) xs
+
+/// Singleton set with given comparer.
+let singleton (cmp: 'T -> 'T -> int) (x: 'T) : SetHandle<'T> =
+    add x (empty cmp)
+
+/// Minimum element (leftmost node).
+let minElement (s: SetHandle<'T>) : 'T =
+    nodeMinElement s.Root
+
+/// Maximum element (rightmost node).
+let maxElement (s: SetHandle<'T>) : 'T =
+    nodeMaxElement s.Root

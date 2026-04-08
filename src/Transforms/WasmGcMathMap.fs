@@ -2,8 +2,8 @@
 /// dispatchMathCall — routes standard math selectors (abs, min, max, round, …)
 ///                    to the appropriate WasmGC instructions or software helpers.
 /// tryMapInline      — intercepts Fable's IComparer-injected Map.ofList / Map.empty
-///                    calls, drops the injected comparator, and routes to Map_ofList /
-///                    Map_empty with the correct WasmGC return type from KnownFuncs.
+///                    calls, passes the comparator through to Map_ofList / Map_empty
+///                    so the new generic MapHandle API can store cmp in the handle.
 module Fable.Transforms.WasmGc.WasmGcMathMap
 
 open Fable
@@ -94,8 +94,8 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
 /// to avoid the `FSharpMap<int,int>` → `I32` fallback in mapTypeKnown.
 ///
 /// All other Map operations (`add`, `find`, `tryFind`, `containsKey`) receive
-/// NO injected comparer, so they route correctly via KnownFuncsByPath as long
-/// as the actual return type is used (see the fixed fallback in Fable2WasmGc).
+/// NO injected comparer from Fable, but the comparer is stored inside the MapHandle
+/// produced by empty/ofList — so they work correctly by extracting it from the handle.
 let tryMapInline
         (ctx: Ctx)
         (importStem: string)
@@ -104,15 +104,15 @@ let tryMapInline
     if importStem <> "Map" then None
     else
     match selector, wArgs with
-    // Map.ofList [pairs; _comparer] — drop injected comparer, call Map_ofList(list)
-    | "ofList", [wList; _comparer] ->
+    // Map.ofList [pairs; cmp] — Fable appends cmp last; new API wants (cmp, list)
+    | "ofList", [wList; wComparer] ->
         match Map.tryFind "Map_ofList" ctx.KnownFuncs with
-        | Some (_, retTy) -> Some(WExpr.Call("Map_ofList", [wList], retTy))
+        | Some (_, retTy) -> Some(WExpr.Call("Map_ofList", [wComparer; wList], retTy))
         | None -> None
-    // Map.empty [_comparer] — drop injected comparer, call Map_empty()
-    | "empty", [_comparer] ->
+    // Map.empty [cmp] — Fable appends cmp last; pass it through
+    | "empty", [wComparer] ->
         match Map.tryFind "Map_empty" ctx.KnownFuncs with
-        | Some (_, retTy) -> Some(WExpr.Call("Map_empty", [], retTy))
+        | Some (_, retTy) -> Some(WExpr.Call("Map_empty", [wComparer], retTy))
         | None -> None
     // Map.map routes to Map_mapValues (since "map" conflicts in F#)
     | "map", wArgs ->
@@ -130,7 +130,8 @@ let tryMapInline
 // Set module intercept
 // ─────────────────────────────────────────────────────────────────
 /// Intercept standard F# `Set.*` calls that come through Fable's `setModule`
-/// replacement.  Operations that receive an injected IComparer have it dropped.
+/// replacement.  Operations that receive an injected IComparer pass it through
+/// to the new generic SetHandle API (comparer stored in handle).
 let trySetInline
         (ctx: Ctx)
         (importStem: string)
@@ -139,30 +140,27 @@ let trySetInline
     if importStem <> "Set" then None
     else
     match selector, wArgs with
-    // Set.ofList [items; _comparer] — drop injected comparer
-    | "ofList", [wList; _comparer] ->
+    // Set.ofList [items; cmp] — Fable appends cmp last; new API wants (cmp, list)
+    | "ofList", [wList; wComparer] ->
         match Map.tryFind "Set_ofList" ctx.KnownFuncs with
-        | Some (_, retTy) -> Some(WExpr.Call("Set_ofList", [wList], retTy))
+        | Some (_, retTy) -> Some(WExpr.Call("Set_ofList", [wComparer; wList], retTy))
         | None -> None
-    // Set.ofArray [items; _comparer] — drop injected comparer
-    | "ofArray", [wArr; _comparer] ->
+    // Set.ofArray [items; cmp] — Fable appends cmp last; new API wants (cmp, array)
+    | "ofArray", [wArr; wComparer] ->
         match Map.tryFind "Set_ofArray" ctx.KnownFuncs with
-        | Some (_, retTy) -> Some(WExpr.Call("Set_ofArray", [wArr], retTy))
+        | Some (_, retTy) -> Some(WExpr.Call("Set_ofArray", [wComparer; wArr], retTy))
         | None -> None
-    // Set.empty [_comparer]
-    | "empty", [_comparer] ->
+    // Set.empty [cmp] — Fable appends cmp last; pass it through
+    | "empty", [wComparer] ->
         match Map.tryFind "Set_empty" ctx.KnownFuncs with
-        | Some (_, retTy) -> Some(WExpr.Call("Set_empty", [], retTy))
+        | Some (_, retTy) -> Some(WExpr.Call("Set_empty", [wComparer], retTy))
         | None -> None
-    // Set.singleton [value; _comparer]
-    | "singleton", [wVal; _comparer] ->
+    // Set.singleton [value; cmp] — Fable appends cmp last; new API wants (cmp, value)
+    | "singleton", [wVal; wComparer] ->
         match Map.tryFind "Set_singleton" ctx.KnownFuncs with
-        | Some (_, retTy) -> Some(WExpr.Call("Set_singleton", [wVal], retTy))
-        | None ->
-        match Map.tryFind "Set_add" ctx.KnownFuncs, Map.tryFind "Set_empty" ctx.KnownFuncs with
-        | Some (_, retTy), Some _ -> Some(WExpr.Call("Set_add", [wVal; WExpr.Call("Set_empty", [], retTy)], retTy))
-        | _ -> None
-    // Set.map [mapping; set; _comparer] — drop injected comparer
+        | Some (_, retTy) -> Some(WExpr.Call("Set_singleton", [wComparer; wVal], retTy))
+        | None -> None
+    // Set.map [mapping; set; cmp] — drop injected comparer (Set.map preserves type)
     | "map", [wMapping; wSet; _comparer] ->
         match Map.tryFind "Set_map" ctx.KnownFuncs with
         | Some (_, retTy) -> Some(WExpr.Call("Set_map", [wMapping; wSet], retTy))
