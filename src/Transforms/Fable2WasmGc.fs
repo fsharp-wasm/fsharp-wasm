@@ -573,11 +573,12 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         // Guard: if callee compiled to Nop (unimplemented import), skip the whole apply
         if wClosure = WExpr.Nop then WExpr.Nop else
         let wArgs = args |> List.map (transformExpr ctx)
-        // Derive functype from callee's lambda type
+        // Self-parameter convention (Sprint 25b):
+        // funcTypeIdx = (ref $AnyFn, arg1..., argN) → retType
+        // All closures with the same apply signature share this functype.
+        let selfType = WType.Ref(AnyFnTypeIdx, false)
         let argTypes = args |> List.map (fun a -> mapTypeKnown ctx a.Type) |> List.filter (fun t -> t <> WType.Void)
-        let funcTypeIdx = ctx.GetOrAddFuncType(argTypes, ty)
-        // Look up which closure struct type corresponds to this functype
-        // (registered by buildClosure earlier; 0 = AnyFn base if not found yet)
+        let funcTypeIdx = ctx.GetOrAddFuncType(selfType :: argTypes, ty)
         let closureTypeIdx =
             match ctx.FuncTypeToClosureMap.TryGetValue(funcTypeIdx) with
             | true, cti -> cti
@@ -617,9 +618,25 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
 // ─────────────────────────────────────────────────────────────────
 
 /// Build a closure struct for a lambda/delegate.
-/// Layout: struct { code_field: (ref $functype); cap1: T1; cap2: T2; ... }
-/// The lifted function takes (cap1, cap2, ..., arg1, ...) as flat parameters.
-/// The closure struct holds the captures; apply extracts them then calls via call_ref.
+///
+/// SELF-PARAMETER CALLING CONVENTION (Sprint 25b):
+///   Lifted function signature: ($self: ref $AnyFn, arg1: T1, ..., argN: TN) → R
+///   The code field type for ALL closures with the same apply signature (T1..TN → R)
+///   is the SAME functype: (ref $AnyFn, T1, ..., TN) → R.
+///   This guarantees ref.cast to ClosureBase succeeds at runtime for ANY closure
+///   regardless of how many captures it has.
+///
+///   At call time (CurriedApply):
+///     1. Cast closure to ClosureBase (struct { code: ref $FT_self_args })
+///     2. Push it as $self (first arg)
+///     3. Push other args
+///     4. struct.get 0 → code pointer; call_ref $funcTypeIdx
+///
+///   Inside the lifted function body, captures are extracted from $self:
+///     let $self_cast = ref.cast (ref $ConcreteClosureType) $self
+///     let cap_0     = struct.get $self_cast 1
+///     let cap_1     = struct.get $self_cast 2
+///     ... original body ...
 and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: string option) : WExpr =
     let baseName = defaultArg maybeName "$closure"
     // Give it a unique name based on type-def count (stable per file)
@@ -643,28 +660,31 @@ and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: st
 
     let captureCount = List.length captures
 
-    // Lifted function parameters: captures first, then original args
-    let captureParams = captures  // (name, WType)
+    // Lambda parameters (NOT captures — captures come from $self struct.get)
     let argParams =
         args |> List.choose (fun a ->
             let ty = mapTypeKnown ctx a.Type
             if ty = WType.Void then None else Some(a.Name, ty))
-    let allParams = captureParams @ argParams
 
-    // Build function type: (cap types..., arg types...) → retType
-    let paramTypes = allParams |> List.map snd
+    // Build function type: (ref $AnyFn, arg1..., argN) → retType
+    // The self-parameter approach: ALL closures with the same apply signature share
+    // this functype, regardless of how many captures they have.
+    let selfType = WType.Ref(AnyFnTypeIdx, false)
+    let argParamTypes = argParams |> List.map snd
     let retType = mapResultTypeKnown ctx body.Type
-    let funcTypeIdx = ctx.GetOrAddFuncType(paramTypes, retType)
+    let funcTypeIdx = ctx.GetOrAddFuncType(selfType :: argParamTypes, retType)
 
-    // Build closure struct type: { code: (ref $functype), cap0: T0, ... }
+    // Build closure struct type: { code: (ref $functype), cap0: T0, cap1: T1, ... }
+    // The code field type is the APPLY+SELF functype (not the lifted functype).
     let codeFieldType = WType.Ref(funcTypeIdx, false)
     let captureFields =
         captures |> List.mapi (fun i (name, ty) ->
             { Name = $"cap_{i}_{name}"; Type = ty; Mutable = false })
     let codeField = { Name = "code"; Type = codeFieldType; Mutable = false }
 
-    // Ensure a base closure type exists for this functype (code-only, extends $AnyFn).
-    // All concrete closure types extend this base so ref.cast in library functions works.
+    // ClosureBase: struct { code: ref $FT_self_args } sub $AnyFn.
+    // All concrete closures with this apply signature extend the SAME ClosureBase.
+    // This is the key to making ref.cast work for any closure.
     let baseClosureTypeIdx =
         match ctx.ClosureBaseTypeMap.TryGetValue(funcTypeIdx) with
         | true, idx -> idx
@@ -681,34 +701,53 @@ and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: st
         { Name = $"ClosureType_{closureTypeIdx}"
           Def = WTypeDef.Struct(codeField :: captureFields, Some baseClosureTypeIdx) })
     ctx.ClosureRegistry.[funcName] <- (closureTypeIdx, funcTypeIdx, captureCount)
-    // Also map funcTypeIdx → closureTypeIdx for CurriedApply resolution
+    // Store the BASE closure type (not the concrete type) in FuncTypeToClosureMap.
+    // Call sites that look up funcTypeIdx → closureBaseTypeIdx will always get the right
+    // ClosureBase struct, and ref.cast to it works for any closure with the same apply sig.
     if not (ctx.FuncTypeToClosureMap.ContainsKey(funcTypeIdx)) then
-        ctx.FuncTypeToClosureMap.[funcTypeIdx] <- closureTypeIdx
+        ctx.FuncTypeToClosureMap.[funcTypeIdx] <- baseClosureTypeIdx
 
-    // Build lifted function body:
-    // In the function, capture parameters have their original names.
-    // Add all to local context.
+    // Build lifted function body.
+    // Params: ($self: ref $AnyFn, arg1, ..., argN) — NOT captures (they come from $self).
+    // ctx' includes captures in Locals for type resolution during transformExpr.
+    let allParams = [("$self", selfType)] @ argParams
+    let ctxWithCaptures =
+        captures |> List.fold (fun (c: Ctx) (name, ty) -> c.WithLocal(name, ty)) ctx
     let ctx' =
-        allParams |> List.fold (fun (c: Ctx) (name, ty) -> c.WithLocal(name, ty)) ctx
+        allParams |> List.fold (fun (c: Ctx) (name, ty) -> c.WithLocal(name, ty)) ctxWithCaptures
     let ctx' = { ctx' with CurrentFunc = Some funcName }
     let wBody = transformExpr ctx' body
 
-    let funcDecl : WFuncDecl =
-        {
-            Name = funcName
-            Params = allParams
-            Result = retType
-            Locals = []
-            Body = wBody
-            Exported = false
-        }
-    // Resolve locals inline (resolveLocals is defined after this mutual-rec group)
+    // Wrap body with capture extraction from $self (only if there are captured vars).
+    // Generated prefix:
+    //   let $self_cast = ref.cast (ref $ClosureType_N) $self
+    //   let cap_0      = struct.get $self_cast 1
+    //   let cap_1      = struct.get $self_cast 2
+    //   ...
+    let wBodyWithCaptures =
+        if captureCount = 0 then wBody
+        else
+            let selfCastTy = WType.Ref(closureTypeIdx, false)
+            let selfGet = WExpr.LocalGet("$self", selfType)
+            let selfCast = WExpr.Cast(selfGet, selfCastTy)
+            // Wrap innermost-first via foldBack so cap_0 is outermost let.
+            let bodyWithExtracts =
+                captures
+                |> List.mapi (fun i (name, ty) ->
+                    let capSrc = WExpr.StructGet(WExpr.LocalGet("$self_cast", selfCastTy), i + 1, ty)
+                    (name, capSrc))
+                |> List.foldBack (fun (name, capExpr) innerBody ->
+                    WExpr.Let(name, capExpr, innerBody)) <| wBody
+            WExpr.Let("$self_cast", selfCast, bodyWithExtracts)
+
     let paramNameSet = allParams |> List.map fst |> Set.ofList
     let resolvedLocals =
-        collectLocals paramNameSet wBody
+        collectLocals paramNameSet wBodyWithCaptures
         |> List.distinctBy fst
         |> List.filter (fun (_, ty) -> ty <> WType.Void)
-    ctx.Functions.Add({ funcDecl with Locals = resolvedLocals })
+    ctx.Functions.Add(
+        { Name = funcName; Params = allParams; Result = retType
+          Locals = resolvedLocals; Body = wBodyWithCaptures; Exported = false })
 
     // Return WExpr.Closure(funcName, capture_WExprs, closureRefType)
     let captureExprs =
@@ -1125,11 +1164,11 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         match Map.tryFind ident.Name ctx.Locals with
         | Some(WType.Ref(idx, _)) when idx = AnyFnTypeIdx ->
             // This is a closure parameter — dispatch via ClosureApply.
-            // Use closureTypeIdx = 0 (sentinel) so fixClosureApply resolves it after all
-            // closure types are registered.
+            // Self-parameter convention (Sprint 25b): prepend ref $AnyFn as first param.
             let wClosure = WExpr.LocalGet(ident.Name, WType.Ref(AnyFnTypeIdx, false))
+            let selfType = WType.Ref(AnyFnTypeIdx, false)
             let argTypes = wArgs |> List.map exprWType |> List.filter (fun t -> t <> WType.Void)
-            let funcTypeIdx = ctx.GetOrAddFuncType(argTypes, ty)
+            let funcTypeIdx = ctx.GetOrAddFuncType(selfType :: argTypes, ty)
             WExpr.ClosureApply(wClosure, wArgs, funcTypeIdx, 0, 0, ty)
         | _ ->
         // Direct function call (non-generic or unregistered generic).

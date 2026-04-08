@@ -2606,4 +2606,61 @@ let testExnNestedRethrow () : int =
             0
     with _ -> 99  // 99
 
+// ── Sprint 25b: Capturing closures in HOF contexts ───────────────
+
+/// List.map with a capturing closure (offset captured from outer scope)
+let testClosureCapMap () : int =
+    let offset = 10
+    [1; 2; 3] |> List.map (fun x -> x + offset) |> List.sum  // 11+12+13 = 36
+
+/// List.filter with capturing threshold
+let testClosureCapFilter () : int =
+    let threshold = 3
+    [1; 2; 3; 4; 5] |> List.filter (fun x -> x > threshold) |> List.length  // [4;5] = 2
+
+/// List.fold with capturing multiplier
+let testClosureCapFold () : int =
+    let multiplier = 2
+    List.fold (fun acc x -> acc + x * multiplier) 0 [1; 2; 3; 4; 5]  // 30
+
+/// Closure returned from a function and applied later
+let testClosureHigherOrder () : int =
+    let makeAdder (n: int) = fun x -> x + n
+    let add5 = makeAdder 5
+    let add10 = makeAdder 10
+    add5 3 + add10 7  // 8 + 17 = 25
+
+/// Closure capturing a mutable ref cell
+let testClosureCapRef () : int =
+    let counter = ref 0
+    let increment () = counter.Value <- counter.Value + 1
+    increment ()
+    increment ()
+    increment ()
+    counter.Value  // 3
+
+/// Double-nested capture: closure captures another closure's captured variable
+let testClosureNestedCapture () : int =
+    let base_ = 100
+    let outer n =
+        let inner m = base_ + n + m
+        inner
+    let f = outer 5
+    f 3  // 100 + 5 + 3 = 108
+
+/// Set.fold with a capturing offset
+let testClosureCapSetFold () : int =
+    let offset = 100
+    Set.fold (fun acc v -> acc + v + offset) 0 (Set.ofList [1; 2; 3])  // 306
+
+/// List.exists with capturing closure
+let testClosureCapListExists () : int =
+    let target = 7
+    if List.exists (fun x -> x = target) [1; 4; 7; 9] then 1 else 0  // 1
+
+/// List.forall with capturing bound
+let testClosureCapListForAll () : int =
+    let bound = 10
+    if List.forall (fun x -> x < bound) [1; 3; 5; 7; 9] then 1 else 0  // 1
+
 // ── Phase 5: Async — requires backend wiring (Sprint 25) ────────
