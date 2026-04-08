@@ -37,7 +37,9 @@ type EmitCtx =
     member this.GetLocalIdx(name: string) =
         match Map.tryFind name this.LocalIndex with
         | Some idx -> idx
-        | None -> failwith $"Emitter: unknown local '{name}'"
+        | None ->
+            let keys = this.LocalIndex |> Map.toList |> List.map fst |> String.concat ", "
+            failwith $"Emitter: unknown local '%s{name}' (available: %s{keys})"
 
     member this.GetTypeIdx(name: string) =
         match Map.tryFind name this.TypeIndex with
@@ -858,19 +860,22 @@ let emitModule (wmod: WModule) : WasmModule =
                     ExceptionTagIdx = exceptionTagIdx
                 }
 
-            let bodyInstrs = emitExpr ctx f.Body
-            let resultTypes =
-                match f.Result with
-                | WType.Void -> []
-                | t -> [t]
+            try
+                let bodyInstrs = emitExpr ctx f.Body
+                let resultTypes =
+                    match f.Result with
+                    | WType.Void -> []
+                    | t -> [t]
 
-            {
-                ParamTypes = f.Params |> List.map snd
-                ResultTypes = resultTypes
-                LocalTypes = localTypes
-                Body = bodyInstrs
-                Name = f.Name
-            }
+                {
+                    ParamTypes = f.Params |> List.map snd
+                    ResultTypes = resultTypes
+                    LocalTypes = localTypes
+                    Body = bodyInstrs
+                    Name = f.Name
+                }
+            with ex ->
+                failwith $"Emitter error in function '%s{f.Name}': %s{ex.Message}"
         )
 
     // 5b. Lower globals — emit init expressions (must be constant exprs)

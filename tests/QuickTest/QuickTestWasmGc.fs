@@ -2395,3 +2395,215 @@ let testSeqMapIndexed () : int =
 /// Seq.forall — all positive?
 let testSeqForall () : int =
     if Seq.forall (fun x -> x > 0) [1; 2; 3] then 1 else 0  // 1
+
+// ── Phase 2c: Set operations ─────────────────────────────────────
+
+/// Set.ofList + count
+let testSetOfListCount () : int =
+    let s = Set.ofList [3; 1; 2; 1]
+    Set.count s  // 3 (duplicate removed)
+
+/// Set.contains
+let testSetContains () : int =
+    let s = Set.ofList [1; 2; 3]
+    (if Set.contains 2 s then 1 else 0) + (if Set.contains 5 s then 0 else 1)  // 2
+
+/// Set.add + contains
+let testSetAdd () : int =
+    let s = Set.ofList [1; 2; 3]
+    let s2 = Set.add 4 s
+    if Set.contains 4 s2 then Set.count s2 else 0  // 4
+
+/// Set.remove + count
+let testSetRemove () : int =
+    let s = Set.ofList [1; 2; 3; 4]
+    let s2 = Set.remove 3 s
+    Set.count s2  // 3
+
+/// Set.isEmpty
+let testSetIsEmpty () : int =
+    let e = Set.ofList ([] : int list)
+    let s = Set.ofList [1]
+    (if Set.isEmpty e then 1 else 0) + (if Set.isEmpty s then 0 else 1)  // 2
+
+/// Set.fold — sum all elements
+let testSetFold () : int =
+    let s = Set.ofList [1; 2; 3; 4; 5]
+    Set.fold (fun acc x -> acc + x) 0 s  // 15
+
+/// Set.toList — length
+let testSetToList () : int =
+    let s = Set.ofList [3; 1; 2]
+    Set.toList s |> List.length  // 3
+
+/// Set.filter — keep even
+let testSetFilter () : int =
+    let s = Set.ofList [1; 2; 3; 4; 5; 6]
+    let s2 = Set.filter (fun x -> x % 2 = 0) s
+    Set.count s2  // 3
+
+/// Set.exists — any > 4?
+let testSetExists () : int =
+    let s = Set.ofList [1; 2; 3; 4; 5]
+    if Set.exists (fun x -> x > 4) s then 1 else 0  // 1
+
+/// Set.forall — all > 0?
+let testSetForall () : int =
+    let s = Set.ofList [1; 2; 3]
+    if Set.forall (fun x -> x > 0) s then 1 else 0  // 1
+
+/// Set.union
+let testSetUnion () : int =
+    let a = Set.ofList [1; 2; 3]
+    let b = Set.ofList [3; 4; 5]
+    Set.count (Set.union a b)  // 5
+
+/// Set.intersect
+let testSetIntersect () : int =
+    let a = Set.ofList [1; 2; 3; 4]
+    let b = Set.ofList [3; 4; 5; 6]
+    Set.count (Set.intersect a b)  // 2
+
+/// Set.difference
+let testSetDifference () : int =
+    let a = Set.ofList [1; 2; 3; 4]
+    let b = Set.ofList [3; 4; 5]
+    Set.count (Set.difference a b)  // 2
+
+/// Set.isSubset
+let testSetIsSubset () : int =
+    let a = Set.ofList [1; 2]
+    let b = Set.ofList [1; 2; 3; 4]
+    (if Set.isSubset a b then 1 else 0) + (if Set.isSubset b a then 0 else 1)  // 2
+
+/// Set.map — double all elements
+let testSetMap () : int =
+    let s = Set.ofList [1; 2; 3]
+    let s2 = Set.map (fun x -> x * 2) s
+    Set.fold (fun acc x -> acc + x) 0 s2  // 2+4+6 = 12
+
+/// Set.minElement / maxElement
+let testSetMinMax () : int =
+    let s = Set.ofList [5; 1; 3; 2; 4]
+    Set.minElement s + Set.maxElement s  // 1 + 5 = 6
+
+/// Set.singleton
+let testSetSingleton () : int =
+    let s = Set.singleton 42
+    if Set.contains 42 s then Set.count s else 0  // 1
+
+/// Set.ofArray
+let testSetOfArray () : int =
+    let s = Set.ofArray [|1; 2; 3; 2|]
+    Set.count s  // 3
+
+// ── Phase 4b: additional Seq/List ops ──────────────────────────
+/// Seq.head (via List.head)
+let testSeqHead () : int =
+    List.head [10; 20; 30]  // 10
+
+/// Seq.tryHead Some (via List.tryHead)
+let testSeqTryHead () : int =
+    match List.tryHead [42; 1; 2] with
+    | Some x -> x
+    | None -> 0  // 42
+
+/// Seq.tryHead None (via List.tryHead)
+let testSeqTryHeadEmpty () : int =
+    match List.tryHead ([] : int list) with
+    | Some _ -> 1
+    | None -> 0  // 0
+
+/// Seq.isEmpty (via List.isEmpty)
+let testSeqIsEmpty () : int =
+    (if List.isEmpty [] then 1 else 0) + (if List.isEmpty [1] then 0 else 1)  // 2
+
+/// Seq.length (via List.length)
+let testSeqLength () : int =
+    List.length [1; 2; 3; 4; 5]  // 5
+
+/// Seq.item (via List.item)
+let testSeqItem () : int =
+    List.item 2 [10; 20; 30; 40]  // 30
+
+/// Seq.min / max (via List.min/max)
+let testSeqMinMax () : int =
+    List.min [3; 1; 4; 1; 5] + List.max [3; 1; 4; 1; 5]  // 1 + 5 = 6
+
+/// Seq.sortBy
+let testSeqSortBy () : int =
+    [30; 10; 20]
+    |> List.sortBy id
+    |> List.head  // 10
+
+/// List.rev + head
+let testSeqRev () : int =
+    List.rev [1; 2; 3] |> List.head  // 3
+
+// testSeqToArray — removed: Array.ofList not yet implemented
+
+/// List.findIndex
+let testSeqFindIndex () : int =
+    List.findIndex (fun x -> x > 20) [10; 20; 30; 40]  // 2
+
+/// List.skip + take
+let testSeqSkipTake () : int =
+    [1; 2; 3; 4; 5] |> List.skip 2 |> List.take 2 |> List.sum  // 3+4 = 7
+
+/// List.groupBy count
+let testSeqGroupByCount () : int =
+    [1; 2; 3; 4; 5; 6]
+    |> List.groupBy (fun x -> x % 2)
+    |> List.length  // 2
+
+// ── Phase 3b: More exception tests ───────────────────────────────
+
+/// failwith in nested function
+let testExnNestedFailwith () : int =
+    let boom () = failwith "nested boom"
+    try
+        boom ()
+        0
+    with _ -> 77  // 77
+
+/// try/with returning unit (side-effect only)
+let testExnUnit () : int =
+    let mutable x = 0
+    try
+        x <- 10
+        failwith "err"
+    with _ ->
+        x <- x + 5
+    x  // 15
+
+/// exception does not throw — normal path
+let testExnNormalPath () : int =
+    try
+        let a = 10
+        let b = 20
+        a + b
+    with _ -> 0  // 30
+
+/// nested try/with — inner catches
+let testExnNestedInnerCatch () : int =
+    try
+        let r =
+            try
+                failwith "inner"
+                0
+            with _ -> 42
+        r + 1
+    with _ -> 0  // 43
+
+/// nested try/with — inner rethrows to outer
+let testExnNestedRethrow () : int =
+    try
+        try
+            failwith "pass-through"
+            0
+        with _ ->
+            failwith "outer-boom"
+            0
+    with _ -> 99  // 99
+
+// ── Phase 5: Async — requires backend wiring (Sprint 25) ────────

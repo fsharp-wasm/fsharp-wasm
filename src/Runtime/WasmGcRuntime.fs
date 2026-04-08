@@ -715,8 +715,9 @@ let makeStringBuilderToStringHelper () : WFuncDecl =
             res @>
 
 /// After all functions are translated, fixup any ClosureApply nodes whose
-let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =
+let fixClosureApply (typeDefs: ResizeArray<WTypeDeclEntry>) (functions: WFuncDecl list) : WFuncDecl list =
     let funcTypeToClosureMap =
+        let d = System.Collections.Generic.Dictionary<int, int>()
         typeDefs
         |> Seq.mapi (fun i entry -> i, entry)
         |> Seq.choose (fun (i, entry) ->
@@ -731,7 +732,7 @@ let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) 
         // types extend this base, so ref.cast to it works for any closure of
         // the same functype regardless of captures.
         |> Seq.groupBy fst
-        |> Seq.map (fun (fti, pairs) ->
+        |> Seq.iter (fun (fti, pairs) ->
             let bestClosureIdx =
                 pairs
                 |> Seq.map snd
@@ -739,16 +740,30 @@ let fixClosureApply (typeDefs: seq<WTypeDeclEntry>) (functions: WFuncDecl list) 
                     match (Seq.item ci typeDefs).Def with
                     | WTypeDef.Struct(fields, _) -> List.length fields
                     | _ -> 999)
-            fti, bestClosureIdx)
-        |> dict
+            d.[fti] <- bestClosureIdx)
+        d
+
+    // Lazily create a ClosureBase for a funcTypeIdx if one doesn't exist yet.
+    // This handles cases where a higher-order function receives a closure parameter
+    // but no closure with that exact apply signature was ever constructed (e.g.,
+    // Set.iter takes (int -> unit) but all built closures for that signature
+    // have captures, giving them a different lifted func type).
+    let getOrCreateClosureBase (funcTypeIdx: int) : int =
+        match funcTypeToClosureMap.TryGetValue(funcTypeIdx) with
+        | true, cti -> cti
+        | false, _ ->
+            let idx = typeDefs.Count
+            let codeField = { Name = "code"; Type = WType.Ref(funcTypeIdx, false); Mutable = false }
+            typeDefs.Add(
+                { Name = $"ClosureBase_{idx}"
+                  Def = WTypeDef.Struct([codeField], Some AnyFnTypeIdx) })
+            funcTypeToClosureMap.[funcTypeIdx] <- idx
+            idx
 
     let rec fix (expr: WExpr) : WExpr =
         match expr with
         | WExpr.ClosureApply(closure, args, funcTypeIdx, 0, captureCount, ty) ->
-            let closureTypeIdx =
-                match funcTypeToClosureMap.TryGetValue(funcTypeIdx) with
-                | true, cti -> cti
-                | false, _ -> 0
+            let closureTypeIdx = getOrCreateClosureBase funcTypeIdx
             WExpr.ClosureApply(fix closure, List.map fix args, funcTypeIdx, closureTypeIdx, captureCount, ty)
         | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, captureCount, ty) ->
             WExpr.ClosureApply(fix closure, List.map fix args, funcTypeIdx, closureTypeIdx, captureCount, ty)

@@ -1147,6 +1147,10 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         let importStem = System.IO.Path.GetFileNameWithoutExtension(importInfo.Path)
         let r =
             tryFirst [
+                // ── Map/Set module: must come first to prevent List combinators matching Set/Map DeclaredTypes ──
+                fun () -> tryMapInline               ctx importStem sel wArgs
+                fun () -> trySetInline               ctx importStem sel wArgs
+                // ── List combinators ────────────────────────────────────────────────────
                 fun () -> tryListFoldInline          transformExpr ctx sel info.Args
                 fun () -> tryListFoldBackInline       transformExpr ctx sel info.Args typ
                 fun () -> tryListMapInline            transformExpr ctx sel info.Args typ
@@ -1167,10 +1171,6 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 fun () -> tryListDistinctByInline     transformExpr ctx sel info.Args typ
                 fun () -> tryOptionInline             transformExpr ctx sel info.Args ty
                 fun () -> tryResultInline             transformExpr ctx sel info.Args ty
-                // ── Map module: drop injected IComparer for ofList/empty ───────────────
-                fun () -> tryMapInline               ctx importStem sel wArgs
-                // ── Set module: drop injected IComparer ─────────────────────────────────
-                fun () -> trySetInline               ctx importStem sel wArgs
                 // ── Array module primitives ────────────────────────────────────────────
                 fun () -> tryArrayInline              transformExpr ctx sel info.Args wArgs typ
                 // ── List/Option primitives ─────────────────────────────────────────────
