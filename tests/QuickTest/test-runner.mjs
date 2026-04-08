@@ -746,6 +746,17 @@ check("try no throw → 30",                 30, exp.testExnNormalPath());
 check("nested try inner catch → 43",       43, exp.testExnNestedInnerCatch());
 check("nested try rethrow → 99",           99, exp.testExnNestedRethrow());
 
+console.log("\n─── Sprint 25b: Capturing closures in HOF contexts ─────");
+check("closureCapMap: offset=10, sum [11;12;13] → 36",      36, exp.testClosureCapMap());
+check("closureCapFilter: threshold=3, length [4;5] → 2",     2, exp.testClosureCapFilter());
+check("closureCapFold: multiplier=2, fold → 30",            30, exp.testClosureCapFold());
+check("closureHigherOrder: add5 3 + add10 7 → 25",          25, exp.testClosureHigherOrder());
+check("closureCapRef: increment×3 → 3",                      3, exp.testClosureCapRef());
+check("closureNestedCapture: 100+5+3 → 108",               108, exp.testClosureNestedCapture());
+check("closureCapSetFold: offset=100, Set.fold → 306",      306, exp.testClosureCapSetFold());
+check("closureCapListExists: exists 7 → 1",                   1, exp.testClosureCapListExists());
+check("closureCapListForAll: forall <10 → 1",                 1, exp.testClosureCapListForAll());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

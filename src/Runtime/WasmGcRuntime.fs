@@ -722,25 +722,22 @@ let fixClosureApply (typeDefs: ResizeArray<WTypeDeclEntry>) (functions: WFuncDec
         |> Seq.mapi (fun i entry -> i, entry)
         |> Seq.choose (fun (i, entry) ->
             match entry.Def with
-            | WTypeDef.Struct(codeField :: _, Some _) when codeField.Name = "code" ->
+            // Only match ClosureBase types: direct subtypes of AnyFn (supertype = AnyFnTypeIdx = 0).
+            // ClosureType_X structs have supertype = ClosureBase_Y (some non-zero index), so they
+            // are excluded here. This is the key invariant: ALL concrete closure types with the
+            // same funcTypeIdx share exactly ONE ClosureBase (supertype AnyFn), so ref.cast to
+            // that ClosureBase always succeeds regardless of how many captures a closure has.
+            | WTypeDef.Struct(codeField :: _, Some parentIdx) when
+                    codeField.Name = "code" && parentIdx = AnyFnTypeIdx ->
                 match codeField.Type with
                 | WType.Ref(funcTypeIdx, _) -> Some(funcTypeIdx, i)
                 | _ -> None
             | _ -> None)
-        // Group by funcTypeIdx and pick the closure type with fewest fields
-        // (the "base" closure type = just the code field). All concrete closure
-        // types extend this base, so ref.cast to it works for any closure of
-        // the same functype regardless of captures.
-        |> Seq.groupBy fst
-        |> Seq.iter (fun (fti, pairs) ->
-            let bestClosureIdx =
-                pairs
-                |> Seq.map snd
-                |> Seq.minBy (fun ci ->
-                    match (Seq.item ci typeDefs).Def with
-                    | WTypeDef.Struct(fields, _) -> List.length fields
-                    | _ -> 999)
-            d.[fti] <- bestClosureIdx)
+        |> Seq.iter (fun (funcTypeIdx, closureBaseIdx) ->
+            // Only record the first ClosureBase found for a given funcTypeIdx — there should be
+            // exactly one per funcTypeIdx, created eagerly by buildClosure via ClosureBaseTypeMap.
+            if not (d.ContainsKey(funcTypeIdx)) then
+                d.[funcTypeIdx] <- closureBaseIdx)
         d
 
     // Lazily create a ClosureBase for a funcTypeIdx if one doesn't exist yet.
