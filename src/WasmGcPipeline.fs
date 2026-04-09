@@ -178,8 +178,12 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             sharedCtxs.TryRemove(projectFile) |> ignore
 
             let wasmModule =
-                Fable2WasmGc.buildWModule finalCtx
-                |> WasmGcOptimize.optimizeModule
+                let rawModule = Fable2WasmGc.buildWModule finalCtx
+                let optimized = WasmGcOptimize.optimizeModule rawModule
+                // Re-run resolveLocals after optimization: join-point inlining introduces new
+                // Let bindings (e.g. db_2 = arg) whose locals weren't visible before inlining.
+                { optimized with
+                    Functions = optimized.Functions |> List.map WasmGcLocals.resolveLocals }
 
             let dir = System.IO.Path.GetDirectoryName(emitPath)
             if not (System.IO.Directory.Exists(dir)) then

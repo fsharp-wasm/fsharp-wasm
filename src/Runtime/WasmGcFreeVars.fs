@@ -29,7 +29,21 @@ let rec collectFreeVars (bound: Set<string>) (expr: Fable.Expr) : Set<string> =
     | Fable.Expr.Delegate(args, body, _, _) ->
         let bound' = args |> List.fold (fun acc a -> Set.add a.Name acc) bound
         collectFreeVars bound' body
-    | Fable.Expr.Value _ -> Set.empty
+    | Fable.Expr.Value(kind, _) ->
+        match kind with
+        | Fable.ValueKind.NewUnion(args, _, _, _)
+        | Fable.ValueKind.NewRecord(args, _, _)
+        | Fable.ValueKind.NewTuple(args, _) ->
+            args |> List.map (collectFreeVars bound) |> Set.unionMany
+        | Fable.ValueKind.NewAnonymousRecord(args, _, _, _) ->
+            args |> List.map (collectFreeVars bound) |> Set.unionMany
+        | Fable.ValueKind.NewArray(Fable.ArrayValues exprs, _, _) ->
+            exprs |> List.map (collectFreeVars bound) |> Set.unionMany
+        | Fable.ValueKind.NewArray(Fable.ArrayAlloc e, _, _)
+        | Fable.ValueKind.NewArray(Fable.ArrayFrom e, _, _) ->
+            collectFreeVars bound e
+        | Fable.ValueKind.NewOption(Some e, _, _) -> collectFreeVars bound e
+        | _ -> Set.empty
     | Fable.Expr.TypeCast(e, _) -> collectFreeVars bound e
     | Fable.Expr.Operation(kind, _, _, _) ->
         match kind with
@@ -40,8 +54,9 @@ let rec collectFreeVars (bound: Set<string>) (expr: Fable.Expr) : Set<string> =
             Set.union (collectFreeVars bound l) (collectFreeVars bound r)
     | Fable.Expr.Call(callee, info, _, _) ->
         let fvCallee = collectFreeVars bound callee
-        let fvArgs = info.Args |> List.map (collectFreeVars bound) |> Set.unionMany
-        Set.union fvCallee fvArgs
+        let fvThis   = info.ThisArg |> Option.map (collectFreeVars bound) |> Option.defaultValue Set.empty
+        let fvArgs   = info.Args |> List.map (collectFreeVars bound) |> Set.unionMany
+        Set.union fvCallee (Set.union fvThis fvArgs)
     | Fable.Expr.CurriedApply(callee, args, _, _) ->
         let fvCallee = collectFreeVars bound callee
         let fvArgs = args |> List.map (collectFreeVars bound) |> Set.unionMany

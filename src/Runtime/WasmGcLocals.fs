@@ -154,6 +154,15 @@ let rec collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType)
         // box is evaluated twice in the emitter (always a LocalGet in practice)
         collectLocals paramNames box
         @ (args |> List.collect (collectLocals paramNames))
+    | WExpr.SwitchInt(scrutinee, cases, default_, _) ->
+        // Must add $switch_tmp local that the emitter uses unconditionally
+        let switchTmpLocal = ["$switch_tmp", WType.I32]
+        switchTmpLocal
+        @ collectLocals paramNames scrutinee
+        @ (cases |> List.collect (fun (_, body) -> collectLocals paramNames body))
+        @ collectLocals paramNames default_
+    | WExpr.TagOf obj ->
+        collectLocals paramNames obj
     | _ -> []
 
 /// Fill in the Locals field of a WFuncDecl by scanning the body.

@@ -460,7 +460,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         // This should be handled within transformDecisionTree
         let wArgs = boundValues |> List.map (transformExpr ctx)
         let ty = mapTypeKnown ctx typ
-        WExpr.JoinApply($"$target_{targetIdx}", wArgs, ty)
+        WExpr.JoinApply($"$target_{!ctx.TargetBase + targetIdx}", wArgs, ty)
 
     // ── Type cast ─────────────────────────────────────────
     | Fable.Expr.TypeCast(expr, targetFableType) ->
@@ -820,7 +820,11 @@ and buildLetRecLambdas (ctx: Ctx) (bindings: (Fable.AST.Fable.Ident * Fable.AST.
                 let fieldIdx = commonCaptureFieldStart + k
                 name, WExpr.StructGet(WExpr.LocalGet("$self_cast", concreteSelfTy), fieldIdx, ty))
 
-        let allExtractions = siblingExtractions @ commonCapExtractions
+        // Also bind the current binding's own name to $self so that self-recursive
+        // references in the body (e.g. `cmd dispatch` inside dispatch's body) resolve.
+        let selfNameExtraction = (id.Name, WExpr.LocalGet("$self", anyFnTy))
+
+        let allExtractions = [selfNameExtraction] @ siblingExtractions @ commonCapExtractions
 
         let wBodyWithExtracts =
             (allExtractions, wBody)
@@ -942,9 +946,9 @@ and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: st
     // Collect free variables (closed-over locals) from the body,
     // excluding the lambda parameters themselves.
     let argNames = args |> List.map (fun a -> a.Name) |> Set.ofList
+    let allFreeVarNames = collectFreeVars argNames body |> Set.toList
     let freeVarNames =
-        collectFreeVars argNames body
-        |> Set.toList
+        allFreeVarNames
         |> List.filter (fun name -> Map.containsKey name ctx.Locals)
 
     // Build capture list: (name, WType)
@@ -2112,6 +2116,9 @@ and transformTest (ctx: Ctx) (expr: Fable.Expr) (kind: TestKind) : WExpr =
 
 and transformDecisionTree (ctx: Ctx) (matchExpr: Fable.Expr) (targets: (Ident list * Fable.Expr) list) : WExpr =
     let resultType = mapTypeKnown ctx matchExpr.Type
+    // Assign globally-unique IDs to these targets (avoids label collisions in nested matches).
+    let baseId = !ctx.DecisionTreeCounter
+    ctx.DecisionTreeCounter := baseId + targets.Length
     // Create join points for each target
     let wTargets =
         targets
@@ -2119,10 +2126,15 @@ and transformDecisionTree (ctx: Ctx) (matchExpr: Fable.Expr) (targets: (Ident li
             let parms = idents |> List.map (fun id -> id.Name, mapTypeKnown ctx id.Type)
             let ctx' = (ctx, idents) ||> List.fold (fun c id -> c.WithLocal(id.Name, mapTypeKnown ctx id.Type))
             let wBody = transformExpr ctx' body
-            $"$target_{i}", parms, wBody
+            $"$target_{baseId + i}", parms, wBody
         )
-    // Translate the match expression (which contains DecisionTreeSuccess nodes)
+    // Before translating matchExpr, publish the current base so that
+    // DecisionTreeSuccess nodes (which reference 0-based local indices)
+    // produce globally-unique labels ($target_{baseId + localIdx}).
+    let savedBase = !ctx.TargetBase
+    ctx.TargetBase := baseId
     let wMatch = transformExpr ctx matchExpr
+    ctx.TargetBase := savedBase
     // Wrap in join points
     (wMatch, List.rev wTargets)
     ||> List.fold (fun cont (label, parms, body) ->

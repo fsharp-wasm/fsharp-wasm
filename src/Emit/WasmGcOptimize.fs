@@ -231,13 +231,13 @@ let rec inlineJoinApply (label: string) (parms: (string * WType) list) (body: WE
             body
     | _ -> mapSubExprs (inlineJoinApply label parms body) expr
 
-/// Inline join points that are called exactly once.
+/// Inline all join points (including multi-use ones — produces duplicate code but is correct).
 let inlineSingleUseJoins (expr: WExpr) : WExpr =
     visitFromOutsideIn (fun e ->
         match e with
         | WExpr.JoinPoint(label, parms, body, cont, _ty) ->
             let uses = countJoinApply label cont
-            if uses = 1 then
+            if uses >= 1 then
                 // Inline: remove the JoinPoint wrapper, substitute in cont
                 inlineJoinApply label parms body cont
             else

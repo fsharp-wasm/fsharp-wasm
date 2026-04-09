@@ -126,6 +126,14 @@ type Ctx =
         /// ResizeArray element WType key → (arrTypeIdx, ravTypeIdx).
         /// ravTypeIdx: index of struct { data: (mut ref? $Arr_T); len: (mut i32) }.
         ResizeArrayRegistry: System.Collections.Generic.Dictionary<string, int * int>
+        /// Monotonically increasing counter for generating globally-unique decision-tree target labels.
+        /// Shared (mutable ref cell) so nested transformDecisionTree calls don't collide.
+        DecisionTreeCounter: int ref
+        /// The base offset for the current DecisionTree being translated.
+        /// Set by transformDecisionTree before processing matchExpr so that
+        /// DecisionTreeSuccess(localIdx) → JoinApply("$target_{TargetBase + localIdx}").
+        /// Saved/restored around nested DecisionTree calls (LIFO via mutable mutation).
+        TargetBase: int ref
     }
 
     static member Create(com: Compiler, ?stringMode: StringMode) =
@@ -182,6 +190,8 @@ type Ctx =
             VTableImplRegistry = System.Collections.Generic.Dictionary<string * string, string>()
             VTableGlobals = new ResizeArray<WGlobalDecl>()
             ResizeArrayRegistry = System.Collections.Generic.Dictionary<string, int * int>()
+            DecisionTreeCounter = ref 0
+            TargetBase = ref 0
         }
 
     member this.WithLocal(name: string, ty: WType) =
