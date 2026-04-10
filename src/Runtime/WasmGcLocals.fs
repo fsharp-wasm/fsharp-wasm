@@ -163,6 +163,15 @@ let rec collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType)
         @ collectLocals paramNames default_
     | WExpr.TagOf obj ->
         collectLocals paramNames obj
+    // Linear memory — no new locals; just recurse into sub-expressions
+    | WExpr.MemLoad(_, _, addr) ->
+        collectLocals paramNames addr
+    | WExpr.MemStore(_, _, addr, value) ->
+        collectLocals paramNames addr @ collectLocals paramNames value
+    | WExpr.MemoryGrow pages ->
+        collectLocals paramNames pages
+    | WExpr.MemorySize ->
+        []
     | _ -> []
 
 /// Fill in the Locals field of a WFuncDecl by scanning the body.

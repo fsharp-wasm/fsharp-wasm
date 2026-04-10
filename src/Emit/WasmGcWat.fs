@@ -232,6 +232,15 @@ let rec private exprType (expr: WExpr) : WType =
     | WExpr.Compare _            -> WType.I32
     | WExpr.TryCatch(_, _, _, t) -> t
     | WExpr.Throw _              -> WType.Void
+    // Linear memory
+    | WExpr.MemLoad(WMemKind.Byte, _, _)
+    | WExpr.MemLoad(WMemKind.I32, _, _)  -> WType.I32
+    | WExpr.MemLoad(WMemKind.I64, _, _)  -> WType.I64
+    | WExpr.MemLoad(WMemKind.F32, _, _)  -> WType.F32
+    | WExpr.MemLoad(WMemKind.F64, _, _)  -> WType.F64
+    | WExpr.MemStore _   -> WType.Void
+    | WExpr.MemorySize   -> WType.I32
+    | WExpr.MemoryGrow _ -> WType.I32
 
 // ─────────────────────────────────────────────────────────────────
 // Unary/Binary/Compare → WAT mnemonic strings
@@ -275,6 +284,10 @@ let private unaryMnemonic (op: WUnaryOp) (ty: WType) : string list =
     | WUnaryOp.ConvertI64S, WType.F32 -> ["f32.convert_i64_s"]
     | WUnaryOp.PromoteF32, _ -> ["f64.promote_f32"]
     | WUnaryOp.DemoteF64, _ -> ["f32.demote_f64"]
+    | WUnaryOp.ReinterpretI32ToF32, _ -> ["f32.reinterpret_i32"]
+    | WUnaryOp.ReinterpretF32ToI32, _ -> ["i32.reinterpret_f32"]
+    | WUnaryOp.ReinterpretI64ToF64, _ -> ["f64.reinterpret_i64"]
+    | WUnaryOp.ReinterpretF64ToI64, _ -> ["i64.reinterpret_f64"]
     | _ -> ["unreachable"]
 
 let private binaryMnemonic (op: WBinaryOp) (ty: WType) : string =
@@ -742,6 +755,39 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         if exnTy <> WType.Void then w "drop"
         w "throw $fsharp_exn"
 
+    // ── Linear memory ─────────────────────────────────────────────────────────
+    | WExpr.MemorySize ->
+        w "memory.size"
+
+    | WExpr.MemoryGrow pages ->
+        emitExpr typeNames arrayElemTypes depth sb pages
+        w "memory.grow"
+
+    | WExpr.MemLoad(kind, offset, addr) ->
+        emitExpr typeNames arrayElemTypes depth sb addr
+        let mnemonic, offStr =
+            let o = if offset = 0 then "" else $" offset={offset}"
+            match kind with
+            | WMemKind.Byte -> "i32.load8_u", o
+            | WMemKind.I32  -> "i32.load", o
+            | WMemKind.I64  -> "i64.load", o
+            | WMemKind.F32  -> "f32.load", o
+            | WMemKind.F64  -> "f64.load", o
+        w $"{mnemonic}{offStr}"
+
+    | WExpr.MemStore(kind, offset, addr, value) ->
+        emitExpr typeNames arrayElemTypes depth sb addr
+        emitExpr typeNames arrayElemTypes depth sb value
+        let mnemonic, offStr =
+            let o = if offset = 0 then "" else $" offset={offset}"
+            match kind with
+            | WMemKind.Byte -> "i32.store8", o
+            | WMemKind.I32  -> "i32.store", o
+            | WMemKind.I64  -> "i64.store", o
+            | WMemKind.F32  -> "f32.store", o
+            | WMemKind.F64  -> "f64.store", o
+        w $"{mnemonic}{offStr}"
+
 // ─────────────────────────────────────────────────────────────────
 // WFuncDecl → WAT function text
 // ─────────────────────────────────────────────────────────────────
@@ -856,8 +902,11 @@ let private collectClosureFuncNames (funcs: WFuncDecl list) : string list =
             match catch_ with Some(_, h) -> scan h | None -> ()
             match finally_ with Some f -> scan f | None -> ()
         | WExpr.GlobalSet(_, e) -> scan e
+        | WExpr.MemLoad(_, _, addr) -> scan addr
+        | WExpr.MemStore(_, _, addr, v) -> scan addr; scan v
+        | WExpr.MemoryGrow pages -> scan pages
         | WExpr.Const _ | WExpr.LocalGet _ | WExpr.GlobalGet _ | WExpr.Nop
-        | WExpr.Break(_, None) | WExpr.Return None -> ()
+        | WExpr.Break(_, None) | WExpr.Return None | WExpr.MemorySize -> ()
     for f in funcs do scan f.Body
     refs |> Seq.toList |> List.sortBy id
 
@@ -906,6 +955,14 @@ let moduleToWat (wmod: WModule) : string =
                 |> List.map (sprintf "(param %s)")
             let paramsStr = if pStrs.IsEmpty then "" else " " + (pStrs |> String.concat " ")
             sb.AppendLine(sprintf "  (tag %s%s)" (watId tag.Name) paramsStr) |> ignore
+
+    // ── Linear memory ─────────────────────────────────────
+    // WasmGC and linear memory coexist in the same module (each managed independently).
+    // 1 initial page = 64KB; grows via memory.grow. Exported so JS can read it zero-copy.
+    if wmod.HasLinearMemory then
+        sb.AppendLine("  ;; ── Linear memory ──────────────────────────────────") |> ignore
+        sb.AppendLine("  (memory 1)") |> ignore
+        sb.AppendLine("  (export \"memory\" (memory 0))") |> ignore
 
     // ── Functions ─────────────────────────────────────────
     if not wmod.Functions.IsEmpty then

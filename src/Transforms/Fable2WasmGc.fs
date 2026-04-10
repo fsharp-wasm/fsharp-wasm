@@ -1546,16 +1546,38 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         // Route these through dispatchMathCall so they get proper WasmIR.
         | ("abs" | "min" | "max" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest"), _, _ ->
             dispatchMathCall importInfo.Selector wArgs ty
-        // Math.Exp(x) / Math.Log(x) / Math.Sin(x) / Math.Cos(x) / Math.Tan(x) — software polynomial implementations (no native WASM trig ops)
+        // Trig / transcendental — software polynomial (no native WASM trig ops).
+        // For float32 args: promote to f64, call helper, demote back.
+        | "exp", [arg], WType.F32 ->
+            WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathExp"),  [WExpr.Unary(WUnaryOp.PromoteF32, arg, WType.F64)], WType.F64), WType.F32)
         | "exp", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathExp"), [arg], WType.F64)
+        | "log", [arg], WType.F32 ->
+            WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathLog"),  [WExpr.Unary(WUnaryOp.PromoteF32, arg, WType.F64)], WType.F64), WType.F32)
         | "log", [arg], _ -> WExpr.Call(ctx.UseHelper("$mathLog"), [arg], WType.F64)
-        | "sin",  [arg],        _ -> WExpr.Call(ctx.UseHelper("$mathSin"),  [arg],       WType.F64)
-        | "cos",  [arg],        _ -> WExpr.Call(ctx.UseHelper("$mathCos"),  [arg],       WType.F64)
-        | "tan",  [arg],        _ -> WExpr.Call(ctx.UseHelper("$mathTan"),  [arg],       WType.F64)
-        | "atan2", [y; x],      _ -> WExpr.Call(ctx.UseHelper("$mathAtan2"), [y; x],     WType.F64)
+        | "sin", [arg], WType.F32 ->
+            WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathSin"),  [WExpr.Unary(WUnaryOp.PromoteF32, arg, WType.F64)], WType.F64), WType.F32)
+        | "sin",  [arg], _ -> WExpr.Call(ctx.UseHelper("$mathSin"),  [arg], WType.F64)
+        | "cos", [arg], WType.F32 ->
+            WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathCos"),  [WExpr.Unary(WUnaryOp.PromoteF32, arg, WType.F64)], WType.F64), WType.F32)
+        | "cos",  [arg], _ -> WExpr.Call(ctx.UseHelper("$mathCos"),  [arg], WType.F64)
+        | "tan", [arg], WType.F32 ->
+            WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathTan"),  [WExpr.Unary(WUnaryOp.PromoteF32, arg, WType.F64)], WType.F64), WType.F32)
+        | "tan",  [arg], _ -> WExpr.Call(ctx.UseHelper("$mathTan"),  [arg], WType.F64)
+        | "atan2", [y; x], WType.F32 ->
+            let yD = WExpr.Unary(WUnaryOp.PromoteF32, y, WType.F64)
+            let xD = WExpr.Unary(WUnaryOp.PromoteF32, x, WType.F64)
+            WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathAtan2"), [yD; xD], WType.F64), WType.F32)
+        | "atan2", [y; x], _ -> WExpr.Call(ctx.UseHelper("$mathAtan2"), [y; x], WType.F64)
         // BitOperations: LeadingZeroCount → Math.clz32 (intercepted here); TrailingZeroCount/PopCount come as LibCall
         | "trailingZeroCount", [arg], _ -> WExpr.Unary(WUnaryOp.Ctz,    arg, WType.I32)
         | "popCount",          [arg], _ -> WExpr.Unary(WUnaryOp.Popcnt, arg, WType.I32)
+        // BitConverter reinterpret-cast helpers (no memory access, pure bit rewriting)
+        | "int32BitsToSingle",  [arg], _ -> WExpr.Unary(WUnaryOp.ReinterpretI32ToF32, arg, WType.F32)
+        | "singleToInt32Bits",  [arg], _ -> WExpr.Unary(WUnaryOp.ReinterpretF32ToI32, arg, WType.I32)
+        | "int64BitsToDouble",  [arg], _ -> WExpr.Unary(WUnaryOp.ReinterpretI64ToF64, arg, WType.F64)
+        | "doubleToInt64Bits",  [arg], _ -> WExpr.Unary(WUnaryOp.ReinterpretF64ToI64, arg, WType.I64)
+        | "uint32BitsToSingle", [arg], _ -> WExpr.Unary(WUnaryOp.ReinterpretI32ToF32, arg, WType.F32)
+        | "singleToUInt32Bits", [arg], _ -> WExpr.Unary(WUnaryOp.ReinterpretF32ToI32, arg, WType.I32)
         // ── StringBuilder — calls from ./System.Text.fs ───────────────────────────
         | "StringBuilder_$ctor", _, _ ->
             // new StringBuilder() / new StringBuilder(capacity)
@@ -1852,10 +1874,32 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 let effectiveTy = if retTy = WType.Void then ty else retTy
                 WExpr.Call(actualName, wArgs, effectiveTy)
             | None ->
+            // ── wasm:memory intrinsics — lower to WASM linear memory instructions ─────
+            // Functions declared as [<Import("f32.store","wasm:memory")>] are lowered here
+            // instead of emitting a JS import. The module must declare a linear memory section.
+            let path = importInfo.Path
+            if path = "wasm:memory" then
+                ctx.HasLinearMemory := true   // mark module as needing (memory 1)
+                match selector, wArgs with
+                | "i32.store8",   [addr; v]  -> WExpr.MemStore(WMemKind.Byte, 0, addr, v)
+                | "i32.store",    [addr; v]  -> WExpr.MemStore(WMemKind.I32,  0, addr, v)
+                | "i64.store",    [addr; v]  -> WExpr.MemStore(WMemKind.I64,  0, addr, v)
+                | "f32.store",    [addr; v]  -> WExpr.MemStore(WMemKind.F32,  0, addr, v)
+                | "f64.store",    [addr; v]  -> WExpr.MemStore(WMemKind.F64,  0, addr, v)
+                | "i32.load8_u",  [addr]     -> WExpr.MemLoad(WMemKind.Byte, 0, addr)
+                | "i32.load",     [addr]     -> WExpr.MemLoad(WMemKind.I32,  0, addr)
+                | "i64.load",     [addr]     -> WExpr.MemLoad(WMemKind.I64,  0, addr)
+                | "f32.load",     [addr]     -> WExpr.MemLoad(WMemKind.F32,  0, addr)
+                | "f64.load",     [addr]     -> WExpr.MemLoad(WMemKind.F64,  0, addr)
+                | "memory.size",  []         -> WExpr.MemorySize
+                | "memory.grow",  [pages]    -> WExpr.MemoryGrow pages
+                | unknown, _ ->
+                    eprintfn "[WasmGc] WARNING: unknown wasm:memory intrinsic '%s'" unknown
+                    WExpr.Nop
+            else
             // ── External Wasm FFI — [<Import("name","module")>] on nativeOnly ──────────
             // When the path has no .fs extension and no fable-library, treat as a Wasm import.
             // The import is registered once; subsequent calls reuse the same declaration.
-            let path = importInfo.Path
             let pLow = path.ToLowerInvariant()
             let isLocalFile = pLow.EndsWith(".fs") || pLow.EndsWith(".fsi")
             let isFableLib = pLow.Contains("fable-library")
@@ -1922,22 +1966,37 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         WExpr.Call(ctx.UseHelper("$powF64"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "exp" ->
-        WExpr.Call(ctx.UseHelper("$mathExp"), wArgs, WType.F64)
+        match ty, wArgs with
+        | WType.F32, [a] -> WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathExp"),  [WExpr.Unary(WUnaryOp.PromoteF32, a, WType.F64)], WType.F64), WType.F32)
+        | _,         _   -> WExpr.Call(ctx.UseHelper("$mathExp"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "log" ->
-        WExpr.Call(ctx.UseHelper("$mathLog"), wArgs, WType.F64)
+        match ty, wArgs with
+        | WType.F32, [a] -> WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathLog"),  [WExpr.Unary(WUnaryOp.PromoteF32, a, WType.F64)], WType.F64), WType.F32)
+        | _,         _   -> WExpr.Call(ctx.UseHelper("$mathLog"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "sin" ->
-        WExpr.Call(ctx.UseHelper("$mathSin"), wArgs, WType.F64)
+        match ty, wArgs with
+        | WType.F32, [a] -> WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathSin"),  [WExpr.Unary(WUnaryOp.PromoteF32, a, WType.F64)], WType.F64), WType.F32)
+        | _,         _   -> WExpr.Call(ctx.UseHelper("$mathSin"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "cos" ->
-        WExpr.Call(ctx.UseHelper("$mathCos"), wArgs, WType.F64)
+        match ty, wArgs with
+        | WType.F32, [a] -> WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathCos"),  [WExpr.Unary(WUnaryOp.PromoteF32, a, WType.F64)], WType.F64), WType.F32)
+        | _,         _   -> WExpr.Call(ctx.UseHelper("$mathCos"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "tan" ->
-        WExpr.Call(ctx.UseHelper("$mathTan"), wArgs, WType.F64)
+        match ty, wArgs with
+        | WType.F32, [a] -> WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathTan"),  [WExpr.Unary(WUnaryOp.PromoteF32, a, WType.F64)], WType.F64), WType.F32)
+        | _,         _   -> WExpr.Call(ctx.UseHelper("$mathTan"), wArgs, WType.F64)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "atan2" ->
-        WExpr.Call(ctx.UseHelper("$mathAtan2"), wArgs, WType.F64)
+        match ty, wArgs with
+        | WType.F32, [y; x] ->
+            let yD = WExpr.Unary(WUnaryOp.PromoteF32, y, WType.F64)
+            let xD = WExpr.Unary(WUnaryOp.PromoteF32, x, WType.F64)
+            WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathAtan2"), [yD; xD], WType.F64), WType.F32)
+        | _,         _      -> WExpr.Call(ctx.UseHelper("$mathAtan2"), wArgs, WType.F64)
     // BitOperations.LeadingZeroCount → Math.clz32 (GlobalCall "Math" route)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "clz32" ->
@@ -2597,14 +2656,18 @@ let buildWModule (ctx: Ctx) : WModule =
             runtimeHelpers @ fixedFunctions
         Globals = ctx.VTableGlobals |> Seq.toList
         Exports =
-            fixedFunctions
-            |> List.choose (fun f ->
-                if f.Exported then
-                    Some { InternalName = f.Name; ExportName = f.Name; Kind = ExportFunc }
-                else None)
+            [   // Linear memory export (index 0) must appear before function exports in the list
+                if !ctx.HasLinearMemory then
+                    yield { InternalName = "0"; ExportName = "memory"; Kind = ExportMemory }
+                yield! fixedFunctions
+                       |> List.choose (fun f ->
+                           if f.Exported then
+                               Some { InternalName = f.Name; ExportName = f.Name; Kind = ExportFunc }
+                           else None) ]
         DataSegments = []
         Tags = [ { Name = "$fsharp_exn"; ParamTypes = [] } ]
         Start = None
+        HasLinearMemory = !ctx.HasLinearMemory
     }
 
 /// Compile one Fable file INTO an existing ctx (multi-file accumulation).

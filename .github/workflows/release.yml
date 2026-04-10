@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -36,6 +37,22 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.fsproj', '**/global.json') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      # Cache patched fsc.dll — only rebuild when vendor/fsharp submodule changes.
+      - name: Cache patched fsc.dll
+        id: cache-fsc
+        uses: actions/cache@v5
+        with:
+          path: vendor/fsharp/artifacts/bin/fsc/Release/net10.0
+          key: fsc-${{ runner.os }}-${{ hashFiles('vendor/fsharp') }}
+
+      - name: Build patched fsharp compiler (if not cached)
+        if: steps.cache-fsc.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/fsharp
+          chmod +x build.sh
+          ./build.sh -c Release -projects src/Compiler/FSharp.Compiler.Service.fsproj
+          ls artifacts/bin/fsc/Release/net10.0/fsc.dll
+
       - name: Install wasm-tools
         continue-on-error: true
         run: |
@@ -46,69 +63,30 @@ jobs:
           find . -maxdepth 2 -name wasm-tools -type f | head -1 | xargs -I{} sudo install -m755 {} /usr/local/bin/wasm-tools
           wasm-tools --version
 
-      - name: Build
-        run: dotnet build src/Fable.WasmGc.fsproj -c Release -p:Version=${GITHUB_REF_NAME#v}
+      - name: Restore dotnet tools (FAKE)
+        run: dotnet tool restore
 
-      - name: QuickTest
-        run: cd tests/QuickTest && bash run.sh
+      - name: Run full release build (Build + Test + Pack)
+        env:
+          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+          VERSION: ${{ github.ref_name }}
+        run: dotnet fake run build.fsx --target Pack
 
-      - name: Showcase
-        run: cd tests/Showcase && bash run.sh
+      - name: Publish self-contained CLI binaries
+        env:
+          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+          VERSION: ${{ github.ref_name }}
+        run: dotnet fake run build.fsx --target PublishBinaries
 
-      - name: Component Embed
-        run: cd examples/component-embed && bash run.sh
-
-      - name: Component Linking
-        run: cd examples/component-linking && bash run.sh
-
-      - name: Publish compiler (linux-x64)
+      - name: Package CLI binaries as archives
         run: |
-          dotnet publish vendor/Fable/src/Fable.Cli/Fable.Cli.fsproj \
-            -c Release \
-            -r linux-x64 \
-            --self-contained \
-            -o publish/linux-x64
-
-      - name: Publish compiler (win-x64)
-        run: |
-          dotnet publish vendor/Fable/src/Fable.Cli/Fable.Cli.fsproj \
-            -c Release \
-            -r win-x64 \
-            --self-contained \
-            -o publish/win-x64
-
-      - name: Publish compiler (osx-x64)
-        run: |
-          dotnet publish vendor/Fable/src/Fable.Cli/Fable.Cli.fsproj \
-            -c Release \
-            -r osx-x64 \
-            --self-contained \
-            -o publish/osx-x64
-
-      - name: Publish compiler (osx-arm64)
-        run: |
-          dotnet publish vendor/Fable/src/Fable.Cli/Fable.Cli.fsproj \
-            -c Release \
-            -r osx-arm64 \
-            --self-contained \
-            -o publish/osx-arm64
-
-      - name: Package artifacts
-        run: |
-          cd src/bin/Release/net10.0
-          zip -r "$GITHUB_WORKSPACE/publish/Fable.WasmGc-net10.0.zip" .
-          cd "$GITHUB_WORKSPACE"
-          dotnet pack src/Fable.WasmGc.fsproj \
-            -c Release \
-            -p:Version=${GITHUB_REF_NAME#v} \
-            -o publish/nuget
           cd publish
-          tar czf fsharp-wasm-linux-x64.tar.gz -C linux-x64 .
-          tar czf fsharp-wasm-osx-x64.tar.gz -C osx-x64 .
-          tar czf fsharp-wasm-osx-arm64.tar.gz -C osx-arm64 .
+          tar czf fsharp-wasm-linux-x64.tar.gz  -C linux-x64  .
+          tar czf fsharp-wasm-osx-x64.tar.gz    -C osx-x64    .
+          tar czf fsharp-wasm-osx-arm64.tar.gz  -C osx-arm64  .
           cd win-x64 && zip -r ../fsharp-wasm-win-x64.zip . && cd ..
 
-      - name: Publish NuGet package
+      - name: Publish to NuGet.org
         if: env.NUGET_API_KEY != ''
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
@@ -118,12 +96,26 @@ jobs:
             --api-key "$NUGET_API_KEY" \
             --skip-duplicate
 
+      # Also publish to GitHub Packages (free repo-scoped feed — no NUGET_API_KEY needed).
+      - name: Publish to GitHub Packages
+        run: |
+          dotnet nuget add source \
+            --username "${{ github.actor }}" \
+            --password "${{ secrets.GITHUB_TOKEN }}" \
+            --store-password-in-clear-text \
+            --name github \
+            "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            2>/dev/null || true
+          dotnet nuget push publish/nuget/*.nupkg \
+            --source github \
+            --api-key "${{ secrets.GITHUB_TOKEN }}" \
+            --skip-duplicate
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            publish/Fable.WasmGc-net10.0.zip
             publish/nuget/*.nupkg
             publish/fsharp-wasm-linux-x64.tar.gz
             publish/fsharp-wasm-osx-x64.tar.gz

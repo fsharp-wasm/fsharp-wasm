@@ -22,16 +22,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Update Fable submodule to correct branch
-        run: |
-          cd vendor/Fable
-          git fetch origin
-          git checkout feature/wasmgc-backend
-          git pull origin feature/wasmgc-backend
-          echo "Fable submodule is now at:"
-          git rev-parse HEAD
-          cd ../..
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
@@ -49,6 +39,23 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.fsproj', '**/global.json') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      # Cache the patched fsc.dll — only rebuild when vendor/fsharp submodule HEAD changes.
+      - name: Cache patched fsc.dll
+        id: cache-fsc
+        uses: actions/cache@v5
+        with:
+          path: vendor/fsharp/artifacts/bin/fsc/Release/net10.0
+          key: fsc-${{ runner.os }}-${{ hashFiles('vendor/fsharp') }}
+
+      - name: Build patched fsharp compiler (if not cached)
+        if: steps.cache-fsc.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/fsharp
+          chmod +x build.sh
+          ./build.sh -c Release -projects src/Compiler/FSharp.Compiler.Service.fsproj
+          echo "fsc.dll rebuilt:"
+          ls artifacts/bin/fsc/Release/net10.0/fsc.dll
+
       - name: Install wasm-tools
         continue-on-error: true
         run: |
@@ -59,17 +66,20 @@ jobs:
           find . -maxdepth 2 -name wasm-tools -type f | head -1 | xargs -I{} sudo install -m755 {} /usr/local/bin/wasm-tools
           wasm-tools --version
 
-      - name: Build
-        run: dotnet build src/Fable.WasmGc.fsproj
+      - name: Restore dotnet tools (FAKE)
+        run: dotnet tool restore
 
-      - name: QuickTest
-        run: cd tests/QuickTest && bash run.sh
-
-      - name: Showcase
-        run: cd tests/Showcase && bash run.sh
+      - name: Build + QuickTest + Showcase
+        env:
+          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+        run: dotnet fake run build.fsx --target Showcase
 
       - name: Component Embed
+        env:
+          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
         run: cd examples/component-embed && bash run.sh
 
       - name: Component Linking
+        env:
+          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
         run: cd examples/component-linking && bash run.sh

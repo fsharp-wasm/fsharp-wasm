@@ -81,6 +81,16 @@ module WTypeKeys =
     let wTypesKey (ts: WType list) =
         ts |> List.map wTypeKey |> String.concat ","
 
+/// The element kind for a linear-memory load or store.
+/// Determines which WASM instruction is emitted (e.g. i32.load8_u, f32.store).
+[<RequireQualifiedAccess>]
+type WMemKind =
+    | Byte  // i32.load8_u / i32.store8  — result/param type is I32
+    | I32   // i32.load   / i32.store
+    | I64   // i64.load   / i64.store
+    | F32   // f32.load   / f32.store
+    | F64   // f64.load   / f64.store
+
 /// Literal constants.
 [<RequireQualifiedAccess>]
 type WConst =
@@ -174,6 +184,16 @@ type WExpr =
     | TryCatch of body: WExpr * catch: (string * WExpr) option * finally_: WExpr option * WType
     | Throw of exn: WExpr
 
+    // ── Linear memory (WasmGC + linear memory coexist in the same module) ────
+    /// Load a value from linear memory at byte address (addr + offset).
+    | MemLoad  of kind: WMemKind * offset: int * addr: WExpr
+    /// Store a value to linear memory at byte address (addr + offset).
+    | MemStore of kind: WMemKind * offset: int * addr: WExpr * value: WExpr
+    /// memory.size — current number of 64KB pages; result is I32.
+    | MemorySize
+    /// memory.grow — grow linear memory by N pages; result is I32 (old size or -1).
+    | MemoryGrow of pages: WExpr
+
 /// Unary numeric operations.
 [<RequireQualifiedAccess>]
 type WUnaryOp =
@@ -198,6 +218,10 @@ type WUnaryOp =
     | ConvertI64S   // i64 → f32/f64 (signed)
     | PromoteF32    // f32 → f64
     | DemoteF64     // f64 → f32
+    | ReinterpretI32ToF32  // f32.reinterpret_i32 (bit-cast i32 → f32)
+    | ReinterpretF32ToI32  // i32.reinterpret_f32 (bit-cast f32 → i32)
+    | ReinterpretI64ToF64  // f64.reinterpret_i64 (bit-cast i64 → f64)
+    | ReinterpretF64ToI64  // i64.reinterpret_f64 (bit-cast f64 → i64)
 
 /// Binary numeric operations.
 [<RequireQualifiedAccess>]
@@ -337,6 +361,9 @@ type WModule =
         DataSegments: WDataSegment list
         Tags: WTagDecl list
         Start: string option
+        /// When true, emit a linear memory section (1 initial page) + export it as "memory".
+        /// WasmGC and linear memory coexist fine — the engine allocates both independently.
+        HasLinearMemory: bool
     }
 
     static member Empty =
@@ -349,6 +376,7 @@ type WModule =
             DataSegments = []
             Tags = []
             Start = None
+            HasLinearMemory = false
         }
 
 // ─────────────────────────────────────────────────────────────────
@@ -476,6 +504,7 @@ type Instr =
     | F32ConvertI32S
     | F32ConvertI64S
     | F32DemoteF64
+    | F32ReinterpretI32
 
     // ── Numeric (f64) ─────────────────────────────────────
     | F64Const of float
@@ -502,6 +531,9 @@ type Instr =
     | F64ConvertI32S
     | F64ConvertI64S
     | F64PromoteF32
+    | F64ReinterpretI64
+    | I32ReinterpretF32
+    | I64ReinterpretF64
 
     // ── GC instructions ───────────────────────────────────
     | StructNew of typeIdx: int
@@ -543,6 +575,18 @@ type Instr =
     // ── Exception handling ────────────────────────────────
     | Throw of tagIdx: int
     | ThrowRef
+
+    // ── Linear memory load/store ──────────────────────────────────────────
+    | I32Load    of align: int * offset: int  // i32.load
+    | I64Load    of align: int * offset: int  // i64.load
+    | F32Load    of align: int * offset: int  // f32.load
+    | F64Load    of align: int * offset: int  // f64.load
+    | I32Load8U  of align: int * offset: int  // i32.load8_u
+    | I32Store   of align: int * offset: int  // i32.store
+    | I64Store   of align: int * offset: int  // i64.store
+    | F32Store   of align: int * offset: int  // f32.store
+    | F64Store   of align: int * offset: int  // f64.store
+    | I32Store8  of align: int * offset: int  // i32.store8
 
     // ── Misc ──────────────────────────────────────────────
     | Drop

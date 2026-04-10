@@ -3,4 +3,20 @@
 	url = https://github.com/fsharp-wasm/Fable.git
 [submodule "vendor/fsharp"]
 	path = vendor/fsharp
-	url = https://github.com/fsharp-wasm/fsharp
+	url = ../fsharp
+[submodule "fsharp-wasm-graphics"]
+	path = fsharp-wasm-graphics
+	url = ../fsharp-wasm-graphics/
+	branch = copilot/fsharp-graphics-full-implementation
+[submodule "fsharp-wasm-runtime"]
+	path = fsharp-wasm-runtime
+	url = ../fsharp-wasm-runtime
+	branch = develop
+[submodule "fsharp-wasm-core"]
+	path = fsharp-wasm-core
+	url = ../fsharp-wasm-core
+	branch = develop
+[submodule "fsharp-glyph-aura"]
+	path = fsharp-glyph-aura
+	url = ../fsharp-glyph-aura/
+	branch = develop

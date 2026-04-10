@@ -134,6 +134,9 @@ type Ctx =
         /// DecisionTreeSuccess(localIdx) → JoinApply("$target_{TargetBase + localIdx}").
         /// Saved/restored around nested DecisionTree calls (LIFO via mutable mutation).
         TargetBase: int ref
+        /// Set to true when any wasm:memory intrinsic is lowered in this compilation.
+        /// Controls whether a linear memory section is emitted in the output.
+        HasLinearMemory: bool ref
     }
 
     static member Create(com: Compiler, ?stringMode: StringMode) =
@@ -192,6 +195,7 @@ type Ctx =
             ResizeArrayRegistry = System.Collections.Generic.Dictionary<string, int * int>()
             DecisionTreeCounter = ref 0
             TargetBase = ref 0
+            HasLinearMemory = ref false
         }
 
     member this.WithLocal(name: string, ty: WType) =
@@ -481,6 +485,15 @@ let rec exprWType (expr: WExpr) : WType =
     | WExpr.FuncRef _ -> WType.Ref(AnyFnTypeIdx, false)  // funcref is a Ref to AnyFn
     | WExpr.RefIsNull _ -> WType.I32
     | WExpr.RefTest _ -> WType.I32
+    // Linear memory
+    | WExpr.MemLoad(WMemKind.Byte, _, _)
+    | WExpr.MemLoad(WMemKind.I32, _, _)  -> WType.I32
+    | WExpr.MemLoad(WMemKind.I64, _, _)  -> WType.I64
+    | WExpr.MemLoad(WMemKind.F32, _, _)  -> WType.F32
+    | WExpr.MemLoad(WMemKind.F64, _, _)  -> WType.F64
+    | WExpr.MemStore _   -> WType.Void
+    | WExpr.MemorySize   -> WType.I32
+    | WExpr.MemoryGrow _ -> WType.I32
 
 /// Function type alias used to pass `transformExpr` into replacement modules.
 /// Breaking the mutual recursion via higher-order parameter.

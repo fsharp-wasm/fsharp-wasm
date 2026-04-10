@@ -789,6 +789,10 @@ let fixClosureApply (typeDefs: ResizeArray<WTypeDeclEntry>) (functions: WFuncDec
         | WExpr.Binary(op, a, b, ty) -> WExpr.Binary(op, fix a, fix b, ty)
         | WExpr.Compare(op, a, b) -> WExpr.Compare(op, fix a, fix b)
         | WExpr.Throw(e) -> WExpr.Throw(fix e)
+        | WExpr.MemLoad(kind, off, addr) -> WExpr.MemLoad(kind, off, fix addr)
+        | WExpr.MemStore(kind, off, addr, v) -> WExpr.MemStore(kind, off, fix addr, fix v)
+        | WExpr.MemoryGrow pages -> WExpr.MemoryGrow(fix pages)
+        | WExpr.MemorySize -> WExpr.MemorySize
         | _ -> expr
 
     functions |> List.map (fun f -> { f with Body = fix f.Body })

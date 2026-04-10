@@ -509,6 +509,35 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let dropInstrs = if exnTy <> WType.Void then [Instr.Drop] else []
         exnInstrs @ dropInstrs @ [Instr.Throw ctx.ExceptionTagIdx]
 
+    // ── Linear memory ─────────────────────────────────────────────────────────
+    | WExpr.MemorySize -> [Instr.MemorySize]
+
+    | WExpr.MemoryGrow pages ->
+        emitExpr ctx pages @ [Instr.MemoryGrow]
+
+    | WExpr.MemLoad(kind, offset, addr) ->
+        let addrInstrs = emitExpr ctx addr
+        let loadInstr =
+            match kind with
+            | WMemKind.Byte -> Instr.I32Load8U(0, offset)  // align=0 (no alignment required for bytes)
+            | WMemKind.I32  -> Instr.I32Load(2, offset)     // align=2 (4-byte aligned)
+            | WMemKind.I64  -> Instr.I64Load(3, offset)     // align=3 (8-byte aligned)
+            | WMemKind.F32  -> Instr.F32Load(2, offset)
+            | WMemKind.F64  -> Instr.F64Load(3, offset)
+        addrInstrs @ [loadInstr]
+
+    | WExpr.MemStore(kind, offset, addr, value) ->
+        let addrInstrs  = emitExpr ctx addr
+        let valueInstrs = emitExpr ctx value
+        let storeInstr =
+            match kind with
+            | WMemKind.Byte -> Instr.I32Store8(0, offset)
+            | WMemKind.I32  -> Instr.I32Store(2, offset)
+            | WMemKind.I64  -> Instr.I64Store(3, offset)
+            | WMemKind.F32  -> Instr.F32Store(2, offset)
+            | WMemKind.F64  -> Instr.F64Store(3, offset)
+        addrInstrs @ valueInstrs @ [storeInstr]
+
 // ─────────────────────────────────────────────────────────────────
 // Determine result type of a WExpr (for drop decisions)
 // ─────────────────────────────────────────────────────────────────
@@ -559,6 +588,10 @@ and emitUnaryOp (op: WUnaryOp) (ty: WType) : Instr =
     | WUnaryOp.ConvertI64S, WType.F32 -> Instr.F32ConvertI64S
     | WUnaryOp.PromoteF32, _ -> Instr.F64PromoteF32
     | WUnaryOp.DemoteF64, _ -> Instr.F32DemoteF64
+    | WUnaryOp.ReinterpretI32ToF32, _ -> Instr.F32ReinterpretI32
+    | WUnaryOp.ReinterpretF32ToI32, _ -> Instr.I32ReinterpretF32
+    | WUnaryOp.ReinterpretI64ToF64, _ -> Instr.F64ReinterpretI64
+    | WUnaryOp.ReinterpretF64ToI64, _ -> Instr.I64ReinterpretF64
     | _ -> Instr.Unreachable // fallback
 
 and emitBinaryOp (op: WBinaryOp) (ty: WType) : Instr =
@@ -720,6 +753,9 @@ type WasmModule =
         DeclaredFuncRefs: int list
         /// Module-level exception tag declarations: list of (func type index for tag params)
         Tags: int list
+        /// When true, emit linear memory section (1 page, exported as \"memory\").
+        /// WasmGC and linear memory coexist — the engine manages them independently.
+        HasLinearMemory: bool
     }
 
 // ─────────────────────────────────────────────────────────────────
@@ -958,4 +994,5 @@ let emitModule (wmod: WModule) : WasmModule =
         StartFunc = None
         DeclaredFuncRefs = declaredFuncRefs
         Tags = tagTypeIndices
+        HasLinearMemory = wmod.HasLinearMemory
     }

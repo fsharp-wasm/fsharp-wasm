@@ -59,6 +59,11 @@ let mapSubExprs (f: WExpr -> WExpr) (expr: WExpr) : WExpr =
     | WExpr.RefTest(obj, t) -> WExpr.RefTest(f obj, t)
     | WExpr.TailCall(fn, args, t) -> WExpr.TailCall(fn, List.map f args, t)
     | WExpr.TailCallRef(fn, args, ft, ct, cc, t) -> WExpr.TailCallRef(f fn, List.map f args, ft, ct, cc, t)
+    // Linear memory
+    | WExpr.MemLoad(kind, off, addr) -> WExpr.MemLoad(kind, off, f addr)
+    | WExpr.MemStore(kind, off, addr, v) -> WExpr.MemStore(kind, off, f addr, f v)
+    | WExpr.MemoryGrow pages -> WExpr.MemoryGrow(f pages)
+    | WExpr.MemorySize -> WExpr.MemorySize
     // Atoms — nothing to map
     | WExpr.Const _ | WExpr.LocalGet _ | WExpr.GlobalGet _ | WExpr.Nop | WExpr.FuncRef _ -> expr
     | WExpr.GlobalSet(n, v) -> WExpr.GlobalSet(n, f v)

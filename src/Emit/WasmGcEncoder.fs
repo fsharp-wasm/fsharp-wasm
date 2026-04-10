@@ -329,6 +329,7 @@ let rec encodeInstr (buf: ResizeArray<byte>) (instr: Instr) =
     | Instr.F32ConvertI32S -> buf.Add(0xB2uy)
     | Instr.F32ConvertI64S -> buf.Add(0xB4uy)
     | Instr.F32DemoteF64 -> buf.Add(0xB6uy)
+    | Instr.F32ReinterpretI32 -> buf.Add(0xBEuy)
 
     // ── f64 ───────────────────────────────────────────────
     | Instr.F64Const f ->
@@ -358,6 +359,9 @@ let rec encodeInstr (buf: ResizeArray<byte>) (instr: Instr) =
     | Instr.F64ConvertI32S -> buf.Add(0xB7uy)
     | Instr.F64ConvertI64S -> buf.Add(0xB9uy)
     | Instr.F64PromoteF32 -> buf.Add(0xBBuy)
+    | Instr.F64ReinterpretI64 -> buf.Add(0xBFuy)
+    | Instr.I32ReinterpretF32 -> buf.Add(0xBCuy)
+    | Instr.I64ReinterpretF64 -> buf.Add(0xBDuy)
 
     // ── GC instructions (0xFB prefix) ─────────────────────
     | Instr.StructNew typeIdx ->
@@ -513,6 +517,28 @@ let rec encodeInstr (buf: ResizeArray<byte>) (instr: Instr) =
         buf.Add(0x40uy)
         buf.Add(0x00uy) // memory index
 
+    // ── Linear memory load/store ──────────────────────────────────────────────
+    | Instr.I32Load(align, offset) ->
+        buf.Add(0x28uy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.I64Load(align, offset) ->
+        buf.Add(0x29uy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.F32Load(align, offset) ->
+        buf.Add(0x2Auy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.F64Load(align, offset) ->
+        buf.Add(0x2Buy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.I32Load8U(align, offset) ->
+        buf.Add(0x2Duy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.I32Store(align, offset) ->
+        buf.Add(0x36uy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.I64Store(align, offset) ->
+        buf.Add(0x37uy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.F32Store(align, offset) ->
+        buf.Add(0x38uy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.F64Store(align, offset) ->
+        buf.Add(0x39uy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+    | Instr.I32Store8(align, offset) ->
+        buf.Add(0x3Auy); encodeLEB128Unsigned buf (uint32 align); encodeLEB128Unsigned buf (uint32 offset)
+
 and encodeCatch (buf: ResizeArray<byte>) (catch: Catch) =
     match catch with
     | Catch.Tag(tagIdx, labelIdx) ->
@@ -646,6 +672,16 @@ let encodeImportSection (buf: ResizeArray<byte>) (imports: WImport list) (import
             content.Add(0x04uy)  // tag import kind
             encodeLEB128Unsigned content (uint32 typeIdx)
     writeSection buf SectionId.Import content
+
+/// Encode the Memory Section (section 5): declares a single linear memory.
+/// initialPages: number of 64KB pages to allocate initially.
+/// When exported, the JS host can access it as instance.exports.memory.buffer.
+let encodeMemorySection (buf: ResizeArray<byte>) (initialPages: int) =
+    let content = ResizeArray<byte>()
+    encodeLEB128Unsigned content 1u  // 1 memory
+    content.Add(0x00uy)              // limit kind: no max (min only)
+    encodeLEB128Unsigned content (uint32 initialPages)
+    writeSection buf SectionId.Memory content
 
 /// Encode the Global Section (section 6)
 let encodeGlobalSection (buf: ResizeArray<byte>) (globals: WasmGcEmit.WasmGlobal list) =
@@ -793,6 +829,10 @@ let encodeModule (wmod: WasmGcEmit.WasmModule) : byte array =
     // Section 3: Functions (type indices)
     if not (List.isEmpty wmod.FuncTypeIndices) then
         encodeFunctionSection buf wmod.FuncTypeIndices
+
+    // Section 5: Memory (linear memory — one 64KB-page block, exported as "memory")
+    if wmod.HasLinearMemory then
+        encodeMemorySection buf 1  // 1 initial page = 64KB (grows on demand via memory.grow)
 
     // Section 13: Tags (exception tags)
     if not (List.isEmpty wmod.Tags) then
