@@ -43,6 +43,12 @@ let rec collectFreeVars (bound: Set<string>) (expr: Fable.Expr) : Set<string> =
         | Fable.ValueKind.NewArray(Fable.ArrayFrom e, _, _) ->
             collectFreeVars bound e
         | Fable.ValueKind.NewOption(Some e, _, _) -> collectFreeVars bound e
+        // F# list literals [x; y; z] — each cons cell has head + tail both as Fable exprs.
+        // Missing this case caused free variables inside list literals to be silently dropped,
+        // breaking closure capture for any variable referenced only inside a list literal.
+        | Fable.ValueKind.NewList(Some(headExpr, tailExpr), _) ->
+            Set.union (collectFreeVars bound headExpr) (collectFreeVars bound tailExpr)
+        | Fable.ValueKind.NewList(None, _) -> Set.empty
         | _ -> Set.empty
     | Fable.Expr.TypeCast(e, _) -> collectFreeVars bound e
     | Fable.Expr.Operation(kind, _, _, _) ->

@@ -1556,8 +1556,11 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 | Some funcName -> WExpr.Call(funcName, [a; b], WType.I32)
                 | None -> WExpr.Compare(WCompareOp.Eq, a, b)
             else WExpr.Compare(WCompareOp.Eq, a, b)  // primitives: direct eq
-        // Unary negation: 0 - x
-        | ("op_UnaryNegation_Int32" | "op_UnaryNegation"), [arg], WType.I32 ->
+        // Unary negation: 0 - x  (covers all int8/int16/int32/uint variants → all map to I32)
+        | ("op_UnaryNegation_Int8" | "op_UnaryNegation_UInt8"
+        |  "op_UnaryNegation_Int16" | "op_UnaryNegation_UInt16"
+        |  "op_UnaryNegation_Int32" | "op_UnaryNegation_UInt32"
+        |  "op_UnaryNegation"), [arg], WType.I32 ->
             WExpr.Binary(WBinaryOp.Sub, WExpr.Const(WConst.I32 0), arg, WType.I32)
         | ("op_UnaryNegation_Int64" | "op_UnaryNegation"), [arg], WType.I64 ->
             WExpr.Binary(WBinaryOp.Sub, WExpr.Const(WConst.I64 0L), arg, WType.I64)
@@ -1671,8 +1674,24 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 WExpr.ArrayLen(WExpr.Call(ctx.UseHelper("$strTrim"), [str], WType.Ref(StringTypeIdx, false))),
                 WExpr.Const(WConst.I32 0))
         // String.compare(a, b) / String.Compare(a, b) → $strCompare → i32 (-1 | 0 | 1)
+        // Also handles generic "compare" calls with non-string args (e.g. int64 via Long module)
         | ("compare" | "compareOrdinal" | "compareCurrentCulture"), [a; b], WType.I32 ->
-            WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
+            let argTy = exprWType a
+            match argTy with
+            | WType.Ref(si, _) when si = StringTypeIdx ->
+                WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
+            | _ ->
+                // Numeric compare: <0/0/>0 result, used e.g. for int64 comparison
+                let xv = "$cmp_a"
+                let yv = "$cmp_b"
+                WExpr.Let(xv, a, WExpr.Let(yv, b,
+                    WExpr.If(WExpr.Compare(WCompareOp.Eq,  WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
+                        WExpr.Const(WConst.I32 0),
+                        WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
+                            WExpr.Const(WConst.I32 -1),
+                            WExpr.Const(WConst.I32 1),
+                            WType.I32),
+                        WType.I32)))
         // comparePrimitives(a, b) — Fable's generic primitive compare (Util.fs import).
         // Result: -1 / 0 / 1.  Dispatches on runtime arg type.
         | "comparePrimitives", [a; b], WType.I32 ->
@@ -2008,6 +2027,16 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         match ty, wArgs with
         | WType.F32, [a] -> WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathLog"),  [WExpr.Unary(WUnaryOp.PromoteF32, a, WType.F64)], WType.F64), WType.F32)
         | _,         _   -> WExpr.Call(ctx.UseHelper("$mathLog"), wArgs, WType.F64)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "log10" ->
+        match wArgs with
+        | [a] -> WExpr.Binary(WBinaryOp.DivS, WExpr.Call(ctx.UseHelper("$mathLog"), [a], WType.F64), WExpr.Const(WConst.F64 2.302585092994046), WType.F64)
+        | _ -> WExpr.Const(WConst.F64 0.0)
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
+        when fi.Name = "log2" ->
+        match wArgs with
+        | [a] -> WExpr.Binary(WBinaryOp.DivS, WExpr.Call(ctx.UseHelper("$mathLog"), [a], WType.F64), WExpr.Const(WConst.F64 0.6931471805599453), WType.F64)
+        | _ -> WExpr.Const(WConst.F64 0.0)
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
         when fi.Name = "sin" ->
         match ty, wArgs with
@@ -2420,9 +2449,14 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
         let paramTypes = func.Params |> List.map snd
         let kf = ctx.KnownFuncs |> Map.add qualifiedName (paramTypes, func.Result)
         // Register for cross-file import dispatch: (fileStem, shortSelector) → qualifiedName
+        // Also register (fileStem, qualifiedName) → qualifiedName to handle cases where Fable
+        // uses the fully-qualified name as the import selector (e.g. class constructors:
+        // "ArgumentException_$ctor_Z384F8060" rather than "$ctor_Z384F8060").
         let kfByPath =
             if isLibFunc then
-                ctx.KnownFuncsByPath |> Map.add (ctx.CurrentFileStem, shortName) qualifiedName
+                ctx.KnownFuncsByPath
+                |> Map.add (ctx.CurrentFileStem, shortName) qualifiedName
+                |> Map.add (ctx.CurrentFileStem, qualifiedName) qualifiedName
             else
                 ctx.KnownFuncsByPath
         { ctx with KnownFuncs = kf; KnownFuncsByPath = kfByPath }
@@ -2557,15 +2591,40 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
             // Interface declarations have no fields or implementations to emit.
             if ent.IsInterface then ctx
             else
-                // Regular/abstract class: emit a struct type from FSharpFields,
-                // then wire vtable for any interface implementations.
+                // ── Resolve parent type for struct subtyping ─────────────────────────────
+                // WasmGC requires ALL fields (including inherited) to be declared in the
+                // subtype, with the parent's fields appearing first (prefix layout).
                 let typeIdx = ctx.TypeDefs.Count
                 let ctx' = ctx.WithTypeEntry(classDecl.Entity.FullName, typeIdx)
-                let fields =
+
+                // Look up parent struct (skip System.Object / System.Exception from BCL)
+                let parentStructInfo =
+                    match ent.BaseType with
+                    | Some baseT ->
+                        let parentName = baseT.Entity.FullName
+                        // Use ctx (NOT ctx') so we don't find our own self-registered index
+                        // which was added to ctx' before TypeDefs.Add has run.
+                        match Map.tryFind parentName ctx.TypeRegistry with
+                        | Some parentIdx when parentIdx < ctx.TypeDefs.Count ->
+                            match ctx.TypeDefs.[parentIdx].Def with
+                            | WTypeDef.Struct(parentFields, _) -> Some(parentIdx, parentFields)
+                            | _ -> None
+                        | _ -> None
+                    | None -> None
+
+                // Child's own fields declared in this class body
+                let ownFields =
                     ent.FSharpFields
                     |> List.map (fun f ->
                         { Name = f.Name; Type = mapTypeKnown ctx' f.FieldType; Mutable = f.IsMutable })
-                ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(fields, None) })
+
+                // Flattened layout: parent prefix fields + own new fields
+                let allFields, superTypeOpt =
+                    match parentStructInfo with
+                    | Some(parentIdx, parentFields) -> parentFields @ ownFields, Some parentIdx
+                    | None -> ownFields, None
+
+                ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(allFields, superTypeOpt) })
                 // ── Synthesize constructor: takes field values, returns struct.new ──
                 // Fable's constructor body is OOP/JS-style (field sets); we replace
                 // it with a direct struct.new that matches the struct field layout.
@@ -2579,17 +2638,29 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                                 let ty = mapTypeKnown ctx' a.Type
                                 if ty = WType.Void then None else Some(a.Name, ty))
                         let retTy = WType.Ref(typeIdx, false)
-                        // Build struct.new with constructor args in field order
+                        // Build struct.new: map each allFields field to a ctor arg (by name),
+                        // falling back to a zero/null constant for fields not in ctor args.
                         let fieldGetters =
-                            fields |> List.map (fun fd ->
+                            allFields |> List.map (fun fd ->
                                 match ctorParams |> List.tryFind (fun (n, _) -> n = fd.Name) with
                                 | Some(name, ty) -> WExpr.LocalGet(name, ty)
-                                | None -> WExpr.Const(WConst.I32 0))
+                                | None ->
+                                    // Default: zero for value types, null for ref types
+                                    match fd.Type with
+                                    | WType.Ref(_, _) -> WExpr.Const(WConst.Null fd.Type)
+                                    | WType.AnyRef     -> WExpr.Const(WConst.Null WType.AnyRef)
+                                    | _                -> WExpr.Const(WConst.I32 0))
                         let ctorBody = WExpr.StructNew(typeIdx, fieldGetters, retTy)
                         let ctorFunc : WFuncDecl =
                             { Name = ctorDecl.Name; Params = ctorParams; Result = retTy
                               Locals = []; Body = ctorBody; Exported = false }
-                        ctx'.Functions.Add(ctorFunc); ctx'
+                        ctx'.Functions.Add(ctorFunc)
+                        // Register synthesized constructor for cross-file import dispatch.
+                        // Fable uses the full qualified name (e.g. "ArgumentException_$ctor_Z...") as
+                        // the import selector when calling from a different file.
+                        let kf = ctx'.KnownFuncs |> Map.add ctorFunc.Name (List.map snd ctorParams, retTy)
+                        let kfByPath = ctx'.KnownFuncsByPath |> Map.add (ctx'.CurrentFileStem, ctorFunc.Name) ctorFunc.Name
+                        { ctx' with KnownFuncs = kf; KnownFuncsByPath = kfByPath }
                 let ctx'' =
                     (ctx'', classDecl.AttachedMembers)
                     ||> List.fold (fun c m ->
