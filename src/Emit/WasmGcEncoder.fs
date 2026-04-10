@@ -86,6 +86,8 @@ let rec encodeValType (buf: ResizeArray<byte>) (ty: WType) =
     | WType.EqRef ->
         buf.Add(0x64uy) // ref
         buf.Add(0x6Duy) // eq  (non-nullable eqref)
+    | WType.AnyRef ->
+        buf.Add(0x6Euy) // anyref = (ref null any) shorthand
     | WType.Func _ ->
         buf.Add(0x64uy) // ref
         buf.Add(0x70uy) // func

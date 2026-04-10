@@ -100,7 +100,9 @@ let rec collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType)
     | WExpr.TryCatch(body, catch, fin, _) ->
         let catchLocals =
             match catch with
-            | Some(name, expr) -> [name, WType.I32] @ collectLocals paramNames expr
+            // The catch ident is declared via WExpr.Let(ident, GlobalGet($fsharp_exn_carrier), ...)
+            // inside the handler expression itself — collectLocals on `expr` will find it.
+            | Some(_, expr) -> collectLocals paramNames expr
             | None -> []
         let finLocals =
             match fin with

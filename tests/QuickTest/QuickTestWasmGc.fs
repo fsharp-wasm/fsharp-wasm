@@ -2756,3 +2756,57 @@ let testMutualLetRecPingPong () : int =
     ping 0   // 10
 
 // ── Phase 5: Async — requires backend wiring (Sprint 25) ────────
+
+// ── Sprint 30: Typed Exception Carrier + TypeTest ────────────────
+
+/// Custom exception type used for TypeTest.
+/// Fable compiles F# exception records as ClassDeclarations → WasmGC struct in TypeRegistry.
+exception MyTypedException of Value: int
+
+/// Basic exception carrier: throw, catch, verify catch executes.
+let testExnCarrierBasic () : int =
+    try
+        raise (MyTypedException 99)
+        0
+    with _ -> 42  // 42 — handler reached
+
+/// Exception carrier: the catch variable is the actual thrown struct (anyref carrier).
+/// Access its field via TypeTest + cast to confirm payload round-trip.
+let testExnTypedPayload () : int =
+    try
+        raise (MyTypedException 77)
+        0
+    with
+    | :? MyTypedException as e -> e.Value  // 77 — payload extracted from carrier
+    | _ -> 0
+
+/// TypeTest discriminates: :? MyTypedException vs. a different exception.
+let testExnTypeTestDiscriminate () : int =
+    let mutable result = 0
+    try
+        failwith "generic error"  // throws a different exception type
+        result <- 1
+    with
+    | :? MyTypedException -> result <- 20  // should NOT match
+    | _ -> result <- 99  // should match
+    result  // 99
+
+/// TypeTest succeeds when matching the thrown type precisely.
+let testExnTypeTestMatch () : int =
+    try
+        raise (MyTypedException 55)
+        0
+    with
+    | :? MyTypedException -> 1  // should match → 1
+    | _ -> 0
+
+/// Exception with non-trivial value: carrier stores and retrieves int payload.
+let testExnCarrierInt () : int =
+    let mutable acc = 0
+    for i in 1 .. 5 do
+        try
+            if i % 2 = 0 then raise (MyTypedException (i * 10))
+        with
+        | :? MyTypedException as e -> acc <- acc + e.Value
+        | _ -> ()
+    acc  // 20 + 40 = 60

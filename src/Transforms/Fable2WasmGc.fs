@@ -365,7 +365,14 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                     ent.FSharpFields
                     |> Seq.tryFindIndex (fun f -> f.Name = fieldInfo.Name)
                     |> Option.defaultValue 0
-                WExpr.StructGet(wExpr, fieldIdx, mapTypeKnown ctx typ)
+                // Cast if the object is typed as anyref/eqref (e.g., a catch variable) —
+                // struct.get requires the concrete ref type on the stack.
+                let targetRefTy = WType.Ref(typeIdx, false)
+                let wSelf =
+                    match exprWType wExpr with
+                    | WType.Ref(idx, _) when idx = typeIdx -> wExpr
+                    | _ -> WExpr.Cast(wExpr, targetRefTy)
+                WExpr.StructGet(wSelf, fieldIdx, mapTypeKnown ctx typ)
             | None -> WExpr.Const(WConst.I32 0)
         | _ -> WExpr.Const(WConst.I32 0)
 
@@ -466,9 +473,19 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     | Fable.Expr.TypeCast(expr, targetFableType) ->
         let wExpr = transformExpr ctx expr
         let srcTy  = exprWType wExpr
+        // Use mapTypeKnown so DeclaredType → Ref(typeIdx) when registered (vs. mapType → I32).
+        let dstTyKnown = mapTypeKnown ctx targetFableType
         let dstTy  = mapType targetFableType
-        if srcTy = dstTy then wExpr
+        if srcTy = dstTyKnown then wExpr
         else
+            match srcTy, dstTyKnown with
+            // ── AnyRef → concrete struct ref: ref.cast (used in exception catch bindings) ─
+            | WType.AnyRef, WType.Ref(typeIdx, _) ->
+                WExpr.Cast(wExpr, WType.Ref(typeIdx, false))
+            // ── Nullable ref → concrete non-null ref: ref.cast ─
+            | WType.Ref(_, true), WType.Ref(typeIdx, false) ->
+                WExpr.Cast(wExpr, WType.Ref(typeIdx, false))
+            | _ ->
             match srcTy, dstTy with
             // ── Truncation (float → int) ───
             | WType.F64, WType.I32 -> WExpr.Unary(WUnaryOp.TruncF64S,    wExpr, WType.I32)
@@ -606,7 +623,13 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     | Fable.Expr.TryCatch(body, catch, finalizer, _range) ->
         let wBody = transformExpr ctx body
         let wCatch = catch |> Option.map (fun (ident, expr) ->
-            ident.Name, transformExpr (ctx.WithLocal(ident.Name, WType.I32)) expr)
+            // Type the catch ident as anyref so TypeTest (ref.test) works against typed exceptions.
+            // The ident value is loaded from $fsharp_exn_carrier at the start of the handler.
+            let ctxWithIdent = ctx.WithLocal(ident.Name, WType.AnyRef)
+            let wHandlerExpr = transformExpr ctxWithIdent expr
+            let wHandlerWithCarrier =
+                WExpr.Let(ident.Name, WExpr.GlobalGet("$fsharp_exn_carrier", WType.AnyRef), wHandlerExpr)
+            ident.Name, wHandlerWithCarrier)
         let wFinally = finalizer |> Option.map (transformExpr ctx)
         let ty = mapType body.Type
         WExpr.TryCatch(wBody, wCatch, wFinally, ty)
@@ -1853,6 +1876,17 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             WExpr.Call(ctx.UseHelper("$parseFloat"), [str], WType.F64)
         | "parse", [str], WType.F32 ->
             WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$parseFloat"), [str], WType.F64), WType.F32)
+        // ── downcast: runtime-safe cast used in `:? T as e` pattern bindings ──────
+        // Fable emits `Call(Import("downcast","./Util.fs"), [obj])` when narrowing
+        // an anyref/base-type catch variable to a concrete exception/DU type.
+        // We emit ref.cast to the target struct type (inferred from the return type).
+        | "downcast", [arg], WType.Ref(typeIdx, _) ->
+            WExpr.Cast(arg, WType.Ref(typeIdx, false))
+        | "downcast", [arg], _ ->
+            // ty was computed via mapTypeKnown from the call's Fable return type.
+            // If it resolved to a non-struct type (e.g. I32 for unregistered DeclaredType),
+            // pass through the argument unchanged — the caller will handle the type mismatch.
+            arg
         // Fallback: if the selector names a function compiled from a library
         // file earlier in this project (in ctx.KnownFuncs), emit a direct call.
         // This handles same-project cross-file calls (e.g. Map.add → Map_add).
@@ -2165,9 +2199,22 @@ and transformTest (ctx: Ctx) (expr: Fable.Expr) (kind: TestKind) : WExpr =
                 WExpr.Compare(WCompareOp.Ne, wExpr, WExpr.Const(WConst.I32 0))
             else
                 WExpr.Compare(WCompareOp.Eq, wExpr, WExpr.Const(WConst.I32 0))
-    | TypeTest _typ ->
-        // TODO: runtime type test
-        WExpr.Const(WConst.I32 0)
+    | TypeTest typ ->
+        // Runtime type test: ref.test (ref $TypeIdx) against the typed exception/object.
+        // Used for `:? SomeType` and `with :? SomeException as e` patterns.
+        match typ with
+        | Fable.Type.DeclaredType(entRef, _) ->
+            match Map.tryFind entRef.FullName ctx.TypeRegistry with
+            | Some typeIdx ->
+                WExpr.RefTest(wExpr, WType.Ref(typeIdx, false))
+            | None ->
+                // Type not (yet) registered — check GenericDuRegistry too
+                match ctx.GenericDuRegistry.TryGetValue(entRef.FullName) with
+                | true, typeIdx -> WExpr.RefTest(wExpr, WType.Ref(typeIdx, false))
+                | false, _ -> WExpr.Const(WConst.I32 0)  // unknown type: test fails
+        | _ ->
+            // Primitive / other types can't be runtime-tested via ref.test
+            WExpr.Const(WConst.I32 0)
 
 // ─────────────────────────────────────────────────────────────────
 // Decision tree translation (pattern matching)
@@ -2654,7 +2701,17 @@ let buildWModule (ctx: Ctx) : WModule =
                 helperBuilders |> List.choose (fun (name, make) ->
                     if ctx.UsedHelpers.Contains(name) then Some(make()) else None)
             runtimeHelpers @ fixedFunctions
-        Globals = ctx.VTableGlobals |> Seq.toList
+        Globals =
+            // $fsharp_exn_carrier: mutable anyref global used to pass exception objects
+            // between throw and catch_all (WasmGC exception proposal has zero-payload tags).
+            let carrierGlobal =
+                { Name = "$fsharp_exn_carrier"
+                  Type = WType.AnyRef
+                  Init = WExpr.Const(WConst.Null WType.AnyRef)
+                  Mutable = true
+                  Exported = false }
+            [ yield carrierGlobal
+              yield! ctx.VTableGlobals ]
         Exports =
             [   // Linear memory export (index 0) must appear before function exports in the list
                 if !ctx.HasLinearMemory then

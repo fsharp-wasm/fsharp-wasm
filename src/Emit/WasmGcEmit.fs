@@ -84,6 +84,7 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         | WConst.F32 f -> [Instr.F32Const f]
         | WConst.F64 f -> [Instr.F64Const f]
         | WConst.Null(WType.Ref(typeIdx, _)) -> [Instr.RefNull(HeapType.TypeIdx typeIdx)]
+        | WConst.Null WType.AnyRef -> [Instr.RefNull HeapType.Any]
         | WConst.Null _ -> [Instr.RefNull HeapType.None_]
         | WConst.Unit -> [] // unit produces no value
         | WConst.String _ -> [Instr.I32Const 0] // TODO: string data section
@@ -502,12 +503,20 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
             @ handlerInstrs)]
 
     | WExpr.Throw(exnExpr) ->
-        // Emit the exception expression (for side effects), then drop the result
-        // and throw using the generic F# exception tag (tag index = importTagCount + 0).
+        // Evaluate exception, store in carrier global for typed catch, then throw.
         let exnInstrs = emitExpr ctx exnExpr
         let exnTy = exprResultType exnExpr
-        let dropInstrs = if exnTy <> WType.Void then [Instr.Drop] else []
-        exnInstrs @ dropInstrs @ [Instr.Throw ctx.ExceptionTagIdx]
+        let carrierInstrs =
+            match Map.tryFind "$fsharp_exn_carrier" ctx.GlobalIndex with
+            | Some carrierIdx ->
+                if exnTy <> WType.Void then
+                    [Instr.GlobalSet carrierIdx]
+                else
+                    // Generic/untyped throw: clear carrier to prevent stale type tests
+                    [Instr.RefNull HeapType.Any; Instr.GlobalSet carrierIdx]
+            | None ->
+                if exnTy <> WType.Void then [Instr.Drop] else []
+        exnInstrs @ carrierInstrs @ [Instr.Throw ctx.ExceptionTagIdx]
 
     // ── Linear memory ─────────────────────────────────────────────────────────
     | WExpr.MemorySize -> [Instr.MemorySize]

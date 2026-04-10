@@ -772,6 +772,13 @@ console.log("\n─── Sprint 25e: Mutual LetRec closures ──────�
 check("Mutual letRec isEven/isOdd → 1",                       1, exp.testMutualLetRec());
 check("Mutual letRec ping/pong → 10",                       10, exp.testMutualLetRecPingPong());
 
+console.log("\n─── Sprint 30: Typed Exception Carrier + TypeTest ─────────");
+check("ExnCarrier basic catch → 42",                        42, exp.testExnCarrierBasic());
+check("ExnCarrier payload round-trip → 77",                 77, exp.testExnTypedPayload());
+check("ExnTypeTest discriminate generic → 99",              99, exp.testExnTypeTestDiscriminate());
+check("ExnTypeTest match typed → 1",                         1, exp.testExnTypeTestMatch());
+check("ExnCarrier int loop sum → 60",                       60, exp.testExnCarrierInt());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -76,6 +76,7 @@ let rec private wtypeToStr (typeNames: Map<int, string>) (ty: WType) : string =
     | WType.Externref -> "externref"
     | WType.I31ref -> "(ref i31)"
     | WType.EqRef -> "(ref eq)"
+    | WType.AnyRef -> "anyref"
     | WType.Func _ -> "(ref func)"
     | WType.Struct _ -> "(ref struct)"
     | WType.Array _ -> "(ref array)"
@@ -403,6 +404,7 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
     | WExpr.Const(WConst.Null(WType.Ref(idx, _))) ->
         let name = typeNames |> Map.tryFind idx |> Option.defaultValue (sprintf "%d" idx)
         w $"ref.null {watId name}"
+    | WExpr.Const(WConst.Null WType.AnyRef) -> w "ref.null any"
     | WExpr.Const(WConst.Null _) -> w "ref.null none"
     | WExpr.Const(WConst.Unit) -> ()   // unit produces nothing
     | WExpr.Const(WConst.String _) -> w "i32.const 0" // shouldn't appear post-translation
@@ -749,10 +751,16 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         w ")"
 
     | WExpr.Throw(exnExpr) ->
-        // Emit the exception expression (evaluate for side effects), drop its result, throw.
+        // Evaluate the exception expression, store in carrier global, then throw.
         emitExpr typeNames arrayElemTypes depth sb exnExpr
         let exnTy = exprType exnExpr
-        if exnTy <> WType.Void then w "drop"
+        if exnTy <> WType.Void then
+            w "global.set $fsharp_exn_carrier"
+        else
+            // Generic/untyped throw (e.g. failwith): clear the carrier so that
+            // subsequent `:? T` type tests return false rather than matching stale data.
+            w "ref.null any"
+            w "global.set $fsharp_exn_carrier"
         w "throw $fsharp_exn"
 
     // ── Linear memory ─────────────────────────────────────────────────────────

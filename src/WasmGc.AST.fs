@@ -37,6 +37,10 @@ type WType =
     /// Used for vtable method self-parameters that can receive any concrete type.
     /// Encoded as 0x64 0x6D in binary.
     | EqRef
+    /// Nullable anyref (ref null any) — supertype of all GC-managed references.
+    /// Used for the $fsharp_exn_carrier global and exception catch variables.
+    /// Encoded as 0x6E (single-byte heap type shorthand).
+    | AnyRef
 
 and WField =
     {
@@ -64,6 +68,7 @@ module WTypeKeys =
         | WType.Externref -> "extern"
         | WType.I31ref -> "i31"
         | WType.EqRef -> "eqref"
+        | WType.AnyRef -> "anyref"
         | WType.Ref(idx, false) -> $"ref{idx}"
         | WType.Ref(idx, true) -> $"refnull{idx}"
         | WType.Func(ps, rs) ->
