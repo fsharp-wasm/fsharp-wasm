@@ -867,18 +867,16 @@ and buildLetRecLambdas (ctx: Ctx) (bindings: (Fable.AST.Fable.Ident * Fable.AST.
 
         let allParams   = [("$self", selfType)] @ argParams
         let paramNameSet = allParams |> List.map fst |> Set.ofList
-        let resolvedLocals =
-            collectLocals paramNameSet wBodyFull
-            |> List.distinctBy fst
-            |> List.filter (fun (_, ty) -> ty <> WType.Void)
-
-        ctx.Functions.Add(
+        let closureFunc = 
             { Name      = funcName
               Params    = allParams
               Result    = retType
-              Locals    = resolvedLocals
+              Locals    = []
               Body      = wBodyFull
-              Exported  = false })
+              Exported  = false }
+            |> WasmGcLocals.resolveLocals  // Apply full local resolution (includes captured references)
+
+        ctx.Functions.Add(closureFunc)
 
         // Return the Closure WExpr for this binding
         let captureExprs =
@@ -1074,13 +1072,11 @@ and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: st
             WExpr.Let("$self_cast", selfCast, bodyWithExtracts)
 
     let paramNameSet = allParams |> List.map fst |> Set.ofList
-    let resolvedLocals =
-        collectLocals paramNameSet wBodyWithCaptures
-        |> List.distinctBy fst
-        |> List.filter (fun (_, ty) -> ty <> WType.Void)
-    ctx.Functions.Add(
+    let closureFunc = 
         { Name = funcName; Params = allParams; Result = retType
-          Locals = resolvedLocals; Body = wBodyWithCaptures; Exported = false })
+          Locals = []; Body = wBodyWithCaptures; Exported = false }
+          |> WasmGcLocals.resolveLocals  // Apply full local resolution (includes captured references)
+    ctx.Functions.Add(closureFunc)
 
     // Return WExpr.Closure(funcName, capture_WExprs, closureRefType)
     let captureExprs =

@@ -11,6 +11,75 @@ open Fable.Transforms.WasmGc.WasmGcTypes
 // Local variable collection
 // ─────────────────────────────────────────────────────────────────
 
+/// Find all LocalGet names and their types referenced in an expression.
+/// These are candidates for the locals list — even if they're not Let-bound,
+/// they might be parameters or captured variables that need to be in Locals.
+let rec findAllReferencedLocals (expr: WExpr) : (string * WType) list =
+    match expr with
+    | WExpr.LocalGet(name, ty) -> [(name, ty)]
+    | WExpr.Let(_, value, body) | WExpr.LetMut(_, value, body) ->
+        findAllReferencedLocals value @ findAllReferencedLocals body
+    | WExpr.If(c, t, e, _) ->
+        findAllReferencedLocals c @ findAllReferencedLocals t @ findAllReferencedLocals e
+    | WExpr.Sequence exprs ->
+        exprs |> List.collect findAllReferencedLocals
+    | WExpr.Loop(_, body, _) | WExpr.Block(_, body, _) ->
+        findAllReferencedLocals body
+    | WExpr.Call(_, args, _) | WExpr.CallIndirect(_, args, _) ->
+        args |> List.collect findAllReferencedLocals
+    | WExpr.Binary(_, l, r, _) ->
+        findAllReferencedLocals l @ findAllReferencedLocals r
+    | WExpr.Unary(_, op, _) ->
+        findAllReferencedLocals op
+    | WExpr.Compare(_, l, r) ->
+        findAllReferencedLocals l @ findAllReferencedLocals r
+    | WExpr.Assign(_, v) | WExpr.GlobalSet(_, v) ->
+        findAllReferencedLocals v
+    | WExpr.JoinPoint(_, _, body, cont, _) ->
+        findAllReferencedLocals body @ findAllReferencedLocals cont
+    | WExpr.JoinApply(_, args, _) ->
+        args |> List.collect findAllReferencedLocals
+    | WExpr.TryCatch(body, catch, fin, _) ->
+        let catchRefs = match catch with Some(_, e) -> findAllReferencedLocals e | None -> []
+        let finRefs = match fin with Some e -> findAllReferencedLocals e | None -> []
+        findAllReferencedLocals body @ catchRefs @ finRefs
+    | WExpr.StructNew(_, fields, _) | WExpr.ArrayNewFixed(_, fields, _) ->
+        fields |> List.collect findAllReferencedLocals
+    | WExpr.StructGet(obj, _, _) ->
+        findAllReferencedLocals obj
+    | WExpr.StructSet(obj, _, v) ->
+        findAllReferencedLocals obj @ findAllReferencedLocals v
+    | WExpr.ArrayGet(arr, idx, _) ->
+        findAllReferencedLocals arr @ findAllReferencedLocals idx
+    | WExpr.ArraySet(arr, idx, v) ->
+        findAllReferencedLocals arr @ findAllReferencedLocals idx @ findAllReferencedLocals v
+    | WExpr.Cast(obj, _) | WExpr.RefIsNull obj | WExpr.RefTest(obj, _) | WExpr.TagOf obj | WExpr.ArrayLen obj ->
+        findAllReferencedLocals obj
+    | WExpr.Closure(_, captures, _) ->
+        captures |> List.collect findAllReferencedLocals
+    | WExpr.ClosureApply(closure, args, _, _, _, _) | WExpr.TailCallRef(closure, args, _, _, _, _) ->
+        findAllReferencedLocals closure @ (args |> List.collect findAllReferencedLocals)
+    | WExpr.CallVirtual(box, _, _, _, _, args, _) ->
+        findAllReferencedLocals box @ (args |> List.collect findAllReferencedLocals)
+    | WExpr.TailCall(_, args, _) ->
+        args |> List.collect findAllReferencedLocals
+    | WExpr.SwitchInt(scrutinee, cases, default_, _) ->
+        findAllReferencedLocals scrutinee 
+        @ (cases |> List.collect (fun (_, body) -> findAllReferencedLocals body))
+        @ findAllReferencedLocals default_
+    | WExpr.ArrayCopy(dst, dstOff, src, srcOff, len) ->
+        findAllReferencedLocals dst @ findAllReferencedLocals dstOff 
+        @ findAllReferencedLocals src @ findAllReferencedLocals srcOff @ findAllReferencedLocals len
+    | WExpr.ArrayNew(_, size, init, _) ->
+        findAllReferencedLocals size @ findAllReferencedLocals init
+    | WExpr.MemLoad(_, _, addr) ->
+        findAllReferencedLocals addr
+    | WExpr.MemStore(_, _, addr, value) ->
+        findAllReferencedLocals addr @ findAllReferencedLocals value
+    | WExpr.MemoryGrow pages ->
+        findAllReferencedLocals pages
+    | _ -> []
+
 /// Collect all locals used within a WExpr (for the WASM code section).
 /// Returns (name, WType) pairs for all Let/LetMut bindings not in paramNames.
 let rec collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType) list =
@@ -177,13 +246,32 @@ let rec collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType)
     | _ -> []
 
 /// Fill in the Locals field of a WFuncDecl by scanning the body.
+/// Collects both explicit Let/LetMut bindings and any referenced LocalGet variables
+/// that aren't parameters. This ensures closure captures are properly included.
 let resolveLocals (func: WFuncDecl) : WFuncDecl =
     let paramNames = func.Params |> List.map fst |> Set.ofList
-    let locals =
+    // First pass: collect declared locals (Let/LetMut bindings)
+    let declaredLocals =
         collectLocals paramNames func.Body
         |> List.distinctBy fst
         |> List.filter (fun (_, ty) -> ty <> WType.Void)
-    { func with Locals = locals }
+    let declaredNames = declaredLocals |> List.map fst |> Set.ofList
+    
+    // Second pass: find all referenced locals (LocalGet references)
+    let referencedLocals = findAllReferencedLocals func.Body
+    
+    // Merge: keep declared locals, but also add any referenced locals that 
+    // are not parameters and not already declared (these are captured variables)
+    let additionalLocals =
+        referencedLocals
+        |> List.filter (fun (name, _) ->
+            not (Set.contains name paramNames) &&
+            not (Set.contains name declaredNames) &&
+            not (name.StartsWith("$")))  // Skip special compiler temporaries
+        |> List.distinctBy fst
+    
+    let allLocals = declaredLocals @ additionalLocals
+    { func with Locals = allLocals }
 
 /// Build a WFuncDecl with automatic local collection.
 /// Eliminates the collectLocals boilerplate that appears on every helper.
