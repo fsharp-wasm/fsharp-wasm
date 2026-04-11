@@ -361,10 +361,19 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             match Map.tryFind entRef.FullName ctx.TypeRegistry with
             | Some typeIdx ->
                 let ent = ctx.Compiler.GetEntity(entRef)
-                let fieldIdx =
+                // For inherited types, parent fields come first in the struct layout
+                let parentFieldCount =
+                    match ent.BaseType with
+                    | Some baseT when baseT.Entity.FullName <> "System.Object" ->
+                        // Count parent's fields
+                        let parentEnt = ctx.Compiler.GetEntity(baseT.Entity)
+                        parentEnt.FSharpFields.Length
+                    | _ -> 0
+                let ownFieldIdx =
                     ent.FSharpFields
                     |> Seq.tryFindIndex (fun f -> f.Name = fieldInfo.Name)
                     |> Option.defaultValue 0
+                let fieldIdx = parentFieldCount + ownFieldIdx
                 // Cast if the object is typed as anyref/eqref (e.g., a catch variable) —
                 // struct.get requires the concrete ref type on the stack.
                 let targetRefTy = WType.Ref(typeIdx, false)

@@ -78,8 +78,11 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
                 (wasmIf (ltS tmp (i32Const 0)) (i32Const (-1)) (i32Const 0))
         }
     | _ ->
-        eprintfn "[WasmGc] WARNING: unhandled Math call '%s' — emitting I32 0" name
-        WExpr.Const(WConst.I32 0)
+        eprintfn "[WasmGc] WARNING: unhandled Math call '%s' — emitting zero constant" name
+        match ty with
+        | WType.F64 -> WExpr.Const(WConst.F64 0.0)
+        | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
+        | _ -> WExpr.Const(WConst.I32 0)
 
 // ─────────────────────────────────────────────────────────────────
 // Map module intercept
