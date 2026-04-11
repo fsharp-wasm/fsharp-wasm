@@ -2793,14 +2793,31 @@ let buildWModule (ctx: Ctx) : WModule =
             [ yield carrierGlobal
               yield! ctx.VTableGlobals ]
         Exports =
+            // Collect all exported functions
+            let exportedFuncs =
+                fixedFunctions
+                |> List.filter (fun f -> f.Exported)
+                |> List.map (fun f -> (f.Name, f))
+            
+            // BUG-05: Detect duplicate export names at compile time
+            let duplicates =
+                exportedFuncs
+                |> List.groupBy fst
+                |> List.choose (fun (name, items) ->
+                    if items.Length > 1 then
+                        Some(name, items |> List.map snd)
+                    else None)
+            
+            // Emit warnings for duplicates
+            if duplicates.Length > 0 then
+                let dupNames = duplicates |> List.map fst |> String.concat ", "
+                eprintfn "[WasmGc] WARNING BUG-05: Duplicate Wasm export names: %s. Use [<CompiledName(\"...\")>] to disambiguate or apply module qualification." dupNames
+            
             [   // Linear memory export (index 0) must appear before function exports in the list
                 if !ctx.HasLinearMemory then
                     yield { InternalName = "0"; ExportName = "memory"; Kind = ExportMemory }
-                yield! fixedFunctions
-                       |> List.choose (fun f ->
-                           if f.Exported then
-                               Some { InternalName = f.Name; ExportName = f.Name; Kind = ExportFunc }
-                           else None) ]
+                yield! exportedFuncs
+                       |> List.map (fun (_, f) -> { InternalName = f.Name; ExportName = f.Name; Kind = ExportFunc }) ]
         DataSegments = []
         Tags = [ { Name = "$fsharp_exn"; ParamTypes = [] } ]
         Start = None
