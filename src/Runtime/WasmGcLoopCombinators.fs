@@ -208,51 +208,77 @@ let listMapi
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Returns 1 (true) if any element satisfies the predicate (short-circuits).
+///
+/// Generates:
+///   block $exit : i32 {
+///     let mut cur = list
+///     loop $lp {
+///       if refIsNotNull cur then
+///         if pred(cur.Head) then
+///           br $exit 1         // BreakWith — valued exit
+///         cur <- cur.Tail
+///         continue $lp
+///     }
+///     0                        // fallthrough = not found
+///   }
 let listExists
         (gen  : LabelGen)
         (s    : ListShape)
         (list : WExpr)
         (pred : WExpr -> WExpr)
         : WExpr =
-    let blkLbl = gen.Next("blk")
-    let lpLbl  = gen.Next("lp")
     wasm {
         let! cur = mutTy s.BaseTy list
-        let! res = mut (i32Const 0)
-        do! WExpr.Block(blkLbl,
-                WExpr.Loop(lpLbl,
-                    wasmIf (refIsNotNull cur.Val)
-                        (wasmIf (pred (s.Head cur.Val))
-                            (sequence [res.Set(i32Const 1); WExpr.Break(blkLbl, None)])
-                            (sequence [cur.Set(s.Tail cur.Val); WExpr.Continue(lpLbl, [])]))
-                        WExpr.Nop,
-                    WType.Void),
-                WType.Void)
-        return res.Val
+        return! Wasm.labeledBlock gen "blk" WType.I32 (fun ctrl -> wasm {
+            do! Wasm.labeledLoop gen "lp" (fun lp -> wasm {
+                if (refIsNotNull cur.Val) then
+                    if (pred (s.Head cur.Val)) then
+                        // Early exit with 1 — breaks the outer block.
+                        // inner.Break exits the inner loop; outer ctrl.BreakWith exits the block.
+                        do! ctrl.BreakWith (i32Const 1)
+                    do! cur <== s.Tail cur.Val
+                else
+                    do! lp.Break
+            })
+            return i32Const 0
+        })
     }
 
 /// Returns 1 (true) if all elements satisfy the predicate (short-circuits on first failure).
+///
+/// Generates:
+///   block $exit : i32 {
+///     let mut cur = list
+///     loop $lp {
+///       if refIsNotNull cur then
+///         if not pred(cur.Head) then
+///           br $exit 0         // BreakWith — valued exit, failure
+///         cur <- cur.Tail
+///         continue $lp
+///     }
+///     1                        // fallthrough = all passed
+///   }
 let listForAll
         (gen  : LabelGen)
         (s    : ListShape)
         (list : WExpr)
         (pred : WExpr -> WExpr)
         : WExpr =
-    let blkLbl = gen.Next("blk")
-    let lpLbl  = gen.Next("lp")
     wasm {
         let! cur = mutTy s.BaseTy list
-        let! res = mut (i32Const 1)
-        do! WExpr.Block(blkLbl,
-                WExpr.Loop(lpLbl,
-                    wasmIf (refIsNotNull cur.Val)
-                        (wasmIf (pred (s.Head cur.Val))
-                            (sequence [cur.Set(s.Tail cur.Val); WExpr.Continue(lpLbl, [])])
-                            (sequence [res.Set(i32Const 0); WExpr.Break(blkLbl, None)]))
-                        WExpr.Nop,
-                    WType.Void),
-                WType.Void)
-        return res.Val
+        return! Wasm.labeledBlock gen "blk" WType.I32 (fun ctrl -> wasm {
+            do! Wasm.labeledLoop gen "lp" (fun lp -> wasm {
+                if (refIsNotNull cur.Val) then
+                    if (pred (s.Head cur.Val)) then
+                        do! cur <== s.Tail cur.Val
+                    else
+                        // Predicate failed — exit with 0.
+                        do! ctrl.BreakWith (i32Const 0)
+                else
+                    do! lp.Break
+            })
+            return i32Const 1
+        })
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,6 +287,19 @@ let listForAll
 
 /// Find the first element satisfying `pred` and return `onFound elem` or `onNotFound`.
 /// Uses break-on-found for O(n) worst-case with early exit.
+///
+/// Generates:
+///   block $exit : resTy {
+///     let mut cur = list
+///     loop $lp {
+///       if refIsNotNull cur then
+///         if pred(cur.Head) then
+///           br $exit (onFound cur.Head)
+///         cur <- cur.Tail
+///         continue $lp
+///     }
+///     onNotFound
+///   }
 let listSearch
         (gen        : LabelGen)
         (s          : ListShape)
@@ -270,21 +309,19 @@ let listSearch
         (onFound    : WExpr -> WExpr)
         (onNotFound : WExpr)
         : WExpr =
-    let exitLbl = gen.Next("exit")
-    let lpLbl   = gen.Next("lp")
     wasm {
         let! cur = mutTy s.BaseTy list
-        return! WExpr.Block(exitLbl,
-            sequence [
-                WExpr.Loop(lpLbl,
-                    wasmIf (refIsNotNull cur.Val)
-                        (wasmIf (pred (s.Head cur.Val))
-                            (WExpr.Break(exitLbl, Some (onFound (s.Head cur.Val))))
-                            (sequence [cur.Set(s.Tail cur.Val); WExpr.Continue(lpLbl, [])]))                        WExpr.Nop,
-                    WType.Void)
-                onNotFound
-            ],
-            resTy)
+        return! Wasm.labeledBlock gen "exit" resTy (fun ctrl -> wasm {
+            do! Wasm.labeledLoop gen "lp" (fun lp -> wasm {
+                if (refIsNotNull cur.Val) then
+                    if (pred (s.Head cur.Val)) then
+                        do! ctrl.BreakWith (onFound (s.Head cur.Val))
+                    do! cur <== s.Tail cur.Val
+                else
+                    do! lp.Break
+            })
+            return onNotFound
+        })
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -298,13 +335,14 @@ let listSearch
 ///   while i < n do
 ///       body i
 ///       i <- i + 1
+/// Counted index loop over 0..len-1; body receives the current index WExpr.
 let indexedLoop (gen: LabelGen) (len: WExpr) (body: WExpr -> WExpr) : WExpr =
     wasm {
         let! n = len
         let! i = mut (i32Const 0)
-        while! (ltS i.Val n) do
+        while (i.Val <. n) do
             do! body i.Val
-            do! i.Set(add i.Val (i32Const 1))
+            do! i <== (i.Val +. i32Const 1)
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -315,19 +353,20 @@ let indexedLoop (gen: LabelGen) (len: WExpr) (body: WExpr -> WExpr) : WExpr =
 /// The result is in the same order as the array (reversed accumulator = forward).
 ///
 /// `getElem arr i` : WExpr -> WExpr -> WExpr   — e.g. fun a i -> WExpr.ArrayGet(a, i, elemTy)
+/// Walk array right-to-left, consing each element into a list.
 let arrayToListRev
         (gen     : LabelGen)
         (s       : ListShape)
-        (arr     : WExpr)       // must be a LocalGet or simple ref — reused un-bound
+        (arr     : WExpr)
         (len     : WExpr)
         (getElem : WExpr -> WExpr -> WExpr)
         : WExpr =
     wasm {
-        let! ri  = mut (sub len (i32Const 1))
+        let! ri  = mut (len -. i32Const 1)
         let! acc = mutTy s.BaseTy s.Nil
-        while! (geS ri.Val (i32Const 0)) do
-            do! acc.Set(s.Cons (getElem arr ri.Val) acc.Val)
-            do! ri.Set(sub ri.Val (i32Const 1))
+        while (ri.Val >=. i32Const 0) do
+            do! acc <== s.Cons (getElem arr ri.Val) acc.Val
+            do! ri  <== (ri.Val -. i32Const 1)
         return acc.Val
     }
 
@@ -344,21 +383,20 @@ let insertionSortInPlace
         (arr       : WExpr)
         (len       : WExpr)
         (elemTy    : WType)
-        (readElem  : WExpr -> WExpr -> WExpr)    // arr → idx → elem
-        (writeElem : WExpr -> WExpr -> WExpr -> WExpr)  // arr → idx → val → void
-        (cmp       : WExpr -> WExpr -> WExpr)     // a → b → i32 (negative/zero/positive)
+        (readElem  : WExpr -> WExpr -> WExpr)
+        (writeElem : WExpr -> WExpr -> WExpr -> WExpr)
+        (cmp       : WExpr -> WExpr -> WExpr)
         : WExpr =
     wasm {
         let! si = mut (i32Const 1)
-        while! (ltS si.Val len) do
+        while (si.Val <. len) do
             let! se = readElem arr si.Val
-            let! sj = mut (sub si.Val (i32Const 1))
-            while! (wasmAnd (geS sj.Val (i32Const 0))
-                            (gtS (cmp (readElem arr sj.Val) se) (i32Const 0))) do
-                do! writeElem arr (add sj.Val (i32Const 1)) (readElem arr sj.Val)
-                do! sj.Set(sub sj.Val (i32Const 1))
-            do! writeElem arr (add sj.Val (i32Const 1)) se
-            do! si.Set(add si.Val (i32Const 1))
+            let! sj = mut (si.Val -. i32Const 1)
+            while ((sj.Val >=. i32Const 0) &&. (cmp (readElem arr sj.Val) se >. i32Const 0)) do
+                do! writeElem arr (sj.Val +. i32Const 1) (readElem arr sj.Val)
+                do! sj <== (sj.Val -. i32Const 1)
+            do! writeElem arr (sj.Val +. i32Const 1) se
+            do! si <== (si.Val +. i32Const 1)
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -534,24 +572,17 @@ let arrayExists
         (arr  : WExpr)
         (pred : WExpr -> WExpr)
         : WExpr =
-    let blkLbl = gen.Next("blk")
-    let lpLbl  = gen.Next("lp")
     wasm {
-        let! src = arr
-        let! n = a.Len src
-        let! i = mut (i32Const 0)
-        return! WExpr.Block(blkLbl,
-            sequence [
-                WExpr.Loop(lpLbl,
-                    wasmIf (ltS i.Val n)
-                        (wasmIf (pred (a.Get(src, i.Val)))
-                            (WExpr.Break(blkLbl, Some(i32Const 1)))
-                            (sequence [i.Set(add i.Val (i32Const 1)); continue_ lpLbl]))
-                        WExpr.Nop,
-                    WType.Void)
-                i32Const 0
-            ],
-            WType.I32)
+        let src = WArray.wrap a.ElemTy arr
+        let! n  = src.Len
+        let! i  = mut (i32Const 0)
+        return! Wasm.labeledBlock gen "blk" WType.I32 (fun ctrl -> wasm {
+            while (i.Val <. n) do
+                if (pred src.[i.Val]) then
+                    do! ctrl.BreakWith (i32Const 1)
+                do! i <== (i.Val +. i32Const 1)
+            return i32Const 0
+        })
     }
 
 /// Returns 1 (true) if all elements satisfy the predicate (short-circuits).
@@ -561,24 +592,18 @@ let arrayForAll
         (arr  : WExpr)
         (pred : WExpr -> WExpr)
         : WExpr =
-    let blkLbl = gen.Next("blk")
-    let lpLbl  = gen.Next("lp")
     wasm {
-        let! src = arr
-        let! n = a.Len src
-        let! i = mut (i32Const 0)
-        return! WExpr.Block(blkLbl,
-            sequence [
-                WExpr.Loop(lpLbl,
-                    wasmIf (ltS i.Val n)
-                        (wasmIf (pred (a.Get(src, i.Val)))
-                            (sequence [i.Set(add i.Val (i32Const 1)); continue_ lpLbl])
-                            (WExpr.Break(blkLbl, Some(i32Const 0))))
-                        WExpr.Nop,
-                    WType.Void)
-                i32Const 1
-            ],
-            WType.I32)
+        let src = WArray.wrap a.ElemTy arr
+        let! n  = src.Len
+        let! i  = mut (i32Const 0)
+        return! Wasm.labeledBlock gen "blk" WType.I32 (fun ctrl -> wasm {
+            while (i.Val <. n) do
+                if (pred src.[i.Val]) then
+                    do! i <== (i.Val +. i32Const 1)
+                else
+                    do! ctrl.BreakWith (i32Const 0)
+            return i32Const 1
+        })
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -586,29 +611,36 @@ let arrayForAll
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Filter a GC array using a predicate (two-pass: count then fill).
+/// Two-pass filter: count matching elements, allocate, fill.
 let arrayFilter
         (gen  : LabelGen)
         (a    : ArrayShape)
         (arr  : WExpr)
-        (pred : WExpr -> WExpr)   // elem → i32 (bool)
+        (pred : WExpr -> WExpr)
         : WExpr =
     wasm {
-        let! src = arr
-        let! n = arrayLen src
-        // Pass 1: count matching elements
+        let src = WArray.wrap a.ElemTy arr
+        let! n   = src.Len
+
+        // Pass 1: count
         let! cnt = mut (i32Const 0)
-        do! indexedLoop gen n (fun i ->
-                wasmWhen (pred (a.Get(src, i)))
-                    (cnt.Set(add cnt.Val (i32Const 1))))
+        let! i   = mut (i32Const 0)
+        while (i.Val <. n) do
+            if (pred src.[i.Val]) then
+                do! cnt <== (cnt.Val +. i32Const 1)
+            do! i <== (i.Val +. i32Const 1)
+
         // Pass 2: allocate + fill
-        let! res = a.New(cnt.Val, makeNumericZero a.ElemTy)
+        let res = WArray.wrap a.ElemTy (a.New(cnt.Val, makeNumericZero a.ElemTy))
         let! wi = mut (i32Const 0)
-        do! indexedLoop gen n (fun i ->
-                wasmWhen (pred (a.Get(src, i))) (wasm {
-                    do! a.Set(res, wi.Val, a.Get(src, i))
-                    return! wi.Set(add wi.Val (i32Const 1))
-                }))
-        return res
+        do! i   <== i32Const 0
+        while (i.Val <. n) do
+            if (pred src.[i.Val]) then
+                do! res.Set(wi.Val) src.[i.Val]
+                do! wi <== (wi.Val +. i32Const 1)
+            do! i <== (i.Val +. i32Const 1)
+
+        return res.Expr
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -626,24 +658,17 @@ let arraySearch
         (onFound    : WExpr -> WExpr -> WExpr)   // idx → elem → result
         (onNotFound : WExpr)
         : WExpr =
-    let exitLbl = gen.Next("exit")
-    let lpLbl   = gen.Next("lp")
     wasm {
-        let! src = arr
-        let! n = a.Len src
-        let! i = mut (i32Const 0)
-        return! WExpr.Block(exitLbl,
-            sequence [
-                WExpr.Loop(lpLbl,
-                    wasmIf (ltS i.Val n)
-                        (wasmIf (pred (a.Get(src, i.Val)))
-                            (WExpr.Break(exitLbl, Some(onFound i.Val (a.Get(src, i.Val)))))
-                            (sequence [i.Set(add i.Val (i32Const 1)); continue_ lpLbl]))
-                        WExpr.Nop,
-                    WType.Void)
-                onNotFound
-            ],
-            resTy)
+        let src = WArray.wrap a.ElemTy arr
+        let! n  = src.Len
+        let! i  = mut (i32Const 0)
+        return! Wasm.labeledBlock gen "search" resTy (fun ctrl -> wasm {
+            while (i.Val <. n) do
+                if (pred src.[i.Val]) then
+                    do! ctrl.BreakWith (onFound i.Val src.[i.Val])
+                do! i <== (i.Val +. i32Const 1)
+            return onNotFound
+        })
     }
 
 

@@ -608,13 +608,36 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let wClosure = transformExpr ctx callee
         // Guard: if callee compiled to Nop (unimplemented import), skip the whole apply
         if wClosure = WExpr.Nop then WExpr.Nop else
-        let wArgs = args |> List.map (transformExpr ctx)
+
+        // Transform ALL args first to preserve evaluation order / side-effects.
+        // Then filter void-typed results: they produce no stack value.
+        // funcTypeIdx and wArgs must agree on count — both drop voids.
+        let wArgsAll = args |> List.map (transformExpr ctx)
+
+        // Pair each wArg with its Fable type.
+        let wArgPairs = List.zip wArgsAll args
+
+        // For the functype, we need to know the expected call signature.
+        // First pass: collect the non-void arg types to register the functype.
+        let wArgsFull =
+            wArgPairs |> List.map (fun (wArg, fArg) ->
+                match exprWType wArg with
+                | WType.Void ->
+                    // Unit arg at a JS-bridge call site: the JS side sends an i32.
+                    // Preserve as i32Const 0 so the stack count matches.
+                    // For pure F# closures this is dead code (the body ignores it).
+                    WExpr.Const(WConst.I32 0)
+                | _ -> wArg)
+
+        let wArgs    = wArgsAll |> List.filter (fun a -> exprWType a <> WType.Void)
         // Self-parameter convention (Sprint 25b):
         // funcTypeIdx = (ref $AnyFn, arg1..., argN) → retType
         // All closures with the same apply signature share this functype.
-        let selfType = WType.Ref(AnyFnTypeIdx, false)
-        let argTypes = args |> List.map (fun a -> mapTypeKnown ctx a.Type) |> List.filter (fun t -> t <> WType.Void)
+        let selfType    = WType.Ref(AnyFnTypeIdx, false)
+        // let argTypes = args |> List.map (fun a -> mapTypeKnown ctx a.Type) |> List.filter (fun t -> t <> WType.Void)
+        let argTypes    = wArgs |> List.map exprWType   // already non-void
         let funcTypeIdx = ctx.GetOrAddFuncType(selfType :: argTypes, ty)
+
         let closureTypeIdx =
             match ctx.FuncTypeToClosureMap.TryGetValue(funcTypeIdx) with
             | true, cti -> cti
@@ -867,7 +890,7 @@ and buildLetRecLambdas (ctx: Ctx) (bindings: (Fable.AST.Fable.Ident * Fable.AST.
 
         let allParams   = [("$self", selfType)] @ argParams
         let paramNameSet = allParams |> List.map fst |> Set.ofList
-        let closureFunc = 
+        let closureFunc =
             { Name      = funcName
               Params    = allParams
               Result    = retType
@@ -1072,7 +1095,7 @@ and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: st
             WExpr.Let("$self_cast", selfCast, bodyWithExtracts)
 
     let paramNameSet = allParams |> List.map fst |> Set.ofList
-    let closureFunc = 
+    let closureFunc =
         { Name = funcName; Params = allParams; Result = retType
           Locals = []; Body = wBodyWithCaptures; Exported = false }
           |> WasmGcLocals.resolveLocals  // Apply full local resolution (includes captured references)
@@ -1495,11 +1518,16 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         | Some(WType.Ref(idx, _)) when idx = AnyFnTypeIdx ->
             // This is a closure parameter — dispatch via ClosureApply.
             // Self-parameter convention (Sprint 25b): prepend ref $AnyFn as first param.
-            let wClosure = WExpr.LocalGet(ident.Name, WType.Ref(AnyFnTypeIdx, false))
-            let selfType = WType.Ref(AnyFnTypeIdx, false)
-            let argTypes = wArgs |> List.map exprWType |> List.filter (fun t -> t <> WType.Void)
+            let wClosure   = WExpr.LocalGet(ident.Name, WType.Ref(AnyFnTypeIdx, false))
+            let selfType   = WType.Ref(AnyFnTypeIdx, false)
+            let wArgsFilt  = wArgs |> List.filter (fun a -> exprWType a <> WType.Void)
+            let argTypes   = wArgsFilt |> List.map exprWType
             let funcTypeIdx = ctx.GetOrAddFuncType(selfType :: argTypes, ty)
-            WExpr.ClosureApply(wClosure, wArgs, funcTypeIdx, 0, 0, ty)
+            let closureTypeIdx =
+                match ctx.FuncTypeToClosureMap.TryGetValue(funcTypeIdx) with
+                | true, cti -> cti
+                | false, _  -> AnyFnTypeIdx
+            WExpr.ClosureApply(wClosure, wArgsFilt, funcTypeIdx, closureTypeIdx, 0, ty)
         | _ ->
         // Direct function call (non-generic or unregistered generic).
         WExpr.Call(actualName, wArgs, ty)
@@ -2710,6 +2738,15 @@ let buildWModule (ctx: Ctx) : WModule =
     let fixedFunctions =
         ctx.Functions |> Seq.toList
         |> WasmGcRuntime.fixClosureApply ctx.TypeDefs
+
+    // Validate the functions after closure transformations are applied
+    WasmGcValidator.validate true ctx.TypeDefs fixedFunctions
+
+    // TODO: Refactor buildWModule into a modular pipeline (e.g., separate modules for RuntimeHelpers, 
+    // Validation, and ExportResolution) to avoid this becoming a "God Function."
+    // Currently, buildWModule is doing "The Grand Setup": resolving dependencies, filtering helpers, handling errors (BUG-05), and building the record. As this grows, it becomes a "God Function."
+    // Splitting these into distinct passes (e.g., Discovery -> Optimization -> Validation -> Emission) makes it much easier to test and debug.
+
     {
         Types = ctx.TypeDefs |> Seq.toList
         Imports =
@@ -2794,7 +2831,7 @@ let buildWModule (ctx: Ctx) : WModule =
                 fixedFunctions
                 |> List.filter (fun f -> f.Exported)
                 |> List.map (fun f -> (f.Name, f))
-            
+
             // BUG-05: Detect duplicate export names at compile time
             let duplicates =
                 exportedFuncs
@@ -2803,12 +2840,12 @@ let buildWModule (ctx: Ctx) : WModule =
                     if items.Length > 1 then
                         Some(name, items |> List.map snd)
                     else None)
-            
+
             // Emit warnings for duplicates
             if duplicates.Length > 0 then
                 let dupNames = duplicates |> List.map fst |> String.concat ", "
                 eprintfn "[WasmGc] WARNING BUG-05: Duplicate Wasm export names: %s. Use [<CompiledName(\"...\")>] to disambiguate or apply module qualification." dupNames
-            
+
             [   // Linear memory export (index 0) must appear before function exports in the list
                 if !ctx.HasLinearMemory then
                     yield { InternalName = "0"; ExportName = "memory"; Kind = ExportMemory }

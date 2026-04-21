@@ -5,6 +5,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
+
+    <!-- <TargetsDirectory>$(FSharpWasmGC)/artifacts/bin/examples/component-embed/App/$(Configuration)/$(TargetFramework)</TargetsDirectory> -->
   </PropertyGroup>
 
   <ItemGroup>

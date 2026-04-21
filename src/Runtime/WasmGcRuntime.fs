@@ -65,21 +65,81 @@ let makeStrEqHelper () : WFuncDecl =
 /// Runtime helper: $strIndexOf(haystack, needle) → first position, or -1 if not found.
 /// Brute-force O(n·m). needle="" always returns 0.
 /// Short-circuit `&&` from the QuotationWalker prevents out-of-bounds array access.
+// let makeStrIndexOfHelper () : WFuncDecl =
+//     q "$strIndexOf"
+//         <@ fun (ha: WasmStr) (ne: WasmStr) ->
+//             let la = wsLen ha
+//             let lb = wsLen ne
+//             if lb = 0 then 0
+//             else
+//                 let mutable result = -1
+//                 let mutable i = 0
+//                 while result = -1 && i <= la - lb do
+//                     let mutable j = 0
+//                     while j < lb && wsGet ha (i + j) = wsGet ne j do j <- j + 1
+//                     if j >= lb then result <- i
+//                     i <- i + 1
+//                 result @>
+
 let makeStrIndexOfHelper () : WFuncDecl =
-    q "$strIndexOf"
-        <@ fun (ha: WasmStr) (ne: WasmStr) ->
-            let la = wsLen ha
-            let lb = wsLen ne
-            if lb = 0 then 0
-            else
-                let mutable result = -1
-                let mutable i = 0
-                while result = -1 && i <= la - lb do
-                    let mutable j = 0
-                    while j < lb && wsGet ha (i + j) = wsGet ne j do j <- j + 1
-                    if j >= lb then result <- i
-                    i <- i + 1
-                result @>
+    let strRefT  = WType.Ref(StringTypeIdx, false)
+    let haParam  = "$strIdx_ha"
+    let neParam  = "$strIdx_ne"
+    let laName   = "$strIdx_la"
+    let lbName   = "$strIdx_lb"
+    let gen      = LabelGen("strIdx")
+    let ha       = localGet haParam strRefT
+    let ne       = localGet neParam strRefT
+    let la       = WExpr.Let(laName, arrayLen ha, localGet laName WType.I32)
+    let lb       = WExpr.Let(lbName, arrayLen ne, localGet lbName WType.I32)
+    // Build body using the makeStrIndexOfBody combinator from array combinators:
+    //
+    //   block $outer : i32 {
+    //     if lb = 0 then br $outer 0
+    //     let mut i = 0
+    //     while i ≤ la - lb {
+    //       block $match : void {
+    //         let mut j = 0
+    //         while j < lb {
+    //           if ha[i+j] ≠ ne[j] then br $match
+    //           j++
+    //         }
+    //         br $outer i     // full match
+    //       }
+    //       i++
+    //     }
+    //     -1
+    //   }
+    let body =
+        wasm {
+            let! laVal = arrayLen ha
+            let! lbVal = arrayLen ne
+            return! Wasm.labeledBlock gen "outer" WType.I32 (fun outer -> wasm {
+                if (lbVal =. i32Const 0) then
+                    do! outer.BreakWith (i32Const 0)
+                let! i = mut (i32Const 0)
+                while (i.Val <=. (laVal -. lbVal)) do
+                    do! Wasm.labeledBlock gen "match" WType.Void (fun inner -> wasm {
+                        let! j = mut (i32Const 0)
+                        while (j.Val <. lbVal) do
+                            let charHa = arrayGet ha (i.Val +. j.Val) WType.I32
+                            let charNe = arrayGet ne j.Val             WType.I32
+                            if (charHa <>. charNe) then
+                                do! inner.Break
+                            do! j <== (j.Val +. i32Const 1)
+                        do! outer.BreakWith i.Val
+                    })
+                    do! i <== (i.Val +. i32Const 1)
+                return i32Const (-1)
+            })
+        }
+    { Name     = "$strIndexOf"
+      Params   = [haParam, strRefT; neParam, strRefT]
+      Result   = WType.I32
+      Locals   = []
+      Body     = body
+      Exported = false }
+    |> WasmGcLocals.resolveLocals
 
 /// Runtime helper: $strLastIndexOf(haystack, needle) → last position, or -1 if not found.
 /// Brute-force O(n·m) backward scan. needle="" always returns la (length of haystack).

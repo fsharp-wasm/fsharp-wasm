@@ -1,4 +1,4 @@
-/// WasmGc Computation Expression Builder — Sprint 4
+/// WasmGc Computation Expression Builder
 ///
 /// Provides `WasmBuilder`, a CE that makes WExpr construction ergonomic.
 ///
@@ -14,9 +14,12 @@
 ///       return WExpr.Binary(WBinaryOp.Add, a, b, WType.I32)
 ///   }
 ///
-/// Rules:
-///   - Do NOT rewrite existing WExpr-construction code (it stays as-is).
-///   - Use the CE for NEW runtime helpers, NEW optimisation passes, and tests.
+/// CE methods added for the patched F# compiler (features/ce-enhancements-desugaring):
+///   IfExpr    — if guard then a else b  with WExpr guard (no bool constraint)
+///   WhileExpr — while guard do body     with WExpr guard (no bool constraint)
+///   ForExpr   — for x in col do body   with WExpr collection (no IEnumerable constraint)
+///
+/// These complement the existing WhileBang (while! guard do body) path.
 module Fable.Transforms.WasmGc.WasmGcBuilder
 
 open Fable.AST.WasmGc
@@ -36,6 +39,7 @@ let freshName () =
 
 // ─────────────────────────────────────────────────────────────────
 // WVar — typed mutable handles (moved here so WasmBuilder can reference it)
+// TODO: FIXME: doesn't belong here !
 // ─────────────────────────────────────────────────────────────────
 
 /// A strongly-typed handle for a WasmGC local variable.
@@ -47,9 +51,9 @@ let freshName () =
 type WVar = { Name: string; Ty: WType }
     with
         /// The current value as a WExpr (LocalGet).
-        member v.Val = WExpr.LocalGet(v.Name, v.Ty)
+        member v.Val                  = WExpr.LocalGet(v.Name, v.Ty)
         /// Assign a new value (LocalSet).
-        member v.Set(expr: WExpr) = WExpr.Assign(v.Name, expr)
+        member v.Set(expr: WExpr)     = WExpr.Assign(v.Name, expr)
         /// Assign the result of a function applied to the current value.
         member v.Update(f: WExpr -> WExpr) = WExpr.Assign(v.Name, f (WExpr.LocalGet(v.Name, v.Ty)))
 
@@ -59,7 +63,7 @@ type WVar = { Name: string; Ty: WType }
 let inline (<==) (v: WVar) (expr: WExpr) = v.Set(expr)
 
 // ─────────────────────────────────────────────────────────────────
-// MutInit — mutable binding marker for the CE
+// MutInit — mutable binding marker
 // ─────────────────────────────────────────────────────────────────
 
 /// Marker type for mutable bindings inside `wasm { }`.
@@ -104,10 +108,10 @@ let mutTy (ty: WType) (init: WExpr) : MutInit = { Init = init; Ty = ty }
 /// paired with the `While` method to emit Block/Loop/If/Break/Continue.
 /// No more nested `wasm { ... return! last }` blocks required.
 
+/// Fallback stack — only touched by the STANDARD (unpatched) compiler path.
 /// Internal stack for while! guard expressions.
 /// Used as fallback when compiled with the STANDARD (unpatched) F# compiler.
-/// When compiled with the PATCHED compiler (vendor/fsharp), WhileBang takes
-/// priority and this stack is never touched.
+/// The patched compiler calls WhileBang / WhileExpr directly; this stack is never used.
 let private _whileBangGuards = System.Collections.Generic.Stack<WExpr>()
 
 /// Construct a WASM while-loop: Block { Loop { If(guard, body+continue, break) } }
@@ -123,7 +127,13 @@ let private makeWhileLoop (guard: WExpr) (body: WExpr) : WExpr =
             WType.Void),
         WType.Void)
 
+// ─────────────────────────────────────────────────────────────────
+// WasmBuilder
+// ─────────────────────────────────────────────────────────────────
+
 type WasmBuilder() =
+
+    // ── Bind overloads ────────────────────────────────────────────
 
     /// `let! x = e in k x` — introduce a binding.
     /// If `e` is void-typed (procedure call), sequences it and calls k with Nop.
@@ -136,7 +146,7 @@ type WasmBuilder() =
             let body = k WExpr.Nop
             match body with
             | WExpr.Nop -> expr  // `let! _ = e` at the end of a CE: just e
-            | _ -> WExpr.Sequence [expr; body]
+            | _         -> WExpr.Sequence [expr; body]
         | ty ->
             let name = freshName ()
             WExpr.Let(name, expr, k (WExpr.LocalGet(name, ty)))
@@ -148,17 +158,18 @@ type WasmBuilder() =
         let name = freshName ()
         WExpr.LetMut(name, m.Init, k { Name = name; Ty = m.Ty })
 
-    /// `do! e` — sequence a void expression, ignoring its (unit) result.
+    /// `do! e` — sequences a void expression, ignoring its (unit) result.
     /// F# desugars `do! e` as `Bind(e, fun () -> rest)` so we need this overload.
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
     member _.Bind(expr: WExpr, k: unit -> WExpr) =
         let body = k ()
         match body with
         | WExpr.Nop -> expr
-        | _ -> WExpr.Sequence [expr; body]
+        | _         -> WExpr.Sequence [expr; body]
 
     // ── while! support ────────────────────────────────────────────────────────
-    // TODO: this doesn't look like a clean solution. it should be on compiler level not here
+    // Patched compiler calls WhileBang directly; guard arrives as WExpr, no bool coercion.
+    //
     //
     // PATCHED COMPILER PATH (vendor/fsharp, branch features/ce-enhancements-desugaring):
     //   `while! guard do body` desugars to:
@@ -179,8 +190,9 @@ type WasmBuilder() =
     member _.WhileBang(guard: WExpr, body: WExpr) : WExpr =
         makeWhileLoop guard body
 
-    /// `while! guard do body` — STANDARD COMPILER FALLBACK.
+    /// `while! guard do body` ── while! support — STANDARD COMPILER FALLBACK ──────────────
     /// The guard is captured here (stack hack) and reconstructed in While.
+    /// Only reached when compiled with unpatched fsc. Guard tunnelled through a Stack<WExpr>.
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
     member _.Bind(guard: WExpr, k: bool -> WExpr) : WExpr =
         _whileBangGuards.Push(guard)
@@ -195,6 +207,41 @@ type WasmBuilder() =
             makeWhileLoop g body
         else
             body
+
+    // ── while guard do body — NEW: WhileExpr (patched compiler) ──
+    // Dispatched when the builder has WhileExpr AND langversion=preview.
+    // Guard is a raw WExpr; no bool constraint, no stack hack.
+
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
+    member _.WhileExpr(guard: WExpr, body: WExpr) : WExpr =
+        makeWhileLoop guard body
+
+    // ── if guard then a else b — NEW: IfExpr (patched compiler) ──
+    // Guard is a WExpr; infers result type from branches.
+
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
+    member _.IfExpr(guard: WExpr, thenBranch: WExpr, elseBranch: WExpr) : WExpr =
+        let ty =
+            match exprWType thenBranch with
+            | WType.Void -> exprWType elseBranch   // if then-branch diverges, use else-type
+            | t          -> t
+        WExpr.If(guard, thenBranch, elseBranch, ty)
+
+    // ── for x in col do body — NEW: ForExpr (patched compiler) ───
+    // Collection is a WExpr; skips IEnumerable / Source() wrapping.
+
+    [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
+    member _.ForExpr(collection: WExpr, body: WExpr -> WExpr) : WExpr =
+        // Collection is typically a WVar.Val or arrayGet result.
+        // We bind it once so it's evaluated only once, then pass to the body.
+        let name = freshName ()
+        let ty   = exprWType collection
+        match ty with
+        | WType.Void -> body WExpr.Nop
+        | _          -> WExpr.Let(name, collection, body (WExpr.LocalGet(name, ty)))
+
+    // ── Return / Zero / Combine / Delay / Run ────────────────────
+
 
     /// `return e` — wrap a value.
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
@@ -219,8 +266,8 @@ type WasmBuilder() =
     ///
     /// The continuation takes a TUPLE `(x, y)` per the F# CE spec.
     member _.Bind2Return(a: WExpr, b: WExpr, f: WExpr * WExpr -> WExpr) : WExpr =
-        let n1 = freshName ()
-        let n2 = freshName ()
+        let n1  = freshName ()
+        let n2  = freshName ()
         let ty1 = exprWType a
         let ty2 = exprWType b
         WExpr.Let(n1, a,
@@ -229,8 +276,8 @@ type WasmBuilder() =
 
     /// `let! x = a and! y = b in <more-computation>` — Bind2 for non-return case.
     member _.Bind2(a: WExpr, b: WExpr, f: WExpr * WExpr -> WExpr) : WExpr =
-        let n1 = freshName ()
-        let n2 = freshName ()
+        let n1  = freshName ()
+        let n2  = freshName ()
         let ty1 = exprWType a
         let ty2 = exprWType b
         WExpr.Let(n1, a,
@@ -247,7 +294,7 @@ type WasmBuilder() =
         match a, b with
         | WExpr.Nop, _ -> b
         | _, WExpr.Nop -> a
-        | _ -> WExpr.Sequence [a; b]
+        | _            -> WExpr.Sequence [a; b]
 
     /// Delay — called by F# CE desugaring; we evaluate immediately (no laziness).
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
@@ -291,9 +338,9 @@ let inline wasmWhen cond body =
 /// Sequence a list of void expressions.
 let wasmSeq (exprs: WExpr list) =
     match exprs with
-    | [] -> WExpr.Nop
+    | []       -> WExpr.Nop
     | [single] -> single
-    | _ -> WExpr.Sequence exprs
+    | _        -> WExpr.Sequence exprs
 
 /// Introduce a named let-binding with explicit type (for when type inference can't help).
 let wasmLet name (expr: WExpr) (body: WExpr -> WExpr) =
@@ -329,8 +376,8 @@ let nullConst (ty: WType) = WExpr.Const(WConst.Null ty)
 
 // --- Locals / Globals ---
 
-let localGet (name: string) (ty: WType) = WExpr.LocalGet(name, ty)
-let localSet (name: string) (v: WExpr)  = WExpr.Assign(name, v)
+let localGet  (name: string) (ty: WType) = WExpr.LocalGet(name, ty)
+let localSet  (name: string) (v: WExpr)  = WExpr.Assign(name, v)
 let globalGet (name: string) (ty: WType) = WExpr.GlobalGet(name, ty)
 let globalSet (name: string) (v: WExpr)  = WExpr.GlobalSet(name, v)
 
@@ -350,9 +397,9 @@ let shrU a b = WExpr.Binary(WBinaryOp.ShrU, a, b, WType.I32)
 
 // --- Arithmetic (f64) ---
 
-let addf64 a b = WExpr.Binary(WBinaryOp.Add, a, b, WType.F64)
-let subf64 a b = WExpr.Binary(WBinaryOp.Sub, a, b, WType.F64)
-let mulf64 a b = WExpr.Binary(WBinaryOp.Mul, a, b, WType.F64)
+let addf64 a b = WExpr.Binary(WBinaryOp.Add,  a, b, WType.F64)
+let subf64 a b = WExpr.Binary(WBinaryOp.Sub,  a, b, WType.F64)
+let mulf64 a b = WExpr.Binary(WBinaryOp.Mul,  a, b, WType.F64)
 let divf64 a b = WExpr.Binary(WBinaryOp.DivS, a, b, WType.F64)
 
 // --- Comparisons ---
@@ -369,9 +416,9 @@ let refEq a b = WExpr.Compare(WCompareOp.RefEq, a, b)
 
 // --- Ref ops ---
 
-let refIsNull  (e: WExpr)              = WExpr.RefIsNull e
+let refIsNull  (e: WExpr)             = WExpr.RefIsNull e
 let cast       (e: WExpr) (ty: WType) = WExpr.Cast(e, ty)
-let tagOf      (obj: WExpr)            = WExpr.TagOf obj
+let tagOf      (obj: WExpr)           = WExpr.TagOf obj
 
 // --- Array ops ---
 
@@ -382,47 +429,39 @@ let arrayNew (typeIdx: int) (size: WExpr) (init: WExpr) (ty: WType) =
 let arrayNewFixed (typeIdx: int) (elems: WExpr list) (ty: WType) =
     WExpr.ArrayNewFixed(typeIdx, elems, ty)
 
-let arrayGet (arr: WExpr) (idx: WExpr) (ty: WType) =
-    WExpr.ArrayGet(arr, idx, ty)
-
-let arraySet (arr: WExpr) (idx: WExpr) (v: WExpr) =
-    WExpr.ArraySet(arr, idx, v)
-
-let arrayLen (arr: WExpr) = WExpr.ArrayLen arr
+let arrayGet (arr: WExpr) (idx: WExpr) (ty: WType)  = WExpr.ArrayGet(arr, idx, ty)
+let arraySet (arr: WExpr) (idx: WExpr) (v: WExpr)   = WExpr.ArraySet(arr, idx, v)
+let arrayLen (arr: WExpr)                           = WExpr.ArrayLen arr
 
 let arrayCopy (dst: WExpr) (dstOff: WExpr) (src: WExpr) (srcOff: WExpr) (len: WExpr) =
     WExpr.ArrayCopy(dst, dstOff, src, srcOff, len)
 
-// --- Struct ops ---
+// ─────────────────────────────────────────────────────────────────
+// Struct ops
+// ─────────────────────────────────────────────────────────────────
 
-let structNew (typeIdx: int) (fields: WExpr list) (ty: WType) =
-    WExpr.StructNew(typeIdx, fields, ty)
+let structNew (typeIdx: int) (fields: WExpr list) (ty: WType) = WExpr.StructNew(typeIdx, fields, ty)
+let structGet (obj: WExpr) (fieldIdx: int) (ty: WType)        = WExpr.StructGet(obj, fieldIdx, ty)
+let structSet (obj: WExpr) (fieldIdx: int) (v: WExpr)         = WExpr.StructSet(obj, fieldIdx, v)
 
-let structGet (obj: WExpr) (fieldIdx: int) (ty: WType) =
-    WExpr.StructGet(obj, fieldIdx, ty)
-
-let structSet (obj: WExpr) (fieldIdx: int) (v: WExpr) =
-    WExpr.StructSet(obj, fieldIdx, v)
-
-// --- Control flow ---
+// ─────────────────────────────────────────────────────────────────
+// Control flow primitives
+// ─────────────────────────────────────────────────────────────────
 
 /// Unconditional break to a labelled block (no value).
-let br (label: string) = WExpr.Break(label, None)
+let br        (label: string)                   = WExpr.Break(label, None)
 
 /// Conditional break: if `cond` is non-zero, break to `label`.
-let brIf (label: string) (cond: WExpr) =
-    WExpr.If(cond, WExpr.Break(label, None), WExpr.Nop, WType.Void)
+let brIf      (label: string) (cond: WExpr)     = WExpr.If(cond, WExpr.Break(label, None), WExpr.Nop, WType.Void)
 
 /// Continue (jump back to top of) a named loop.
-let continue_ (label: string) = WExpr.Continue(label, [])
+let continue_ (label: string)                   = WExpr.Continue(label, [])
 
 /// Loop with a label; body is Void.
-let loop (label: string) (body: WExpr) =
-    WExpr.Loop(label, body, WType.Void)
+let loop      (label: string) (body: WExpr)     = WExpr.Loop(label, body, WType.Void)
 
 /// Block with a label and explicit result type.
-let block_ (label: string) (ty: WType) (body: WExpr) =
-    WExpr.Block(label, body, ty)
+let block_    (label: string) (ty: WType) (body: WExpr) = WExpr.Block(label, body, ty)
 
 /// Sequence, filtering out Nop entries.
 let sequence (exprs: WExpr list) =
@@ -434,8 +473,7 @@ let sequence (exprs: WExpr list) =
 
 // --- Calls ---
 
-let call (func: string) (args: WExpr list) (ty: WType) =
-    WExpr.Call(func, args, ty)
+let call (func: string) (args: WExpr list) (ty: WType) = WExpr.Call(func, args, ty)
 
 // ─────────────────────────────────────────────────────────────────
 // Loop sugar — Sprint 11
@@ -472,13 +510,12 @@ let loopWithResult (lbl: string) (ty: WType) (body: WExpr) (fallback: WExpr) : W
 ///   loopResult WType.I32 (i32Const -1) (fun brk ->
 ///       Wasm.when_ (cond) (brk foundValue))
 let loopResult (ty: WType) (fallback: WExpr) (body: (WExpr -> WExpr) -> WExpr) : WExpr =
-    let lbl = freshName ()
+    let lbl     = freshName ()
     let exitLbl = lbl + "_exit"
     let brk (v: WExpr) = WExpr.Break(exitLbl, Some v)
-    let bodyExpr = body brk
     WExpr.Block(exitLbl,
         WExpr.Sequence [
-            WExpr.Loop(lbl, WExpr.Sequence [bodyExpr; WExpr.Continue(lbl, [])], WType.Void)
+            WExpr.Loop(lbl, WExpr.Sequence [body brk; WExpr.Continue(lbl, [])], WType.Void)
             fallback
         ],
         ty)
@@ -586,19 +623,34 @@ module WVar =
 ///   arr.Len               // → arrayLen someArrayExpr
 type WArray = { Expr: WExpr; ElemType: WType }
     with
-        member a.Item(idx: WExpr) = WExpr.ArrayGet(a.Expr, idx, a.ElemType)
-        member a.Set(idx: WExpr) (v: WExpr) = WExpr.ArraySet(a.Expr, idx, v)
-        member a.Len = WExpr.ArrayLen(a.Expr)
+        member a.Item(idx: WExpr)              = WExpr.ArrayGet(a.Expr, idx, a.ElemType)
+        member a.Set(idx: WExpr) (v: WExpr)    = WExpr.ArraySet(a.Expr, idx, v)
+        member a.Len                           = WExpr.ArrayLen(a.Expr)
 
 /// Factory helpers for `WArray`.
 module WArray =
     /// Wrap a WExpr as a typed array handle.
-    let inline wrap (elemType: WType) (expr: WExpr) : WArray = { Expr = expr; ElemType = elemType }
+    let inline wrap  (elemType: WType) (expr: WExpr) : WArray = { Expr = expr; ElemType = elemType }
     /// Wrap a local variable as a typed array handle.
-    let inline ofVar (v: WVar) (elemType: WType) : WArray = { Expr = v.Val; ElemType = elemType }
+    let inline ofVar (v: WVar) (elemType: WType)     : WArray = { Expr = v.Val; ElemType = elemType }
 
 // ─────────────────────────────────────────────────────────────────
-// Wasm — implicit-label high-level control flow
+// BlockCtrl — typsafe break/continue handles for labeled blocks
+// ─────────────────────────────────────────────────────────────────
+
+/// Typsafe handle for labeled block exits.
+/// Passed to the body closure of `Wasm.labeledBlock` / `Wasm.labeledLoop`.
+type BlockCtrl = {
+    /// br $label  (void exit)
+    Break:     WExpr
+    /// br $label value  (valued exit)
+    BreakWith: WExpr -> WExpr
+    /// br $loopLabel  (continue — only meaningful in loops)
+    Continue:  WExpr
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Wasm — high-level control flow with implicit labels
 // ─────────────────────────────────────────────────────────────────
 
 /// High-level WasmGC control-flow combinators with implicit label management.
@@ -621,6 +673,7 @@ module Wasm =
         let lbl = freshName ()
         countLoop lbl n body
 
+    /// Legacy LoopCtrl — kept for backward compat with existing callers of `Wasm.loop`.
     /// Loop-control handles passed to `Wasm.loop`.
     type LoopCtrl = {
         /// Exit the loop immediately (void).
@@ -629,7 +682,7 @@ module Wasm =
         Cont: WExpr
     }
 
-    /// Infinite loop with explicit break/continue handles.
+    /// Infinite loop with break/continue handles (void result).
     /// The body is called once to produce a WExpr; uses `ctrl.Brk` to exit.
     ///
     ///   Wasm.loop (fun ctrl -> wasm {
@@ -637,13 +690,53 @@ module Wasm =
     ///       // ... body ...
     ///   })
     let loop (body: LoopCtrl -> WExpr) : WExpr =
-        let lbl = freshName ()
+        let lbl     = freshName ()
         let exitLbl = lbl + "_exit"
-        let ctrl = { Brk = WExpr.Break(exitLbl, None); Cont = WExpr.Continue(lbl, []) }
-        let bodyExpr = body ctrl
+        let ctrl    = { Brk = WExpr.Break(exitLbl, None); Cont = WExpr.Continue(lbl, []) }
         WExpr.Block(exitLbl,
             WExpr.Loop(lbl,
-                WExpr.Sequence [bodyExpr; WExpr.Continue(lbl, [])],
+                WExpr.Sequence [body ctrl; WExpr.Continue(lbl, [])],
+                WType.Void),
+            WType.Void)
+
+    /// Named block with full BlockCtrl handle (supports BreakWith for typed exits).
+    ///
+    ///   return! Wasm.labeledBlock gen "search" WType.I32 (fun ctrl -> wasm {
+    ///       while (ltS i.Val n) do
+    ///           if (pred elem) then
+    ///               do! ctrl.BreakWith(onFound i.Val elem)
+    ///           do! i <== (i.Val +. i32Const 1)
+    ///       return onNotFound
+    ///   })
+    let labeledBlock (gen: LabelGen) (tag: string) (ty: WType) (body: BlockCtrl -> WExpr) : WExpr =
+        let lbl  = gen.Next(tag)
+        let ctrl = {
+            Break     = WExpr.Break(lbl, None)
+            BreakWith = fun v -> WExpr.Break(lbl, Some v)
+            Continue  = WExpr.Continue(lbl, [])
+        }
+        WExpr.Block(lbl, body ctrl, ty)
+
+    /// Named loop+block with full BlockCtrl handle.
+    /// ctrl.Break exits the loop, ctrl.Continue jumps to top.
+    ///
+    ///   do! Wasm.labeledLoop gen "outer" (fun outer -> wasm {
+    ///       do! Wasm.labeledLoop gen "inner" (fun inner -> wasm {
+    ///           if (mismatch) then do! inner.Break
+    ///           if (found)    then do! outer.Break
+    ///       })
+    ///   })
+    let labeledLoop (gen: LabelGen) (tag: string) (body: BlockCtrl -> WExpr) : WExpr =
+        let loopLbl = gen.Next(tag)
+        let exitLbl = loopLbl + "_exit"
+        let ctrl    = {
+            Break     = WExpr.Break(exitLbl, None)
+            BreakWith = fun v -> WExpr.Break(exitLbl, Some v)
+            Continue  = WExpr.Continue(loopLbl, [])
+        }
+        WExpr.Block(exitLbl,
+            WExpr.Loop(loopLbl,
+                WExpr.Sequence [body ctrl; WExpr.Continue(loopLbl, [])],
                 WType.Void),
             WType.Void)
 
@@ -659,21 +752,21 @@ module Wasm =
 [<AutoOpen>]
 module WasmDsl =
     // i32 arithmetic
-    let inline ( +. )  (a: WExpr) (b: WExpr) = add a b
-    let inline ( -. )  (a: WExpr) (b: WExpr) = sub a b
-    let inline ( *. )  (a: WExpr) (b: WExpr) = mul a b
-    let inline ( /. )  (a: WExpr) (b: WExpr) = div_ a b
-    let inline ( %. )  (a: WExpr) (b: WExpr) = rem_ a b
+    let inline ( +.  ) (a: WExpr) (b: WExpr) = add   a b
+    let inline ( -.  ) (a: WExpr) (b: WExpr) = sub   a b
+    let inline ( *.  ) (a: WExpr) (b: WExpr) = mul   a b
+    let inline ( /.  ) (a: WExpr) (b: WExpr) = div_  a b
+    let inline ( %.  ) (a: WExpr) (b: WExpr) = rem_  a b
     // i32 comparisons
-    let inline ( =. )  (a: WExpr) (b: WExpr) = eq  a b
-    let inline ( <>.)  (a: WExpr) (b: WExpr) = ne  a b
-    let inline ( <. )  (a: WExpr) (b: WExpr) = ltS a b
-    let inline ( <=.)  (a: WExpr) (b: WExpr) = leS a b
-    let inline ( >. )  (a: WExpr) (b: WExpr) = gtS a b
-    let inline ( >=.)  (a: WExpr) (b: WExpr) = geS a b
+    let inline ( =.  ) (a: WExpr) (b: WExpr) = eq    a b
+    let inline ( <>. ) (a: WExpr) (b: WExpr) = ne    a b
+    let inline ( <.  ) (a: WExpr) (b: WExpr) = ltS   a b
+    let inline ( <=. ) (a: WExpr) (b: WExpr) = leS   a b
+    let inline ( >.  ) (a: WExpr) (b: WExpr) = gtS   a b
+    let inline ( >=. ) (a: WExpr) (b: WExpr) = geS   a b
     // logical (short-circuit)
-    let inline ( &&.)  (a: WExpr) (b: WExpr) = wasmAnd a b
-    let inline ( ||.)  (a: WExpr) (b: WExpr) = wasmOr  a b
+    let inline ( &&. ) (a: WExpr) (b: WExpr) = wasmAnd a b
+    let inline ( ||. ) (a: WExpr) (b: WExpr) = wasmOr  a b
     // f64 arithmetic (double-dot to avoid clash with i32 ops)
     let inline ( +.. ) (a: WExpr) (b: WExpr) = addf64 a b
     let inline ( -.. ) (a: WExpr) (b: WExpr) = subf64 a b
@@ -700,29 +793,17 @@ module WasmPatterns =
     let (|I32Zero|_|) = function WExpr.Const(WConst.I32 0) -> Some() | _ -> None
     let (|I32One|_|)  = function WExpr.Const(WConst.I32 1) -> Some() | _ -> None
 
-    let (|BinAdd|_|) = function
-        | WExpr.Binary(WBinaryOp.Add, a, b, t) -> Some(a, b, t) | _ -> None
-    let (|BinSub|_|) = function
-        | WExpr.Binary(WBinaryOp.Sub, a, b, t) -> Some(a, b, t) | _ -> None
-    let (|BinMul|_|) = function
-        | WExpr.Binary(WBinaryOp.Mul, a, b, t) -> Some(a, b, t) | _ -> None
-    let (|BinAnd|_|) = function
-        | WExpr.Binary(WBinaryOp.And, a, b, t) -> Some(a, b, t) | _ -> None
-    let (|BinOr|_|)  = function
-        | WExpr.Binary(WBinaryOp.Or,  a, b, t) -> Some(a, b, t) | _ -> None
+    let (|BinAdd|_|) = function WExpr.Binary(WBinaryOp.Add,  a, b, t) -> Some(a, b, t) | _ -> None
+    let (|BinSub|_|) = function WExpr.Binary(WBinaryOp.Sub,  a, b, t) -> Some(a, b, t) | _ -> None
+    let (|BinMul|_|) = function WExpr.Binary(WBinaryOp.Mul,  a, b, t) -> Some(a, b, t) | _ -> None
+    let (|BinAnd|_|) = function WExpr.Binary(WBinaryOp.And,  a, b, t) -> Some(a, b, t) | _ -> None
+    let (|BinOr|_|)  = function WExpr.Binary(WBinaryOp.Or,   a, b, t) -> Some(a, b, t) | _ -> None
 
-    let (|CmpEq|_|) = function
-        | WExpr.Compare(WCompareOp.Eq,  a, b) -> Some(a, b) | _ -> None
-    let (|CmpNe|_|) = function
-        | WExpr.Compare(WCompareOp.Ne,  a, b) -> Some(a, b) | _ -> None
-    let (|CmpLt|_|) = function
-        | WExpr.Compare(WCompareOp.LtS, a, b) -> Some(a, b) | _ -> None
-    let (|CmpGt|_|) = function
-        | WExpr.Compare(WCompareOp.GtS, a, b) -> Some(a, b) | _ -> None
+    let (|CmpEq|_|)  = function WExpr.Compare(WCompareOp.Eq,  a, b) -> Some(a, b) | _ -> None
+    let (|CmpNe|_|)  = function WExpr.Compare(WCompareOp.Ne,  a, b) -> Some(a, b) | _ -> None
+    let (|CmpLt|_|)  = function WExpr.Compare(WCompareOp.LtS, a, b) -> Some(a, b) | _ -> None
+    let (|CmpGt|_|)  = function WExpr.Compare(WCompareOp.GtS, a, b) -> Some(a, b) | _ -> None
 
-    let (|IfExpr|_|) = function
-        | WExpr.If(cond, thenE, elseE, ty) -> Some(cond, thenE, elseE, ty) | _ -> None
-    let (|LocalVar|_|) = function
-        | WExpr.LocalGet(name, ty) -> Some(name, ty) | _ -> None
-    let (|IsNull|_|) = function
-        | WExpr.RefIsNull e -> Some e | _ -> None
+    let (|IfExpr|_|)    = function WExpr.If(cond, thenE, elseE, ty) -> Some(cond, thenE, elseE, ty) | _ -> None
+    let (|LocalVar|_|)  = function WExpr.LocalGet(name, ty)         -> Some(name, ty)               | _ -> None
+    let (|IsNull|_|)    = function WExpr.RefIsNull e                -> Some e                       | _ -> None

@@ -423,7 +423,13 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         // Two ref.casts of the same value cost negligible overhead and are valid because
         // $clo_apply_tmp (type ref $AnyFn) holds a value that is actually ref $ClosureBase_X.
         let closureInstrs = emitExpr ctx closure
-        let argsInstrs = args |> List.collect (emitExpr ctx)
+        // let argsInstrs = args |> List.collect (emitExpr ctx)
+        // Filter void-typed args — they produce no stack value; must not be pushed.
+        let argsInstrs =
+            args
+            |> List.filter (fun a -> WasmGcTypes.exprWType a <> WType.Void)
+            |> List.collect (emitExpr ctx)
+
         let tmpIdx = ctx.GetLocalIdx("$clo_apply_tmp")
         let castInstr =
             if closureTypeIdx > 0 then

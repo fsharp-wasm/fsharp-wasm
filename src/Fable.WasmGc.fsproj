@@ -66,16 +66,22 @@
     <Compile Include="Runtime/WasmGcRuntime.fs" />
     <Compile Include="Runtime/WasmGcEquality.fs" />
     <Compile Include="Runtime/WasmGcVTable.fs" />
+    
     <Compile Include="Transforms/WasmGcOptionResult.fs" />
     <Compile Include="Transforms/WasmGcListCombinators.fs" />
     <Compile Include="Transforms/WasmGcListOps.fs" />
     <Compile Include="Transforms/WasmGcArrayReplacements.fs" />
     <Compile Include="Transforms/WasmGcMathMap.fs" />
+    
+    <Compile Include="Pipeline/WasmGcValidator.fs" />
+
     <Compile Include="Transforms/Fable2WasmGc.fs" />
+    
     <Compile Include="Emit/WasmGcOptimize.fs" />
     <Compile Include="Emit/WasmGcWat.fs" />
     <Compile Include="Emit/WasmGcEmit.fs" />
     <Compile Include="Emit/WasmGcEncoder.fs" />
+
     <Compile Include="WasmGcPipeline.fs" />
   </ItemGroup>
 
