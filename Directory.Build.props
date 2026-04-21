@@ -18,5 +18,6 @@
     <!-- Override the dotnet fsc compiler path with the patched version. -->
     <!-- The standard SDK uses DotnetFscCompilerPath for managed (dotnet) fsc invocations. -->
     <DotnetFscCompilerPath>$(FSHARP_COMPILER)</DotnetFscCompilerPath>
+    <FSharpWasmGC Condition="'$(FSharpWasmGC)' == ''">$(MSBuildThisFileDirectory)</FSharpWasmGC>
   </PropertyGroup>
 </Project>
