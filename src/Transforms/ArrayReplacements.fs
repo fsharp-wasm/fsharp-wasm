@@ -2,20 +2,20 @@
 /// Covers typed arrays: create, init, fill, copy, map, filter, fold, iter,
 /// exists, forAll, sort, sortWith, sortBy, reverse, concat, choose,
 /// collect, zip, unzip, head/tail/take/skip/splitAt, and instance-method HOFs.
-module Fable.Transforms.WasmGc.WasmGcArrayReplacements
+module Fable.Transforms.WasmGc.Transforms.ArrayReplacements
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
-open Fable.Transforms.WasmGc.WasmGcRuntime
-open Fable.Transforms.WasmGc.WasmGcLoopHelpers
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Runtime.Runtime
+open Fable.Transforms.WasmGc.Runtime.LoopHelpers
 
-open Fable.Transforms.WasmGc.WasmGcListShape
-open Fable.Transforms.WasmGc.WasmGcArrayOps
-open Fable.Transforms.WasmGc.WasmGcLoopPrimitives
+open Fable.Transforms.WasmGc.Runtime.ListShape
+open Fable.Transforms.WasmGc.Runtime.ArrayOps
+open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
 
 // ─────────────────────────────────────────────────────────────────
 // Array higher-order functions

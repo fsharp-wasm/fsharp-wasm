@@ -4,13 +4,13 @@
 /// problems in the WExpr tree BEFORE they become cryptic WebAssembly traps.
 ///
 /// Insert into buildWModule after fixClosureApply:
-///   WasmGcValidator.validate true ctx.TypeDefs fixedFunctions
-module Fable.Transforms.WasmGc.WasmGcValidator
+///   Validator.validate true ctx.TypeDefs fixedFunctions
+module Fable.Transforms.WasmGc.PipelineValidator
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
 
-// let _ = printfn "WasmGcValidator loaded from %s" dllPath
+// let _ = printfn "Validator loaded from %s" dllPath
 // ─────────────────────────────────────────────────────────────────
 // Error type
 // ─────────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ let validate
     if errors.Count > 0 then
         let tag = if failOnErrors then "✗ ERROR" else "⚠ WARN"
         eprintfn ""
-        eprintfn "[WasmGcValidator] %s — %d issue(s) found before emit:" tag errors.Count
+        eprintfn "[Validator] %s — %d issue(s) found before emit:" tag errors.Count
         eprintfn "%s" (String.replicate 72 "─")
         // Group by function for readability
         errors
@@ -191,4 +191,4 @@ let validate
         eprintfn "%s" (String.replicate 72 "─")
         eprintfn ""
         if failOnErrors then
-            failwithf "[WasmGcValidator] %d error(s) — fix before emitting WASM" errors.Count
+            failwithf "[Validator] %d error(s) — fix before emitting WASM" errors.Count

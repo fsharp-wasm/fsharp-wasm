@@ -2,13 +2,13 @@
 ///
 /// This module intentionally contains only loop shapes and shared sort/rebuild
 /// helpers that can be consumed by both list and array operation modules.
-module Fable.Transforms.WasmGc.WasmGcLoopPrimitives
+module Fable.Transforms.WasmGc.Runtime.LoopPrimitives
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
 
-open Fable.Transforms.WasmGc.WasmGcListShape
+open Fable.Transforms.WasmGc.Runtime.ListShape
 
 // ─────────────────────────────────────────────────────────────────────────────
 // indexedLoop — index-based iteration over an array or string

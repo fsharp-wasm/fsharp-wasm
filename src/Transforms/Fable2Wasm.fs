@@ -1,24 +1,28 @@
 /// Fable AST → WasmGc IR translation.
 /// Phase 1: Handles minimal Fable AST cases for integers, floats,
 /// let bindings, arithmetic, functions, and control flow.
-module Fable.Transforms.WasmGc.Fable2WasmGc
+module Fable.Transforms.WasmGc.Transforms.Fable2Wasm
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcFreeVars
-open Fable.Transforms.WasmGc.WasmGcLoopHelpers
-open Fable.Transforms.WasmGc.WasmGcBuilder
-open Fable.Transforms.WasmGc.WasmGcRuntime
-open Fable.Transforms.WasmGc.WasmGcLocals
-open Fable.Transforms.WasmGc.WasmGcEquality
-open Fable.Transforms.WasmGc.WasmGcOptionResult
-open Fable.Transforms.WasmGc.WasmGcListCombinators
-open Fable.Transforms.WasmGc.WasmGcListOps
-open Fable.Transforms.WasmGc.WasmGcArrayReplacements
-open Fable.Transforms.WasmGc.WasmGcMathMap
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.FreeVars
+open Fable.Transforms.WasmGc.Runtime.LoopHelpers
+open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Runtime.Runtime
+open Fable.Transforms.WasmGc.Runtime.Locals
+open Fable.Transforms.WasmGc.Runtime.Equality
+module RT = Fable.Transforms.WasmGc.Runtime.Runtime
+module VT = Fable.Transforms.WasmGc.Runtime.VTable
+module Lc = Fable.Transforms.WasmGc.Runtime.Locals
+module Val = Fable.Transforms.WasmGc.PipelineValidator
+open Fable.Transforms.WasmGc.Transforms.OptionResult
+open Fable.Transforms.WasmGc.Transforms.ListCombinators
+open Fable.Transforms.WasmGc.Transforms.ListOps
+open Fable.Transforms.WasmGc.Transforms.ArrayReplacements
+open Fable.Transforms.WasmGc.Transforms.MathMap
 
 /// Parse a printf-style format string into prefix parts and specifier chars.
 /// e.g. "Hello %s, you are %d!" → (["Hello "; ", you are "; "!"], ['s'; 'd'])
@@ -523,7 +527,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                     | true, (_, boxTypeIdx, _, _) ->
                         match ctx.TypeRegistry |> Map.tryFindKey (fun _ idx -> idx = concreteTypeIdx) with
                         | Some implTypeName ->
-                            WasmGcVTable.emitBox ctx wExpr implTypeName ifaceName boxTypeIdx
+                            VT.emitBox ctx wExpr implTypeName ifaceName boxTypeIdx
                         | None -> wExpr
                     | false, _ -> wExpr
                 | _ -> wExpr
@@ -897,7 +901,7 @@ and buildLetRecLambdas (ctx: Ctx) (bindings: (Fable.AST.Fable.Ident * Fable.AST.
               Locals    = []
               Body      = wBodyFull
               Exported  = false }
-            |> WasmGcLocals.resolveLocals  // Apply full local resolution (includes captured references)
+            |> Lc.resolveLocals  // Apply full local resolution (includes captured references)
 
         ctx.Functions.Add(closureFunc)
 
@@ -1098,7 +1102,7 @@ and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: st
     let closureFunc =
         { Name = funcName; Params = allParams; Result = retType
           Locals = []; Body = wBodyWithCaptures; Exported = false }
-          |> WasmGcLocals.resolveLocals  // Apply full local resolution (includes captured references)
+          |> Lc.resolveLocals  // Apply full local resolution (includes captured references)
     ctx.Functions.Add(closureFunc)
 
     // Return WExpr.Closure(funcName, capture_WExprs, closureRefType)
@@ -1498,7 +1502,7 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 match methodNames |> List.tryFindIndex (fun n -> n = methodName) with
                 | Some methodIdx ->
                     let boxExpr = transformExpr ctx thisArg
-                    Some (WasmGcVTable.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx boxExpr wArgs ty)
+                    Some (VT.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx boxExpr wArgs ty)
                 | None -> None
             | false, _ -> None
         | _ -> None
@@ -1675,7 +1679,7 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
         | "substring", [str; start], _ ->
             let len = WExpr.Binary(WBinaryOp.Sub, WExpr.ArrayLen str, start, WType.I32)
             WExpr.Call(ctx.UseHelper("$strSubstring"), [str; start; len], WType.Ref(StringTypeIdx, false))
-        // ── Char predicates and conversions — delegated to WasmGcRuntime helpers ──
+        // ── Char predicates and conversions — delegated to Runtime helpers ──
         | "isDigit",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsDigit"),        [c], WType.I32)
         | "isLetter",        [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsLetter"),       [c], WType.I32)
         | "isLetterOrDigit", [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsLetterOrDigit"),[c], WType.I32)
@@ -2191,7 +2195,7 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 let vtableTypeIdx, _, funcTypeIndices, methodNames = ctx.VTableRegistry.[ifaceName]
                 match methodNames |> List.tryFindIndex (fun n -> n = fi.Name) with
                 | Some methodIdx ->
-                    WasmGcVTable.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx wReceiver wArgs ty
+                    VT.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx wReceiver wArgs ty
                 | None ->
                     // Method not in vtable — fall through to array instance/indirect
                     match tryArrayInstanceCall transformExpr ctx fi.Name arrExpr info.Args typ with
@@ -2549,12 +2553,12 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                     methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
                         let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
                         methodName, nonSelfParams, retType)
-                let vtableTypeIdx, boxTypeIdx = WasmGcVTable.getOrRegisterInterface ctx'' ifaceName methodSigs
+                let vtableTypeIdx, boxTypeIdx = VT.getOrRegisterInterface ctx'' ifaceName methodSigs
                 let _, _, funcTypeIndices, _ = ctx''.VTableRegistry.[ifaceName]
                 let methodImpls =
                     methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
                         methodName, compiledFunc, compiledParams, retType)
-                WasmGcVTable.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
+                VT.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
                     ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
             ctx''
         elif ent.IsFSharpUnion then
@@ -2611,12 +2615,12 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                             methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
                                 let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
                                 methodName, nonSelfParams, retType)
-                        let vtableTypeIdx, boxTypeIdx = WasmGcVTable.getOrRegisterInterface ctx3 ifaceName methodSigs
+                        let vtableTypeIdx, boxTypeIdx = VT.getOrRegisterInterface ctx3 ifaceName methodSigs
                         let _, _, funcTypeIndices, _ = ctx3.VTableRegistry.[ifaceName]
                         let methodImpls =
                             methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
                                 methodName, compiledFunc, compiledParams, retType)
-                        WasmGcVTable.registerVTableImpl ctx3 classDecl.Entity.FullName baseIdx
+                        VT.registerVTableImpl ctx3 classDecl.Entity.FullName baseIdx
                             ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
                     ctx3)
         else
@@ -2723,12 +2727,12 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                         methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
                             let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
                             methodName, nonSelfParams, retType)
-                    let vtableTypeIdx, boxTypeIdx = WasmGcVTable.getOrRegisterInterface ctx'' ifaceName methodSigs
+                    let vtableTypeIdx, boxTypeIdx = VT.getOrRegisterInterface ctx'' ifaceName methodSigs
                     let _, _, funcTypeIndices, _ = ctx''.VTableRegistry.[ifaceName]
                     let methodImpls =
                         methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
                             methodName, compiledFunc, compiledParams, retType)
-                    WasmGcVTable.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
+                    VT.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
                         ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
                 ctx''
 
@@ -2737,10 +2741,10 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
 let buildWModule (ctx: Ctx) : WModule =
     let fixedFunctions =
         ctx.Functions |> Seq.toList
-        |> WasmGcRuntime.fixClosureApply ctx.TypeDefs
+        |> RT.fixClosureApply ctx.TypeDefs
 
     // Validate the functions after closure transformations are applied
-    WasmGcValidator.validate true ctx.TypeDefs fixedFunctions
+    Val.validate true ctx.TypeDefs fixedFunctions
 
     // TODO: Refactor buildWModule into a modular pipeline (e.g., separate modules for RuntimeHelpers, 
     // Validation, and ExportResolution) to avoid this becoming a "God Function."
@@ -2758,47 +2762,47 @@ let buildWModule (ctx: Ctx) : WModule =
         Functions =
             let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
             let helperBuilders =
-                [ "$strConcat",    WasmGcRuntime.makeStrConcatHelper
-                  "$strEq",        WasmGcRuntime.makeStrEqHelper
-                  "$strIndexOf",      WasmGcRuntime.makeStrIndexOfHelper
-                  "$strLastIndexOf",   WasmGcRuntime.makeStrLastIndexOfHelper
-                  "$strSubstring",     WasmGcRuntime.makeStrSubstringHelper
-                  "$strToLower",   WasmGcRuntime.makeStrToLowerHelper
-                  "$strToUpper",   WasmGcRuntime.makeStrToUpperHelper
-                  "$strTrim",      WasmGcRuntime.makeStrTrimHelper
-                  "$strTrimStart", WasmGcRuntime.makeStrTrimStartHelper
-                  "$strTrimEnd",   WasmGcRuntime.makeStrTrimEndHelper
-                  "$intToStr",     WasmGcRuntime.makeIntToStrHelper
-                  "$floatToStr",   WasmGcRuntime.makeFloatToStrHelper
-                  "$strPadLeft",   WasmGcRuntime.makeStrPadLeftHelper
-                  "$strPadRight",  WasmGcRuntime.makeStrPadRightHelper
-                  "$strReplace",   WasmGcRuntime.makeStrReplaceHelper
-                  "$strSplit",     WasmGcRuntime.makeStrSplitHelper strArrTypeIdx
-                  "$strJoin",      WasmGcRuntime.makeStrJoinHelper strArrTypeIdx
-                  "$parseInt",     WasmGcRuntime.makeIntParseHelper
-                  "$parseFloat",   WasmGcRuntime.makeFloatParseHelper
-                  "$strCompare",   WasmGcRuntime.makeStrCompareHelper
+                [ "$strConcat",    RT.makeStrConcatHelper
+                  "$strEq",        RT.makeStrEqHelper
+                  "$strIndexOf",      RT.makeStrIndexOfHelper
+                  "$strLastIndexOf",   RT.makeStrLastIndexOfHelper
+                  "$strSubstring",     RT.makeStrSubstringHelper
+                  "$strToLower",   RT.makeStrToLowerHelper
+                  "$strToUpper",   RT.makeStrToUpperHelper
+                  "$strTrim",      RT.makeStrTrimHelper
+                  "$strTrimStart", RT.makeStrTrimStartHelper
+                  "$strTrimEnd",   RT.makeStrTrimEndHelper
+                  "$intToStr",     RT.makeIntToStrHelper
+                  "$floatToStr",   RT.makeFloatToStrHelper
+                  "$strPadLeft",   RT.makeStrPadLeftHelper
+                  "$strPadRight",  RT.makeStrPadRightHelper
+                  "$strReplace",   RT.makeStrReplaceHelper
+                  "$strSplit",     RT.makeStrSplitHelper strArrTypeIdx
+                  "$strJoin",      RT.makeStrJoinHelper strArrTypeIdx
+                  "$parseInt",     RT.makeIntParseHelper
+                  "$parseFloat",   RT.makeFloatParseHelper
+                  "$strCompare",   RT.makeStrCompareHelper
                   // ── Tier 1 char helpers ───────────────────────────────────
-                  "$charIsDigit",         WasmGcRuntime.makeCharIsDigitHelper
-                  "$charIsLetter",        WasmGcRuntime.makeCharIsLetterHelper
-                  "$charIsUpper",         WasmGcRuntime.makeCharIsUpperHelper
-                  "$charIsLower",         WasmGcRuntime.makeCharIsLowerHelper
-                  "$charIsWhitespace",    WasmGcRuntime.makeCharIsWhitespaceHelper
-                  "$charToLower",         WasmGcRuntime.makeCharToLowerHelper
-                  "$charToUpper",         WasmGcRuntime.makeCharToUpperHelper
-                  "$charIsLetterOrDigit", WasmGcRuntime.makeCharIsLetterOrDigitHelper
-                  "$pown",              WasmGcRuntime.makePownHelper
-                  "$powF64",            WasmGcRuntime.makePowF64Helper
-                  "$mathExp",           WasmGcRuntime.makeMathExpHelper
-                  "$mathLog",           WasmGcRuntime.makeMathLogHelper
-                  "$mathSin",           WasmGcRuntime.makeMathSinHelper
-                  "$mathCos",           WasmGcRuntime.makeMathCosHelper
-                  "$mathTan",           WasmGcRuntime.makeMathTanHelper
-                  "$mathAtan2",         WasmGcRuntime.makeMathAtan2Helper
+                  "$charIsDigit",         RT.makeCharIsDigitHelper
+                  "$charIsLetter",        RT.makeCharIsLetterHelper
+                  "$charIsUpper",         RT.makeCharIsUpperHelper
+                  "$charIsLower",         RT.makeCharIsLowerHelper
+                  "$charIsWhitespace",    RT.makeCharIsWhitespaceHelper
+                  "$charToLower",         RT.makeCharToLowerHelper
+                  "$charToUpper",         RT.makeCharToUpperHelper
+                  "$charIsLetterOrDigit", RT.makeCharIsLetterOrDigitHelper
+                  "$pown",              RT.makePownHelper
+                  "$powF64",            RT.makePowF64Helper
+                  "$mathExp",           RT.makeMathExpHelper
+                  "$mathLog",           RT.makeMathLogHelper
+                  "$mathSin",           RT.makeMathSinHelper
+                  "$mathCos",           RT.makeMathCosHelper
+                  "$mathTan",           RT.makeMathTanHelper
+                  "$mathAtan2",         RT.makeMathAtan2Helper
                   // ── StringBuilder helpers ─────────────────────────────────
-                  "$sbCreate",          WasmGcRuntime.makeStringBuilderCreateHelper
-                  "$sbAppend",          WasmGcRuntime.makeStringBuilderAppendHelper
-                  "$sbToString",        WasmGcRuntime.makeStringBuilderToStringHelper ]
+                  "$sbCreate",          RT.makeStringBuilderCreateHelper
+                  "$sbAppend",          RT.makeStringBuilderAppendHelper
+                  "$sbToString",        RT.makeStringBuilderToStringHelper ]
             let runtimeHelpers =
                 // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
                 if ctx.UsedHelpers.Contains("$floatToStr") then

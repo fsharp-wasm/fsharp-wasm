@@ -1,13 +1,13 @@
 /// String and char runtime helpers for WasmGC.
-/// Local variable collection lives in WasmGcLocals.fs.
+/// Local variable collection lives in Locals.fs.
 /// Structural equality lives in WasmGcEquality.fs.
-module Fable.Transforms.WasmGc.WasmGcRuntime
+module Fable.Transforms.WasmGc.Runtime.Runtime
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
-open Fable.Transforms.WasmGc.WasmGcLocals
-open Fable.Transforms.WasmGc.WasmGcQuotationWalker
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Runtime.Locals
+open Fable.Transforms.WasmGc.Runtime.QuotationWalker
 
 // ─────────────────────────────────────────────────────────────────
 // Quotation walker helpers — shared by all Tier 1 string/char helpers
@@ -139,7 +139,7 @@ let makeStrIndexOfHelper () : WFuncDecl =
       Locals   = []
       Body     = body
       Exported = false }
-    |> WasmGcLocals.resolveLocals
+    |> Locals.resolveLocals
 
 /// Runtime helper: $strLastIndexOf(haystack, needle) → last position, or -1 if not found.
 /// Brute-force O(n·m) backward scan. needle="" always returns la (length of haystack).

@@ -6,10 +6,10 @@
 ///
 /// Output style: unfolded instruction-per-line format (valid WAT, easy to generate,
 /// easy to validate with wasm-tools / wat2wasm).
-module Fable.Transforms.WasmGc.WasmGcWat
+module Fable.Transforms.WasmGc.Emit.Wat
 
 open System.Text
-open Fable.AST.WasmGc
+open Fable.AST.Wasm
 
 // ─────────────────────────────────────────────────────────────────
 // WAT identifier helpers
@@ -175,7 +175,7 @@ let private importToWat (typeNames: Map<int, string>) (imp: WImport) : string =
         sprintf "  (import \"%s\" \"%s\" (tag %s%s))" imp.ModuleName imp.Name funcId ps
 
 // ─────────────────────────────────────────────────────────────────
-// Determine result type of WExpr (mirror of WasmGcEmit.exprResultType)
+// Determine result type of WExpr (mirror of Emit.exprResultType)
 // ─────────────────────────────────────────────────────────────────
 
 let rec private exprType (expr: WExpr) : WType =

@@ -2,17 +2,25 @@
 /// Mirrors the pattern of Fable's built-in language backends.
 /// Call compileFile from any host that has a Fable.Compiler instance
 /// (e.g. a custom CLI, a dotnet tool wrapping Fable.Compiler.CodeServices).
-module Fable.Transforms.WasmGc.WasmGcPipeline
+module Fable.Transforms.WasmGc.Pipeline
 
 open System.Collections.Concurrent
 open Fable
 open Fable.AST
 open Fable.Transforms
-open Fable.Transforms.WasmGc
+open Fable.AST.Wasm
+
+module T = Fable.Transforms.WasmGc.Runtime.Types
+module Lowering = Fable.Transforms.WasmGc.Transforms.Fable2Wasm
+module Opt = Fable.Transforms.WasmGc.Emit.Optimize
+module L = Fable.Transforms.WasmGc.Runtime.Locals
+module W = Fable.Transforms.WasmGc.Emit.Wat
+module E = Fable.Transforms.WasmGc.Emit.Emit
+module Bin = Fable.Transforms.WasmGc.Emit.Encoder
 
 // Per-project shared Ctx accumulated across source files.
 // Keyed by project file path; cleared when the last file has been processed.
-let private sharedCtxs = ConcurrentDictionary<string, WasmGcTypes.Ctx>()
+let private sharedCtxs = ConcurrentDictionary<string, T.Ctx>()
 
 // Per-project lock objects — serialize processFileIntoCtx calls per project
 // so that all shared mutable Ctx fields (TypeDefs, Dictionaries, etc.) are
@@ -33,14 +41,14 @@ let private emitOutPaths = ConcurrentDictionary<string, string>()
 
 /// Convert a WType to its WIT canonical type string.
 /// Returns None for reference types (structs, closures) that can't cross the component boundary.
-let private witType (ty: WasmGc.WType) : string option =
+let private witType (ty: WType) : string option =
     match ty with
-    | WasmGc.WType.I32 -> Some "s32"
-    | WasmGc.WType.I64 -> Some "s64"
-    | WasmGc.WType.F32 -> Some "f32"
-    | WasmGc.WType.F64 -> Some "f64"
-    | WasmGc.WType.Void -> Some ""         // unit return (no result type)
-    | _ -> None                            // ref types — not WIT-exportable yet
+    | WType.I32 -> Some "s32"
+    | WType.I64 -> Some "s64"
+    | WType.F32 -> Some "f32"
+    | WType.F64 -> Some "f64"
+    | WType.Void -> Some ""         // unit return (no result type)
+    | _ -> None                     // ref types — not WIT-exportable yet
 
 /// Escape a Wasm function name as a WIT identifier.
 /// Valid WIT ids are [a-z][a-z0-9-]* (kebab-case).  Anything else is quoted: %"name".
@@ -51,7 +59,7 @@ let private witId (name: string) : string =
 
 /// Generate a WIT world file describing the primitive-type exports of a WModule.
 /// Returns None if there are no WIT-exportable functions.
-let generateWit (wmod: WasmGc.WModule) (packageName: string) (worldName: string) : string option =
+let generateWit (wmod: WModule) (packageName: string) (worldName: string) : string option =
     let witFuncs =
         wmod.Functions
         |> List.filter (fun f -> f.Exported)
@@ -146,12 +154,12 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                     | _ ->
                         let stringMode =
                             match System.Environment.GetEnvironmentVariable("WASMGC_STRING_MODE") with
-                            | "i16" -> WasmGcTypes.I16
-                            | _     -> WasmGcTypes.I32
-                        let fresh = WasmGcTypes.Ctx.Create(com, stringMode)
+                            | "i16" -> T.I16
+                            | _     -> T.I32
+                        let fresh = T.Ctx.Create(com, stringMode)
                         sharedCtxs.[projectFile] <- fresh
                         fresh
-                let ctx = Fable2WasmGc.processFileIntoCtx latestCtx com fableFile isLastFile
+                let ctx = Lowering.processFileIntoCtx latestCtx com fableFile isLastFile
                 // Write BEFORE releasing lock so subsequent files see the update.
                 sharedCtxs.[projectFile] <- ctx
                 ctx)
@@ -178,12 +186,12 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             sharedCtxs.TryRemove(projectFile) |> ignore
 
             let wasmModule =
-                let rawModule = Fable2WasmGc.buildWModule finalCtx
-                let optimized = WasmGcOptimize.optimizeModule rawModule
+                let rawModule = Lowering.buildWModule finalCtx
+                let optimized = Opt.optimizeModule rawModule
                 // Re-run resolveLocals after optimization: join-point inlining introduces new
                 // Let bindings (e.g. db_2 = arg) whose locals weren't visible before inlining.
                 { optimized with
-                    Functions = optimized.Functions |> List.map WasmGcLocals.resolveLocals }
+                    Functions = optimized.Functions |> List.map L.resolveLocals }
 
             let dir = System.IO.Path.GetDirectoryName(emitPath)
             if not (System.IO.Directory.Exists(dir)) then
@@ -193,7 +201,7 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
 
             // Always emit WAT (human-readable, primary output for debugging)
             let watPath = System.IO.Path.Combine(dir, stem + ".wat")
-            let watText = WasmGcWat.moduleToWat wasmModule
+            let watText = W.moduleToWat wasmModule
             let watContent: string = watText
             do! System.IO.File.WriteAllTextAsync(watPath, watContent) |> Async.AwaitTask
 
@@ -215,8 +223,8 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 with _ -> false
 
             if not watFirstSucceeded then
-                let lowered = WasmGcEmit.emitModule wasmModule
-                let bytes = WasmGcEncoder.encodeModule lowered
+                let lowered = E.emitModule wasmModule
+                let bytes = Bin.encodeModule lowered
                 let wasmBytes: byte[] = bytes
                 do! System.IO.File.WriteAllBytesAsync(wasmPath, wasmBytes) |> Async.AwaitTask
 

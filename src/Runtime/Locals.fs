@@ -1,11 +1,11 @@
 /// Local variable collection and WFuncDecl construction utilities.
-/// Extracted from WasmGcRuntime.fs — the infrastructure every helper needs.
-/// Kept lean so emitters (WasmGcEmit, WasmGcWat) can open this without pulling in
+/// Extracted from Runtime.fs — the infrastructure every helper needs.
+/// Kept lean so emitters (Emit, Wat) can open this without pulling in
 /// all the BCL string/char helpers.
-module Fable.Transforms.WasmGc.WasmGcLocals
+module Fable.Transforms.WasmGc.Runtime.Locals
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // Local variable collection

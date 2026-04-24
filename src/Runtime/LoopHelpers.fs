@@ -1,11 +1,11 @@
 /// Loop builder helpers for list and array traversal patterns.
-/// Extracted from Fable2WasmGc.fs for reuse across replacements.
-module Fable.Transforms.WasmGc.WasmGcLoopHelpers
+/// Extracted from Fable2Wasm.fs for reuse across replacements.
+module Fable.Transforms.WasmGc.Runtime.LoopHelpers
 
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // List type info helpers

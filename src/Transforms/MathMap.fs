@@ -4,15 +4,15 @@
 /// tryMapInline      — intercepts Fable's IComparer-injected Map.ofList / Map.empty
 ///                    calls, passes the comparator through to Map_ofList / Map_empty
 ///                    so the new generic MapHandle API can store cmp in the handle.
-module Fable.Transforms.WasmGc.WasmGcMathMap
+module Fable.Transforms.WasmGc.Transforms.MathMap
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
-open Fable.Transforms.WasmGc.WasmGcRuntime
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Runtime.Runtime
 
 // ─────────────────────────────────────────────────────────────────
 // Math dispatch

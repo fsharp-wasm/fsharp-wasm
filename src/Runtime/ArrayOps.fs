@@ -1,10 +1,10 @@
 /// High-level array combinators for WasmGC code generation.
-module Fable.Transforms.WasmGc.WasmGcArrayOps
+module Fable.Transforms.WasmGc.Runtime.ArrayOps
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
-open Fable.Transforms.WasmGc.WasmGcLoopPrimitives
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ARRAY COMBINATORS — parallel API to the list combinators above

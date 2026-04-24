@@ -6,9 +6,9 @@
 ///   P2: contification, constructor propagation (future)
 ///
 /// All passes are pure WExpr → WExpr transformations, safe to compose.
-module Fable.Transforms.WasmGc.WasmGcOptimize
+module Fable.Transforms.WasmGc.Emit.Optimize
 
-open Fable.AST.WasmGc
+open Fable.AST.Wasm
 
 // ─────────────────────────────────────────────────────────────────
 // Tree-walk helpers

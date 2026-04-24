@@ -54,7 +54,7 @@
   <ItemGroup>
     <!--
       Source order (strict dependency order):
-        1. WasmGC AST types (Fable.AST.WasmGc) — no deps on Fable.Transforms
+        1. WasmGC AST types (Fable.AST.Wasm) — no deps on Fable.Transforms
         2. Ctx / type mapping (depends on AST)
         3. CE Builder (depends on Types)
         4. Loop helpers, free-var analysis
@@ -67,36 +67,36 @@
         11. Low-level struct emitter
         12. Binary encoder
     -->
-    <Compile Include="WasmGc.AST.fs" />
-    <Compile Include="Runtime/WasmGcTypes.fs" />
-    <Compile Include="Runtime/WasmGcBuilder.fs" />
-    <Compile Include="Runtime/WasmGcLoopHelpers.fs" />
-    <Compile Include="Runtime/WasmGcListShape.fs" />
-    <Compile Include="Runtime/WasmGcLoopPrimitives.fs" />
-    <Compile Include="Runtime/WasmGcListOps.fs" />
-    <Compile Include="Runtime/WasmGcArrayOps.fs" />
-    <Compile Include="Runtime/WasmGcQuotationWalker.fs" />
-    <Compile Include="Runtime/WasmGcFreeVars.fs" />
-    <Compile Include="Runtime/WasmGcLocals.fs" />
-    <Compile Include="Runtime/WasmGcRuntime.fs" />
-    <Compile Include="Runtime/WasmGcEquality.fs" />
-    <Compile Include="Runtime/WasmGcVTable.fs" />
+    <Compile Include="AST.fs" />
+    <Compile Include="Runtime/Types.fs" />
+    <Compile Include="Runtime/Builder.fs" />
+    <Compile Include="Runtime/LoopHelpers.fs" />
+    <Compile Include="Runtime/ListShape.fs" />
+    <Compile Include="Runtime/LoopPrimitives.fs" />
+    <Compile Include="Runtime/ListOps.fs" />
+    <Compile Include="Runtime/ArrayOps.fs" />
+    <Compile Include="Runtime/QuotationWalker.fs" />
+    <Compile Include="Runtime/FreeVars.fs" />
+    <Compile Include="Runtime/Locals.fs" />
+    <Compile Include="Runtime/Runtime.fs" />
+    <Compile Include="Runtime/Equality.fs" />
+    <Compile Include="Runtime/VTable.fs" />
 
-    <Compile Include="Transforms/WasmGcOptionResult.fs" />
-    <Compile Include="Transforms/WasmGcListCombinators.fs" />
-    <Compile Include="Transforms/WasmGcListOps.fs" />
-    <Compile Include="Transforms/WasmGcArrayReplacements.fs" />
-    <Compile Include="Transforms/WasmGcMathMap.fs" />
+    <Compile Include="Transforms/OptionResult.fs" />
+    <Compile Include="Transforms/ListCombinators.fs" />
+    <Compile Include="Transforms/ListOps.fs" />
+    <Compile Include="Transforms/ArrayReplacements.fs" />
+    <Compile Include="Transforms/MathMap.fs" />
 
-    <Compile Include="Pipeline/WasmGcValidator.fs" />
+    <Compile Include="Pipeline/Validator.fs" />
 
-    <Compile Include="Transforms/Fable2WasmGc.fs" />
+    <Compile Include="Transforms/Fable2Wasm.fs" />
 
-    <Compile Include="Emit/WasmGcOptimize.fs" />
-    <Compile Include="Emit/WasmGcWat.fs" />
-    <Compile Include="Emit/WasmGcEmit.fs" />
-    <Compile Include="Emit/WasmGcEncoder.fs" />
+    <Compile Include="Emit/Optimize.fs" />
+    <Compile Include="Emit/Wat.fs" />
+    <Compile Include="Emit/Emit.fs" />
+    <Compile Include="Emit/Encoder.fs" />
 
-    <Compile Include="WasmGcPipeline.fs" />
+    <Compile Include="Pipeline.fs" />
   </ItemGroup>
 </Project>

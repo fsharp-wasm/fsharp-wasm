@@ -1,20 +1,20 @@
 /// WasmGC inline replacements for List higher-order functions.
 /// Uses high-level combinators from WasmGcLoopCombinators for clean, composable code.
-module Fable.Transforms.WasmGc.WasmGcListCombinators
+module Fable.Transforms.WasmGc.Transforms.ListCombinators
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
-open Fable.Transforms.WasmGc.WasmGcRuntime
-open Fable.Transforms.WasmGc.WasmGcLoopHelpers
-open Fable.Transforms.WasmGc.WasmGcEquality
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Runtime.Runtime
+open Fable.Transforms.WasmGc.Runtime.LoopHelpers
+open Fable.Transforms.WasmGc.Runtime.Equality
 
-open Fable.Transforms.WasmGc.WasmGcListShape
-open Fable.Transforms.WasmGc.WasmGcLoopPrimitives
-open Fable.Transforms.WasmGc.WasmGcRuntimeListOps
+open Fable.Transforms.WasmGc.Runtime.ListShape
+open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
+open Fable.Transforms.WasmGc.Runtime.ListOps
 
 
 /// Extract element Fable.Type from List<T>, seq<T>, or IEnumerable<T>.

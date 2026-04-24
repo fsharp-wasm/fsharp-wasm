@@ -1,9 +1,9 @@
 /// WasmGc Binary Encoder: WasmModule → byte array (.wasm binary format).
 /// Encodes all WASM sections following the spec: magic, version, type section,
 /// function section, export section, code section, etc.
-module Fable.Transforms.WasmGc.WasmGcEncoder
+module Fable.Transforms.WasmGc.Emit.Encoder
 
-open Fable.AST.WasmGc
+open Fable.AST.Wasm
 
 // ─────────────────────────────────────────────────────────────────
 // LEB128 encoding
@@ -686,7 +686,7 @@ let encodeMemorySection (buf: ResizeArray<byte>) (initialPages: int) =
     writeSection buf SectionId.Memory content
 
 /// Encode the Global Section (section 6)
-let encodeGlobalSection (buf: ResizeArray<byte>) (globals: WasmGcEmit.WasmGlobal list) =
+let encodeGlobalSection (buf: ResizeArray<byte>) (globals: Emit.WasmGlobal list) =
     if globals.IsEmpty then () else
     let content = ResizeArray<byte>()
     encodeLEB128Unsigned content (uint32 globals.Length)
@@ -721,7 +721,7 @@ let encodeExportSection (buf: ResizeArray<byte>) (exports: WExport list) =
     writeSection buf SectionId.Export content
 
 /// Encode the Code Section (section 10): function bodies
-let encodeCodeSection (buf: ResizeArray<byte>) (funcs: WasmGcEmit.WasmFunc list) =
+let encodeCodeSection (buf: ResizeArray<byte>) (funcs: Emit.WasmFunc list) =
     let content = ResizeArray<byte>()
     encodeLEB128Unsigned content (uint32 funcs.Length)
 
@@ -757,7 +757,7 @@ let encodeCodeSection (buf: ResizeArray<byte>) (funcs: WasmGcEmit.WasmFunc list)
     writeSection buf SectionId.Code content
 
 /// Encode the Name Custom Section (for debugging)
-let encodeNameSection (buf: ResizeArray<byte>) (funcs: WasmGcEmit.WasmFunc list) (importCount: int) =
+let encodeNameSection (buf: ResizeArray<byte>) (funcs: Emit.WasmFunc list) (importCount: int) =
     let content = ResizeArray<byte>()
 
     // "name" section name
@@ -811,7 +811,7 @@ let encodeElementSection (buf: ResizeArray<byte>) (funcIdxs: int list) =
 // ─────────────────────────────────────────────────────────────────
 
 /// Encode a complete WasmModule to a .wasm binary.
-let encodeModule (wmod: WasmGcEmit.WasmModule) : byte array =
+let encodeModule (wmod: Emit.WasmModule) : byte array =
     let buf = ResizeArray<byte>()
 
     // Magic number: \0asm

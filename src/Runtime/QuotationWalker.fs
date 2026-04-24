@@ -1,7 +1,7 @@
 /// Quotation-to-WExpr translator for WasmGC runtime helpers.
 ///
 /// Translates [<ReflectedDefinition>] F# functions into WFuncDecl,
-/// making WasmGcRuntime.fs helpers writable as plain, readable F#.
+/// making Runtime.fs helpers writable as plain, readable F#.
 ///
 /// Status: Core walker is complete.  WasmStr indexer/member support
 ///         is provided with phantom [<WasmIntrinsic>]-tagged methods.
@@ -10,11 +10,11 @@
 ///
 /// Design principles:
 ///   • Only covers monomorphic value-type F# — no classes, interfaces, or
-///     captured lambdas (closures handled by Fable2WasmGc).
+///     captured lambdas (closures handled by Fable2Wasm).
 ///   • Supported: let/let mutable, while, if-then-else, arithmetic, comparisons,
 ///     array indexing, Array.zeroCreate, explicit WasmIntrinsic calls.
 ///   • Not supported (clear error message): tuples, object expressions, match.
-module Fable.Transforms.WasmGc.WasmGcQuotationWalker
+module Fable.Transforms.WasmGc.Runtime.QuotationWalker
 
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Quotations.Patterns
@@ -22,9 +22,9 @@ open Microsoft.FSharp.Quotations.DerivedPatterns
 open System
 open System.Reflection
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Intrinsic attribute
@@ -433,7 +433,7 @@ let translateReflected
     {
         Name    = funcName
         Params  = parms |> List.map (fun (n, t) -> "$" + n, t)
-        Locals  = []    // WasmGcEmit.collectLocals fills this in when emitting
+        Locals  = []    // Emit.collectLocals fills this in when emitting
         Result  = retTy
         Body    = tx ctx body
         Exported = false
@@ -443,8 +443,8 @@ let translateReflected
 // Standard intrinsics map
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Build the standard intrinsics map for WasmGcRuntime.fs helpers.i as
-/// Pass `strTypeIdx = StringTypeIdx` (= 1) from WasmGcTypes.
+/// Build the standard intrinsics map for Runtime.fs helpers.i as
+/// Pass `strTypeIdx = StringTypeIdx` (= 1) from Types.
 let standardIntrinsics (strTypeIdx: int) (sbTypeIdx: int) : Map<string, WExpr list -> WExpr> =
     let strRefTy = WType.Ref(strTypeIdx, false)
     let sbRefTy  = WType.Ref(sbTypeIdx,  false)

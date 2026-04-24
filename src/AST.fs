@@ -7,7 +7,7 @@
 ///   - Explicit join points for efficient decision-tree compilation
 ///   - Explicit tail calls for loop optimization
 ///   - No generics — everything is mono-typed
-module rec Fable.AST.WasmGc
+module rec Fable.AST.Wasm
 
 // ─────────────────────────────────────────────────────────────────
 // Layer 2: WasmIR — our primary optimization IR
@@ -388,7 +388,7 @@ type WModule =
 // Layer 3: Low-level WASM instruction set
 // ─────────────────────────────────────────────────────────────────
 
-/// Raw WASM instructions — emitted by the WasmGcEmit phase and
+/// Raw WASM instructions — emitted by the Emit phase and
 /// consumed by the binary encoder.
 [<RequireQualifiedAccess>]
 type Instr =

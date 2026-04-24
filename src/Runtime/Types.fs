@@ -1,11 +1,11 @@
 /// WasmGC context, type mapping, and exprWType utilities.
-/// Extracted from Fable2WasmGc.fs to keep concerns separated.
-module Fable.Transforms.WasmGc.WasmGcTypes
+/// Extracted from Fable2Wasm.fs to keep concerns separated.
+module Fable.Transforms.WasmGc.Runtime.Types
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.WasmGc
+open Fable.AST.Wasm
 
 // ─────────────────────────────────────────────────────────────────
 // Constants — pre-registered type indices (always the same)

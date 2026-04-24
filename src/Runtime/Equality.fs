@@ -1,12 +1,12 @@
 /// Structural equality helpers for WasmGC.
 /// Generates WFuncDecl equality functions for records and discriminated unions.
-/// Extracted from WasmGcRuntime.fs to separate concerns.
-module Fable.Transforms.WasmGc.WasmGcEquality
+/// Extracted from Runtime.fs to separate concerns.
+module Fable.Transforms.WasmGc.Runtime.Equality
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
-open Fable.Transforms.WasmGc.WasmGcLocals
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Runtime.Locals
 
 // ─────────────────────────────────────────────────────────────────
 // Structural equality — Sprint 6

@@ -12,14 +12,14 @@
 ///   // 2. Compose the operation declaratively
 ///   listFold gen s wList (i32Const 0) WType.I32
 ///       (fun acc elem -> add acc elem)
-module Fable.Transforms.WasmGc.WasmGcRuntimeListOps
+module Fable.Transforms.WasmGc.Runtime.ListOps
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
-open Fable.Transforms.WasmGc.WasmGcBuilder
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
+open Fable.Transforms.WasmGc.Runtime.Builder
 
-open Fable.Transforms.WasmGc.WasmGcListShape
-open Fable.Transforms.WasmGc.WasmGcLoopPrimitives
+open Fable.Transforms.WasmGc.Runtime.ListShape
+open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listFold — fundamental traversal

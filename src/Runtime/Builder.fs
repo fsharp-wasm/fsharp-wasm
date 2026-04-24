@@ -20,10 +20,10 @@
 ///   ForExpr   — for x in col do body   with WExpr collection (no IEnumerable constraint)
 ///
 /// These complement the existing WhileBang (while! guard do body) path.
-module Fable.Transforms.WasmGc.WasmGcBuilder
+module Fable.Transforms.WasmGc.Runtime.Builder
 
-open Fable.AST.WasmGc
-open Fable.Transforms.WasmGc.WasmGcTypes
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // Fresh name generation (thread-safe)
@@ -363,7 +363,7 @@ let wasmOr cond1 cond2 =
 // ─────────────────────────────────────────────────────────────────
 // Additional smart constructors — Sprint 10a additions.
 // These cover array, struct, arithmetic, branches and tags for
-// use in wasm { } blocks or directly in WasmGcRuntime.fs helpers.
+// use in wasm { } blocks or directly in Runtime.fs helpers.
 // ─────────────────────────────────────────────────────────────────
 
 // --- Constants ---

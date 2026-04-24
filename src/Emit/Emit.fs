@@ -1,9 +1,10 @@
 /// WasmGc Emit: Lower WExpr (high-level IR) → Instr list (flat WASM instructions).
 /// This phase resolves names to indices, lowers control flow, and produces
 /// a WasmModule ready for binary encoding.
-module Fable.Transforms.WasmGc.WasmGcEmit
+module Fable.Transforms.WasmGc.Emit.Emit
 
-open Fable.AST.WasmGc
+open Fable.AST.Wasm
+open Fable.Transforms.WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // Emitter Context — tracks index assignments
@@ -427,7 +428,7 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         // Filter void-typed args — they produce no stack value; must not be pushed.
         let argsInstrs =
             args
-            |> List.filter (fun a -> WasmGcTypes.exprWType a <> WType.Void)
+            |> List.filter (fun a -> exprWType a <> WType.Void)
             |> List.collect (emitExpr ctx)
 
         let tmpIdx = ctx.GetLocalIdx("$clo_apply_tmp")
@@ -557,9 +558,9 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
 // Determine result type of a WExpr (for drop decisions)
 // ─────────────────────────────────────────────────────────────────
 
-/// Canonical WExpr type query — delegates to the shared WasmGcTypes.exprWType.
+/// Canonical WExpr type query — delegates to the shared exprWType.
 /// Sprint 2: eliminated the duplicate implementation that existed here.
-and exprResultType (expr: WExpr) : WType = WasmGcTypes.exprWType expr
+and exprResultType (expr: WExpr) : WType = exprWType expr
 
 // ─────────────────────────────────────────────────────────────────
 // Numeric operation instruction selection
