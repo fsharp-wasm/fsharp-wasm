@@ -8,6 +8,8 @@
       Source files are physically in this directory — no fork dependency.
     -->
     <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>10.0</LangVersion>
+
     <IsPackable>true</IsPackable>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <LangVersion>preview</LangVersion>
@@ -36,7 +38,17 @@
       identity (Fable-Transforms 1.0.0.0) and compatible interfaces — so Fable.WasmGc.dll
       resolves correctly at runtime against the fork's assemblies.
     -->
-    <PackageReference Include="Fable.Compiler" Version="5.0.0-rc.11" PrivateAssets="all" />
+    <!-- <PackageReference Include="Fable.Compiler" Version="5.0.0-rc.11" PrivateAssets="all" /> -->
+
+    <ProjectReference Include="../vendor/Fable/src/Fable.Compiler/Fable.Compiler.fsproj" />
+    <ProjectReference Include="../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" PrivateAssets="all" />
+    <ProjectReference Include="../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
+
+    <!-- <Reference Include="../vendor/Fable/src/Fable.Compiler/bin/Debug/net10.0/Fable.Compiler.dll" PrivateAssets="all" /> -->
+
+    <Reference Include="../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" />
+    <Reference Include="../vendor/Fable/lib/fcs/FSharp.DependencyManager.Nuget.dll" />
+    <Reference Include="../vendor/Fable/lib/fcs/FSharp.Core.dll" />
   </ItemGroup>
 
   <ItemGroup>
@@ -59,24 +71,27 @@
     <Compile Include="Runtime/WasmGcTypes.fs" />
     <Compile Include="Runtime/WasmGcBuilder.fs" />
     <Compile Include="Runtime/WasmGcLoopHelpers.fs" />
-    <Compile Include="Runtime/WasmGcLoopCombinators.fs" />
+    <Compile Include="Runtime/WasmGcListShape.fs" />
+    <Compile Include="Runtime/WasmGcLoopPrimitives.fs" />
+    <Compile Include="Runtime/WasmGcListOps.fs" />
+    <Compile Include="Runtime/WasmGcArrayOps.fs" />
     <Compile Include="Runtime/WasmGcQuotationWalker.fs" />
     <Compile Include="Runtime/WasmGcFreeVars.fs" />
     <Compile Include="Runtime/WasmGcLocals.fs" />
     <Compile Include="Runtime/WasmGcRuntime.fs" />
     <Compile Include="Runtime/WasmGcEquality.fs" />
     <Compile Include="Runtime/WasmGcVTable.fs" />
-    
+
     <Compile Include="Transforms/WasmGcOptionResult.fs" />
     <Compile Include="Transforms/WasmGcListCombinators.fs" />
     <Compile Include="Transforms/WasmGcListOps.fs" />
     <Compile Include="Transforms/WasmGcArrayReplacements.fs" />
     <Compile Include="Transforms/WasmGcMathMap.fs" />
-    
+
     <Compile Include="Pipeline/WasmGcValidator.fs" />
 
     <Compile Include="Transforms/Fable2WasmGc.fs" />
-    
+
     <Compile Include="Emit/WasmGcOptimize.fs" />
     <Compile Include="Emit/WasmGcWat.fs" />
     <Compile Include="Emit/WasmGcEmit.fs" />
@@ -84,5 +99,4 @@
 
     <Compile Include="WasmGcPipeline.fs" />
   </ItemGroup>
-
 </Project>

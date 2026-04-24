@@ -12,7 +12,10 @@ open Fable.Transforms.WasmGc.WasmGcTypes
 open Fable.Transforms.WasmGc.WasmGcBuilder
 open Fable.Transforms.WasmGc.WasmGcRuntime
 open Fable.Transforms.WasmGc.WasmGcLoopHelpers
-open Fable.Transforms.WasmGc.WasmGcLoopCombinators
+
+open Fable.Transforms.WasmGc.WasmGcListShape
+open Fable.Transforms.WasmGc.WasmGcArrayOps
+open Fable.Transforms.WasmGc.WasmGcLoopPrimitives
 
 // ─────────────────────────────────────────────────────────────────
 // Array higher-order functions

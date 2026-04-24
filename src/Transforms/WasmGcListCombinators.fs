@@ -10,8 +10,12 @@ open Fable.Transforms.WasmGc.WasmGcTypes
 open Fable.Transforms.WasmGc.WasmGcBuilder
 open Fable.Transforms.WasmGc.WasmGcRuntime
 open Fable.Transforms.WasmGc.WasmGcLoopHelpers
-open Fable.Transforms.WasmGc.WasmGcLoopCombinators
 open Fable.Transforms.WasmGc.WasmGcEquality
+
+open Fable.Transforms.WasmGc.WasmGcListShape
+open Fable.Transforms.WasmGc.WasmGcLoopPrimitives
+open Fable.Transforms.WasmGc.WasmGcRuntimeListOps
+
 
 /// Extract element Fable.Type from List<T>, seq<T>, or IEnumerable<T>.
 let private seqElemType (t: Fable.Type) : Fable.Type option =
