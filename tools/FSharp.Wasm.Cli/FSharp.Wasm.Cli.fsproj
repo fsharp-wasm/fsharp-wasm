@@ -1,0 +1,90 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+
+    <OutputType>Exe</OutputType>
+    <AssemblyName>fsharp-wasm</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <RollForward>Major</RollForward>
+    <!-- Suppress known-harmless NuGet locale warnings from FSharp.Core 10.1.201 (patched compiler artifact) -->
+    <NoWarn>$(NoWarn);NETSDK1188</NoWarn>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>fsharp-wasm</ToolCommandName>
+    <PackageId>FSharp.Wasm.Cli</PackageId>
+    <Description>WasmGC compiler driver for fsharp-wasm — wraps Fable + WasmGc backend.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Fable.Cli for CompilerImpl, Pipeline dispatch, and Project.From.
+      We reference as library (OutputType=Exe is fine for project references).
+    -->
+    <!-- <ProjectReference Include="../../vendor/Fable/src/Fable.Cli/Fable.Cli.fsproj" /> -->
+
+    <Compile Include="../../vendor/Fable/src/Fable.Cli/Contributors.fs" />
+    <Compile Include="../../vendor/Fable/src/Fable.Cli/Printers.fs" />
+    <Compile Include="../../vendor/Fable/src/Fable.Cli/FileWatchers.fsi" />
+    <Compile Include="../../vendor/Fable/src/Fable.Cli/FileWatchers.fs" />
+    <!-- <Compile Include="../../vendor/Fable/src/Fable.Cli/Pipeline.fs" /> -->
+    <Compile Include="Pipeline.fs" />
+    <Compile Include="../../vendor/Fable/src/Fable.Cli/Main.fs" />
+    <Compile Include="../../vendor/Fable/src/Fable.Cli/CustomLogging.fs" />
+    <!-- <Compile Include="../../vendor/Fable/src/Fable.Cli/Entry.fs" /> -->
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Reference Fable.Compiler directly from the vendor fork.
+      This gives us: CrackerOptions, getFullProjectOpts, MSBuildCrackerResolver,
+      CodeServices.typeCheckProject, InteractiveChecker, CliArgs, etc.
+    -->
+    <ProjectReference Include="../../vendor/Fable/src/Fable.Compiler/Fable.Compiler.fsproj">
+      <!-- <PrivateAssets>all</PrivateAssets> -->
+    </ProjectReference>
+    <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
+    <!-- <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" /> -->
+  </ItemGroup>
+  
+  <ItemGroup>
+    <!--
+      Reference our WasmGc backend — provides WasmGcPipeline.compileFile.
+      PrivateAssets="none" so that this CLI can load it in-process.
+    -->
+    <ProjectReference Include="../../src/Fable.WasmGc.fsproj">
+      <!-- Verhindert, dass das FSharp.Core von WasmGc in dein Hauptprojekt fließt -->
+      <!-- <PrivateAssets>all</PrivateAssets> -->
+      <!-- <ExcludeAssets>runtime</ExcludeAssets> -->
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      FSharp.Compiler.Service: the Fable-specific FCS build (from fcs-fable).
+      Required because Fable.Compiler.dll uses types from it in its public API.
+    -->
+    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" />
+    <!-- <Reference Include="../../lib/fcs/FSharp.DependencyManager.Nuget.dll" /> -->
+    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Core.dll" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <!-- <PackageReference Include="EasyBuild.PackageReleaseNotes.Tasks" Version="2.1.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference> -->
+    <PackageReference Include="FSharp.SystemTextJson" Version="1.4.36" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.6" />
+    <PackageReference Include="source-map-sharp" Version="1.0.9" />
+  </ItemGroup>
+  
+  
+  <!-- <Reference Include="FSharp.Core">
+    <HintPath>$(MSBuildThisFileDirectory)vendor/Fable/lib/fcs/FSharp.Core.dll</HintPath>
+    <Private>True</Private>
+  </Reference> -->
+</Project>

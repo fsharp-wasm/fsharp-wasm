@@ -12,10 +12,12 @@ OUT="$HERE/output"
 
 echo ""
 echo "=== 1/4  Compiling F# → WasmGc (WAT + WASM + WIT) ==="
-dotnet run --project "$ROOT/tools/fsharp-wasm-cli" -- \
+# dotnet run --project "$ROOT/vendor/Fable/src/Fable.Cli" -- \
+dotnet run --project "$ROOT/tools/FSharp.Wasm.Cli" -- \
     "$HERE" \
     --outDir "$OUT" \
     --noCache
+    # --lang wasmgc \
 
 echo ""
 echo "=== 2/4  Validating WASM binary (wasm-tools) ==="

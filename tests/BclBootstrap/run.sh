@@ -9,7 +9,7 @@ mkdir -p "$OUT"
 
 echo ""
 echo "=== BCL Bootstrap: Compiling Exception.fs ===" 
-dotnet run --project "$ROOT/tools/fsharp-wasm-cli" -- \
+dotnet run --project "$ROOT/tools/FSharp.Wasm.Cli" -- \
     "$HERE" \
     --outDir "$OUT" \
     --noCache

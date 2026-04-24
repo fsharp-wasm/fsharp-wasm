@@ -34,7 +34,7 @@ let root          = __SOURCE_DIRECTORY__
 let srcDir        = Path.combine root "src"
 let testsDir      = Path.combine root "tests"
 let publishDir    = Path.combine root "publish"
-let cliDir        = Path.combine root "tools/fsharp-wasm-cli"
+let cliDir        = Path.combine root "tools/FSharp.Wasm.Cli"
 let coreDir       = Path.combine root "fsharp-wasm-core/FSharp.Wasm.Core"
 let vendorFableFsc = Path.combine root "vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll"
 
@@ -76,7 +76,7 @@ let inline runDotNet cmd workDir =
 Target.create "Clean" (fun _ ->
     Shell.cleanDir publishDir
     !! "src/bin" ++ "src/obj"
-    ++ "tools/fsharp-wasm-cli/bin" ++ "tools/fsharp-wasm-cli/obj"
+    ++ "tools/FSharp.Wasm.Cli/bin" ++ "tools/FSharp.Wasm.Cli/obj"
     ++ "fsharp-wasm-core/FSharp.Wasm.Core/bin" ++ "fsharp-wasm-core/FSharp.Wasm.Core/obj"
     |> Shell.cleanDirs
 )
@@ -97,7 +97,7 @@ Target.create "BuildCli" (fun _ ->
         { o with
             Configuration = DotNet.BuildConfiguration.Release
             Common = dotnetOpts o.Common }
-    ) (Path.combine cliDir "FSharpWasmCli.fsproj")
+    ) (Path.combine cliDir "FSharp.Wasm.Cli.fsproj")
     Trace.log "✅ fsharp-wasm CLI build complete"
 )
 
@@ -170,7 +170,7 @@ Target.create "Pack" (fun _ ->
             OutputPath     = Some (Path.combine publishDir "nuget")
             Common         = dotnetOpts o.Common
             MSBuildParams  = { o.MSBuildParams with Properties = [ "Version", version ] } }
-    ) (Path.combine cliDir "FSharpWasmCli.fsproj")
+    ) (Path.combine cliDir "FSharp.Wasm.Cli.fsproj")
 
     // Pack Core BCL
     DotNet.pack (fun o ->
@@ -210,7 +210,7 @@ Target.create "PublishBinaries" (fun _ ->
                 OutputPath    = Some outDir
                 Common        = dotnetOpts o.Common
                 MSBuildParams = { o.MSBuildParams with Properties = [ "Version", version; "PublishReadyToRun", "false" ] } }
-        ) (Path.combine cliDir "FSharpWasmCli.fsproj")
+        ) (Path.combine cliDir "FSharp.Wasm.Cli.fsproj")
     Trace.log "✅ Self-contained CLI binaries published"
 )
 

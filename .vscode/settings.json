@@ -1,5 +1,7 @@
 {
     "editor.formatOnSave" : false,
     "editor.formatOnType" : false,
-    "editor.formatOnPaste": false
+    "editor.formatOnPaste": false,
+    "dotnet.defaultSolution": "disable",
+    "editor.inlayHints.enabled": "offUnlessPressed"
 }
