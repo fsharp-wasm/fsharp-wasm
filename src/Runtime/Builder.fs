@@ -22,6 +22,8 @@
 /// These complement the existing WhileBang (while! guard do body) path.
 module Fable.Transforms.WasmGc.Runtime.Builder
 
+open System.Collections.Concurrent
+
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc.Runtime.Types
 
@@ -52,23 +54,15 @@ let freshName () =
 /// Global name counter to ensure label uniqueness across all LabelGen instances.
 /// Each prefix maintains its own counter to avoid collisions.
 /// Thread-safe via Interlocked operations.
-let private labelCounters = System.Collections.Generic.Dictionary<string, int>()
-let private labelCounterLock = obj()
+let private labelCounters = ConcurrentDictionary<string, int>()
 
 type LabelGen(prefix: string) =
-    /// Generate the next unique label with given tag.
-    /// Ensures uniqueness: format is $prefix_tag_N where N is globally unique per prefix.
+    /// Generiert das nächste Label.
+    /// Nutzt AddOrUpdate, um den Zähler für das Prefix atomar zu erhöhen.
     member _.Next(tag: string) : string =
-        lock labelCounterLock (fun () ->tryListTypeInfoFromElemType
-            let mutable count = 0
-            if labelCounters.TryGetValue(prefix, &count) then
-                count <- count + 1
-                labelCounters.[prefix] <- count
-            else
-                count <- 1
-                labelCounters.[prefix] <- count
-            $"${prefix}_{tag}_{count}"
-        )
+        let nextValue = labelCounters.AddOrUpdate(prefix, 1, fun _ count -> count + 1)
+        $"${prefix}_{tag}_{nextValue}"
+
     member _.Prefix = prefix
 
 // ─────────────────────────────────────────────────────────────────
