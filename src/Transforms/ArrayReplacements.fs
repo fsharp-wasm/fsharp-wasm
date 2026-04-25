@@ -672,13 +672,11 @@ let tryArrayInline
                 let gen        = LabelGen("asort")
                 let readElem arrExpr idxExpr = arrayGet arrExpr idxExpr elemT
                 let writeElem arrExpr idxExpr valExpr = arraySet arrExpr idxExpr valExpr
-                let cmp a b = WExpr.Compare(WCompareOp.LtS, a, b)
-                // For sort: a < b → -1, else 1 (good enough for insertion sort's > 0 check)
+                // For sort: cmp must return -1/0/1; insertionSortInPlace only checks (> 0).
                 let cmpFn a b =
-                    WExpr.If(WExpr.Compare(WCompareOp.LtS, a, b),
-                        i32Const -1,
-                        WExpr.If(WExpr.Compare(WCompareOp.Eq, a, b), i32Const 0, i32Const 1, WType.I32),
-                        WType.I32)
+                    wasmIf (WExpr.Compare(WCompareOp.LtS, a, b))
+                        (i32Const -1)
+                        (wasmIf (WExpr.Compare(WCompareOp.Eq, a, b)) (i32Const 0) (i32Const 1))
                 Some(wasm {
                     let! src = wArr
                     let! len = arrayLen src

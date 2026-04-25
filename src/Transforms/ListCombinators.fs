@@ -17,7 +17,13 @@ open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
 open Fable.Transforms.WasmGc.Runtime.ListOps
 
 
-/// Extract element Fable.Type from List<T>, seq<T>, or IEnumerable<T>.
+/// Extract only the element Fable.Type shape for list-like sequence signatures:
+/// - Fable.Type.List<T>
+/// - Fable.Type.DeclaredType(_, [T])  (seq<T> / IEnumerable<T>-style signatures)
+///
+/// Boundary note:
+/// - This helper does NOT resolve Wasm list registry info (use LoopHelpers.tryListTypeInfo for that).
+/// - This helper does NOT handle arrays (use ArrayReplacements.getArrElemT for Fable.Type.Array<T,_>).
 let private seqElemType (t: Fable.Type) : Fable.Type option =
     match t with
     | Fable.Type.List e               -> Some e
