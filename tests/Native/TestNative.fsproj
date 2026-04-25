@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <EnableExpectoTestingPlatformIntegration>true</EnableExpectoTestingPlatformIntegration>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compile Include="Main.fs" / -->
+    <Compile Include="Integration/ArrayReplacementTests.fs" />
+    <Compile Include="Integration/ClosureCallTests.fs" />
+    <Compile Include="Integration/ElmishTests.fs" />
+    <Compile Include="Integration/FableQueryTests.fs" />
+    <Compile Include="Integration/ListReplacementTests.fs" />
+    <Compile Include="Integration/StringRuntimeTests.fs" />
+    <Compile Include="Integration/WhileBangTests.fs" />
+
+    <Compile Include="Unit/CaptureTests.fs" />
+    <Compile Include="Unit/CEBuilderTests.fs" />
+    <Compile Include="Unit/ClosureArityTests.fs" />
+    <Compile Include="Unit/IdentExprTests.fs" />
+    <Compile Include="Unit/LocalsCollectionTests.fs" />
+    <Compile Include="Unit/TypeResolutionTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Fable.WasmGc.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Expecto" Version="10.*" />
+    <PackageReference Include="YoloDev.Expecto.TestSdk" Version="0.15.*" />
+    <!-- Microsoft.NET.Test.Sdk wird oft weiterhin für IDE-Features benötigt -->
+    <!-- PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" / -->
+    <!-- PackageReference Update="FSharp.Core" Version="10.*" / -->
+  </ItemGroup>
+</Project>
