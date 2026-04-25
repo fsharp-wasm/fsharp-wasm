@@ -49,14 +49,26 @@ let freshName () =
 ///   let gen = LabelGen "fold"
 ///   let cur = gen.Next "cur"   // "$fold_cur_1"
 ///   let acc = gen.Next "acc"   // "$fold_acc_2"
+/// Global name counter to ensure label uniqueness across all LabelGen instances.
+/// Each prefix maintains its own counter to avoid collisions.
+/// Thread-safe via Interlocked operations.
+let private labelCounters = System.Collections.Generic.Dictionary<string, int>()
+let private labelCounterLock = obj()
+
 type LabelGen(prefix: string) =
-    // TODO: singleton per prefx?!
-    let mutable n = 0
-    member _.Next(tag: string) =
-        // TODO: thread-safe? atomic?!
-        // let n = System.Threading.Interlocked.Increment(nameCounter)
-        n <- n + 1
-        $"${prefix}_{tag}_{n}"
+    /// Generate the next unique label with given tag.
+    /// Ensures uniqueness: format is $prefix_tag_N where N is globally unique per prefix.
+    member _.Next(tag: string) : string =
+        lock labelCounterLock (fun () ->tryListTypeInfoFromElemType
+            let mutable count = 0
+            if labelCounters.TryGetValue(prefix, &count) then
+                count <- count + 1
+                labelCounters.[prefix] <- count
+            else
+                count <- 1
+                labelCounters.[prefix] <- count
+            $"${prefix}_{tag}_{count}"
+        )
     member _.Prefix = prefix
 
 // ─────────────────────────────────────────────────────────────────
