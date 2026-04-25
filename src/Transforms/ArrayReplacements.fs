@@ -21,6 +21,11 @@ open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
 // Array higher-order functions
 // ─────────────────────────────────────────────────────────────────
 
+/// Extract element type only for F# array shapes: Fable.Type.Array<T, _>.
+/// This is intentionally array-specific and complements (does not replace):
+/// - ListCombinators.seqElemType for List/seq/IEnumerable-like shapes
+/// - LoopHelpers.tryListTypeInfo for list registry resolution
+
 let private getArrElemT (ftyp: Fable.Type) =
     match ftyp with | Fable.Type.Array(t, _) -> Some t | _ -> None
 
@@ -847,7 +852,7 @@ let tryArrayInline
                     do! Wasm.for_ (arrayLen src) (fun i ->
                             WExpr.Let(farg.Name, arrayGet src i inElemT, wasm {
                                 let! opt = wBody
-                                return! wasmWhen (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull opt, WType.I32))
+                                return! wasmWhen (refIsNotNull opt)
                                     (cnt.Set(add cnt.Val (i32Const 1)))
                             }))
                     return cnt.Val
@@ -859,7 +864,7 @@ let tryArrayInline
                     do! Wasm.for_ (arrayLen src) (fun i ->
                             WExpr.Let(farg.Name, arrayGet src i inElemT, wasm {
                                 let! opt = wBody
-                                return! wasmWhen (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull opt, WType.I32))
+                                return! wasmWhen (refIsNotNull opt)
                                     (wasm {
                                         do! arraySet res wi.Val (structGet (cast opt optNonNull) 0 outElemT)
                                         return! wi.Set(add wi.Val (i32Const 1))

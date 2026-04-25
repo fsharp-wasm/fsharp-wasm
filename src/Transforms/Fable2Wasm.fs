@@ -2266,7 +2266,7 @@ and transformTest (ctx: Ctx) (expr: Fable.Expr) (kind: TestKind) : WExpr =
         | WType.Ref(_, _) ->
             if isSome then
                 // Some → not null: i32.eqz(ref.is_null(...))
-                WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull(wExpr), WType.I32)
+                refIsNotNull wExpr
             else
                 // None → null: ref.is_null(...) → i32
                 WExpr.RefIsNull(wExpr)
@@ -2281,7 +2281,7 @@ and transformTest (ctx: Ctx) (expr: Fable.Expr) (kind: TestKind) : WExpr =
         match exprWType wExpr with
         | WType.Ref(_, _) ->
             if isCons then
-                WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull(wExpr), WType.I32)
+                refIsNotNull wExpr
             else
                 WExpr.RefIsNull(wExpr)
         | _ ->
