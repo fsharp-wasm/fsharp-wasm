@@ -38,6 +38,28 @@ let freshName () =
     $"$w{n}"
 
 // ─────────────────────────────────────────────────────────────────
+// LabelGen — deterministic, debuggable label generation
+// ─────────────────────────────────────────────────────────────────
+
+/// Generates scoped, deterministic variable/label names.
+/// Each LabelGen instance has its own counter, so names won't clash
+/// between different combinator invocations.
+///
+/// Usage:
+///   let gen = LabelGen "fold"
+///   let cur = gen.Next "cur"   // "$fold_cur_1"
+///   let acc = gen.Next "acc"   // "$fold_acc_2"
+type LabelGen(prefix: string) =
+    // TODO: singleton per prefx?!
+    let mutable n = 0
+    member _.Next(tag: string) =
+        // TODO: thread-safe? atomic?!
+        // let n = System.Threading.Interlocked.Increment(nameCounter)
+        n <- n + 1
+        $"${prefix}_{tag}_{n}"
+    member _.Prefix = prefix
+
+// ─────────────────────────────────────────────────────────────────
 // WVar — typed mutable handles (moved here so WasmBuilder can reference it)
 // TODO: FIXME: doesn't belong here !
 // ─────────────────────────────────────────────────────────────────
@@ -116,7 +138,8 @@ let private _whileBangGuards = System.Collections.Generic.Stack<WExpr>()
 
 /// Construct a WASM while-loop: Block { Loop { If(guard, body+continue, break) } }
 let private makeWhileLoop (guard: WExpr) (body: WExpr) : WExpr =
-    let loopLbl = freshName ()
+    let gen     = LabelGen("while")
+    let loopLbl = gen.Next("lp")
     let exitLbl = loopLbl + "_exit"
     WExpr.Block(exitLbl,
         WExpr.Loop(loopLbl,
@@ -510,7 +533,8 @@ let loopWithResult (lbl: string) (ty: WType) (body: WExpr) (fallback: WExpr) : W
 ///   loopResult WType.I32 (i32Const -1) (fun brk ->
 ///       Wasm.when_ (cond) (brk foundValue))
 let loopResult (ty: WType) (fallback: WExpr) (body: (WExpr -> WExpr) -> WExpr) : WExpr =
-    let lbl     = freshName ()
+    let gen     = LabelGen("loop")
+    let lbl     = gen.Next("lp")
     let exitLbl = lbl + "_exit"
     let brk (v: WExpr) = WExpr.Break(exitLbl, Some v)
     WExpr.Block(exitLbl,
@@ -533,25 +557,6 @@ let countLoop (lbl: string) (n: WExpr) (body: WExpr -> WExpr) : WExpr =
                     body iGet
                     localSet iVar (add iGet (i32Const 1))
                 ])))
-
-// ─────────────────────────────────────────────────────────────────
-// LabelGen — deterministic, debuggable label generation
-// ─────────────────────────────────────────────────────────────────
-
-/// Generates scoped, deterministic variable/label names.
-/// Each LabelGen instance has its own counter, so names won't clash
-/// between different combinator invocations.
-///
-/// Usage:
-///   let gen = LabelGen "fold"
-///   let cur = gen.Next "cur"   // "$fold_cur_1"
-///   let acc = gen.Next "acc"   // "$fold_acc_2"
-type LabelGen(prefix: string) =
-    let mutable n = 0
-    member _.Next(tag: string) =
-        n <- n + 1
-        $"${prefix}_{tag}_{n}"
-    member _.Prefix = prefix
 
 // ─────────────────────────────────────────────────────────────────
 // Scoped variable helpers — letVal / letMut
@@ -661,8 +666,8 @@ module Wasm =
     /// Prefer `while! cond do ... ` inside `wasm { }` blocks.
     /// This helper remains for use in non-CE contexts or as callback bodies.
     let while_ (cond: WExpr) (body: WExpr) : WExpr =
-        let lbl = freshName ()
-        whileLoop lbl cond body
+        let gen = LabelGen("while")
+        whileLoop (gen.Next("lp")) cond body
 
     /// Conditional — executes body when cond is non-zero (void result).
     let when_ (cond: WExpr) (body: WExpr) : WExpr = wasmWhen cond body
@@ -670,8 +675,8 @@ module Wasm =
     /// Counter loop from 0 to n-1; body receives the current index.
     ///   Wasm.for_ n (fun i -> ...)
     let for_ (n: WExpr) (body: WExpr -> WExpr) : WExpr =
-        let lbl = freshName ()
-        countLoop lbl n body
+        let gen = LabelGen("for")
+        countLoop (gen.Next("lp")) n body
 
     /// Legacy LoopCtrl — kept for backward compat with existing callers of `Wasm.loop`.
     /// Loop-control handles passed to `Wasm.loop`.
@@ -690,7 +695,8 @@ module Wasm =
     ///       // ... body ...
     ///   })
     let loop (body: LoopCtrl -> WExpr) : WExpr =
-        let lbl     = freshName ()
+        let gen     = LabelGen("loop")
+        let lbl     = gen.Next("lp")
         let exitLbl = lbl + "_exit"
         let ctrl    = { Brk = WExpr.Break(exitLbl, None); Cont = WExpr.Continue(lbl, []) }
         WExpr.Block(exitLbl,
