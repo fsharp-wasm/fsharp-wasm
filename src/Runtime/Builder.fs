@@ -595,7 +595,9 @@ let makeNumericZero = function
     | WType.F32 -> f32Const 0.0f
     | WType.F64 -> f64Const 0.0
     | WType.Ref(idx, _) -> WExpr.Const(WConst.Null(WType.Ref(idx, true)))
-    | _ -> i32Const 0
+    | ty        -> failwithf "makeNumericZero: non-numeric type %A" ty
+    // TODO: better we raise a an error instead of an default
+    // | _ -> i32Const 0
 
 // ─────────────────────────────────────────────────────────────────
 // WVar factory helpers
