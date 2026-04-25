@@ -24,13 +24,6 @@ open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
 let private getArrElemT (ftyp: Fable.Type) =
     match ftyp with | Fable.Type.Array(t, _) -> Some t | _ -> None
 
-let private makeZero (elemT: WType) =
-    match elemT with
-    | WType.I64 -> WExpr.Const(WConst.I64 0L)
-    | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
-    | WType.F64 -> WExpr.Const(WConst.F64 0.0)
-    | _ -> WExpr.Const(WConst.I32 0)
-
 let tryArrayInline
         (transform: TransformFn)
         (ctx: Ctx)
@@ -54,7 +47,7 @@ let tryArrayInline
         | Some elemFableT, [wSize] ->
             let elemT = mapTypeKnown ctx elemFableT
             let arrTypeIdx = getOrAddArrayType ctx elemT
-            Some(arrayNew arrTypeIdx wSize (makeZero elemT) (WType.Ref(arrTypeIdx, false)))
+            Some(arrayNew arrTypeIdx wSize (makeNumericZero elemT) (WType.Ref(arrTypeIdx, false)))
         | _ -> None
     // Array.length
     | "length" ->
@@ -123,7 +116,7 @@ let tryArrayInline
                 let gen = LabelGen("acpy")
                 Some(wasm {
                     let! src = wSrc
-                    let! dst = arrayNew arrTypeIdx (arrayLen src) (makeZero elemT) arrRef
+                    let! dst = arrayNew arrTypeIdx (arrayLen src) (makeNumericZero elemT) arrRef
                     do! arrayCopy dst (i32Const 0) src (i32Const 0) (arrayLen src)
                     return dst
                 })
@@ -364,7 +357,7 @@ let tryArrayInline
             let ctx' = ctx.WithLocal(farg.Name, WType.I32)
             let wBody = transform ctx' fbody
             Some(wasm {
-                let! res = arrayNew resultArrIdx wLen (makeZero resultElemT) resultArrRefT
+                let! res = arrayNew resultArrIdx wLen (makeNumericZero resultElemT) resultArrRefT
                 do! Wasm.for_ (arrayLen res) (fun idx ->
                         WExpr.Let(farg.Name, idx,
                             arraySet res idx wBody))
@@ -409,7 +402,7 @@ let tryArrayInline
                 let a          = mkArrayShape elemT arrTypeIdx
                 let gen        = LabelGen("asum")
                 let wArr       = transform ctx arrArg
-                Some(arrayFold gen a wArr (makeZero elemT) elemT
+                Some(arrayFold gen a wArr (makeNumericZero elemT) elemT
                     (fun acc elem -> WExpr.Binary(WBinaryOp.Add, acc, elem, elemT)))
             | None -> None
         | None -> None
@@ -462,7 +455,7 @@ let tryArrayInline
                 Some(wasm {
                     let! src = wArr
                     let! len = arrayLen src
-                    let! res = arrayNew arrTypeIdx len (makeZero elemT) arrRefT
+                    let! res = arrayNew arrTypeIdx len (makeNumericZero elemT) arrRefT
                     do! Wasm.for_ len (fun i ->
                             arraySet res i (arrayGet src (sub (sub len (i32Const 1)) i) elemT))
                     return res
@@ -545,18 +538,11 @@ let tryArrayInline
                     let pairArrRefT = WType.Ref(pairArrIdx, false)
                     let wArr  = transform ctx arrArg
                     let gen = LabelGen("aunz")
-                    let makeZeroFor wt =
-                        match wt with
-                        | WType.I64 -> WExpr.Const(WConst.I64 0L)
-                        | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
-                        | WType.F64 -> WExpr.Const(WConst.F64 0.0)
-                        | WType.Ref(i, _) -> WExpr.Const(WConst.Null(WType.Ref(i, true)))
-                        | _ -> i32Const 0
                     Some(wasm {
                         let! src = wArr
                         let! n = arrayLen src
-                        let! aArr = arrayNew aArrIdx n (makeZeroFor aT) aArrRefT
-                        let! bArr = arrayNew bArrIdx n (makeZeroFor bT) bArrRefT
+                        let! aArr = arrayNew aArrIdx n (makeNumericZero aT) aArrRefT
+                        let! bArr = arrayNew bArrIdx n (makeNumericZero bT) bArrRefT
                         do! Wasm.for_ n (fun idx -> wasm {
                             let! p = arrayGet src idx pairT
                             do! arraySet aArr idx (structGet p 0 aT)
@@ -640,7 +626,7 @@ let tryArrayInline
         let (arrElemT, arrDefault) =
             match elemT with
             | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
-            | t -> t, makeZero t
+            | t -> t, makeNumericZero t
         let readElem arrExpr idxExpr =
             match elemT with
             | WType.Ref(idx, false) ->
@@ -691,7 +677,7 @@ let tryArrayInline
                 Some(wasm {
                     let! src = wArr
                     let! len = arrayLen src
-                    let! res = arrayNew arrTypeIdx len (makeZero elemT) arrRefT
+                    let! res = arrayNew arrTypeIdx len (makeNumericZero elemT) arrRefT
                     do! arrayCopy res (i32Const 0) src (i32Const 0) len
                     do! insertionSortInPlace gen res len elemT readElem writeElem cmpFn
                     return res
@@ -762,7 +748,7 @@ let tryArrayInline
                 let wBody = transform ctx' fbody
                 Some(wasm {
                     let! src = wArr
-                    let! res = arrayNew accArrIdx (add (arrayLen src) (i32Const 1)) (makeZero accT) accArrRefT
+                    let! res = arrayNew accArrIdx (add (arrayLen src) (i32Const 1)) (makeNumericZero accT) accArrRefT
                     let! acc = mutTy accT wInit
                     do! arraySet res (i32Const 0) acc.Val
                     do! arrayIteri gen srcA src (fun idx elem ->
@@ -812,7 +798,7 @@ let tryArrayInline
                     let! a1 = wArr1
                     let! a2 = wArr2
                     let! l1 = arrayLen a1
-                    let! res = arrayNew arrTypeIdx (add l1 (arrayLen a2)) (makeZero elemT) arrRefT
+                    let! res = arrayNew arrTypeIdx (add l1 (arrayLen a2)) (makeNumericZero elemT) arrRefT
                     do! arrayCopy res (i32Const 0) a1 (i32Const 0) l1
                     do! arrayCopy res l1 a2 (i32Const 0) (arrayLen a2)
                     return res
@@ -884,7 +870,7 @@ let tryArrayInline
             Some(wasm {
                 let! src = wArr
                 let! count = countExpr src
-                let! res = arrayNew outArrIdx count (makeZero outElemT) outArrRefT
+                let! res = arrayNew outArrIdx count (makeNumericZero outElemT) outArrRefT
                 return! fillExpr src res
             })
         | _ -> None
@@ -942,7 +928,7 @@ let tryArrayInline
         Some(wasm {
             let! src = wArr
             let! count = countExpr src
-            let! res = arrayNew outArrIdx count (makeZero outElemT) outArrRefT
+            let! res = arrayNew outArrIdx count (makeNumericZero outElemT) outArrRefT
             return! fillExpr src res
         })
     | _ -> None

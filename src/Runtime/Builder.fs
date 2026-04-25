@@ -587,13 +587,15 @@ let refIsNotNull (e: WExpr) = WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull e, WType
 let tryFirst (fns: (unit -> WExpr option) list) : WExpr option =
     fns |> List.tryPick (fun f -> f ())
 
-/// Helper zero-value for a numeric WType (used by buildListSort etc.)
+/// Helper zero-value for a WType (used by sort/rebuild helpers).
+/// Numeric types map to 0; reference types map to null (nullable ref).
 let makeNumericZero = function
     | WType.I32 -> i32Const 0
     | WType.I64 -> i64Const 0L
     | WType.F32 -> f32Const 0.0f
     | WType.F64 -> f64Const 0.0
-    | ty        -> failwithf "makeNumericZero: non-numeric type %A" ty
+    | WType.Ref(idx, _) -> WExpr.Const(WConst.Null(WType.Ref(idx, true)))
+    | _ -> i32Const 0
 
 // ─────────────────────────────────────────────────────────────────
 // WVar factory helpers

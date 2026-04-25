@@ -52,23 +52,13 @@ let private parseFormatString (fmt: string) : string list * char list =
             i <- i + 1
     parts.Add(sb.ToString())
     List.ofSeq parts, List.ofSeq specs
-
-/// Zero WExpr for WasmGC array element initialization.
-let private zeroForElem (elemT: WType) : WExpr =
-    match elemT with
-    | WType.I64            -> WExpr.Const(WConst.I64 0L)
-    | WType.F32            -> WExpr.Const(WConst.F32 0.0f)
-    | WType.F64            -> WExpr.Const(WConst.F64 0.0)
-    | WType.Ref(ti, _)     -> WExpr.Const(WConst.Null(WType.Ref(ti, true)))
-    | _                    -> WExpr.Const(WConst.I32 0)
-
 /// Inline grow-and-set for ResizeArray.push.
 /// wRav: the ResizeArray struct ref.  wVal: value to append.
 let private resizeArrayPushInline (ctx: Ctx) (elemT: WType) (arrTypeIdx: int) (ravTypeIdx: int)
                                    (wRav: WExpr) (wVal: WExpr) : WExpr =
     let arrRefT   = WType.Ref(arrTypeIdx, true)
     let arrNNRefT = WType.Ref(arrTypeIdx, false)
-    let zero      = zeroForElem elemT
+    let zero      = makeNumericZero elemT
     wasm {
         let! rav  = wRav
         let! len  = WExpr.StructGet(rav, 1, WType.I32)
@@ -1351,7 +1341,7 @@ and transformValue (ctx: Ctx) (kind: ValueKind) : WExpr =
     | NewArray(Fable.NewArrayKind.ArrayValues _, elemType, Fable.ArrayKind.ResizeArray) ->
         let elemT = mapTypeKnown ctx elemType
         let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemT
-        let zero = zeroForElem elemT
+        let zero = makeNumericZero elemT
         WExpr.StructNew(ravTypeIdx,
             [WExpr.ArrayNew(arrTypeIdx, WExpr.Const(WConst.I32 4), zero, WType.Ref(arrTypeIdx, false))
              WExpr.Const(WConst.I32 0)],

@@ -24,15 +24,6 @@ let private seqElemType (t: Fable.Type) : Fable.Type option =
     | Fable.Type.DeclaredType(_, [e]) -> Some e
     | _                               -> None
 
-/// Numeric zero for a WType, including ref types (null).
-let private makeNumericZero (elemT: WType) =
-    match elemT with
-    | WType.I64 -> WExpr.Const(WConst.I64 0L)
-    | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
-    | WType.F64 -> WExpr.Const(WConst.F64 0.0)
-    | WType.Ref(idx, _) -> WExpr.Const(WConst.Null(WType.Ref(idx, true)))
-    | _         -> WExpr.Const(WConst.I32 0)
-
 // ─────────────────────────────────────────────────────────────────
 // fold / reduce
 // ─────────────────────────────────────────────────────────────────
