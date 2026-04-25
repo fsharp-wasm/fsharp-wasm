@@ -117,7 +117,33 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             match Map.tryFind ident.Name ctx.Locals with
             | Some knownTy -> knownTy
             | None -> mapTypeKnown ctx ident.Type
-        WExpr.LocalGet(ident.Name, ty)
+
+        match Map.tryFind ident.Name ctx.Locals with
+        | Some _ ->
+            // Genuine local variable — emit LocalGet.
+            WExpr.LocalGet(ident.Name, ty)
+        | None ->
+            // Not a local. Check if it's a known (module-level) function.
+            let actualName =
+                ctx.FuncNameAlias
+                |> Map.tryFind ident.Name
+                |> Option.defaultValue ident.Name
+            match Map.tryFind actualName ctx.KnownFuncs with
+            | Some([], retTy) when retTy <> WType.Void ->
+                // Zero-argument function (module-level value / builder instance).
+                // Emit as a direct call: `div ()` → WExpr.Call("div", [], retTy).
+                WExpr.Call(actualName, [], retTy)
+            | Some([], WType.Void) ->
+                // Zero-arg void function used as a value — shouldn't happen, but guard.
+                WExpr.Call(actualName, [], WType.Void)
+            | Some _ ->
+                // Non-zero-arg function referenced as a value — this is a partial application
+                // or a higher-order reference. Build a closure for it.
+                // (This case rarely hits here; most partial apps go through CurriedApply.)
+                WExpr.LocalGet(ident.Name, ty)  // let existing buildClosure path handle it
+            | None ->
+                // Unknown identifier — fall back to LocalGet (emits a warning via validator).
+                WExpr.LocalGet(ident.Name, ty)
 
     // ── Let bindings ──────────────────────────────────────
     | Fable.Expr.Let(ident, value, body) ->
@@ -738,6 +764,7 @@ and buildLetRecLambdas (ctx: Ctx) (bindings: (Fable.AST.Fable.Ident * Fable.AST.
             collectFreeVars bound lbody |> Set.toList)
         |> List.distinct
         |> List.filter (fun name -> Map.containsKey name ctx.Locals)
+        // TODO: check if we have to filter like in buildClosure
 
     let commonCaptures =
         allFreeVarNames
@@ -1006,7 +1033,14 @@ and buildClosure (ctx: Ctx) (args: Ident list) (body: Fable.Expr) (maybeName: st
     let allFreeVarNames = collectFreeVars argNames body |> Set.toList
     let freeVarNames =
         allFreeVarNames
-        |> List.filter (fun name -> Map.containsKey name ctx.Locals)
+        |> List.filter (fun name -> 
+            Map.containsKey name ctx.Locals &&
+            // Don't capture module-level functions — they become direct calls.
+            let q = ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
+            match Map.tryFind q ctx.KnownFuncs with
+            | Some([], _) -> false   // zero-arg = module value, will be emitted as Call
+            | _ -> true
+            )
 
     // Build capture list: (name, WType)
     let captures =

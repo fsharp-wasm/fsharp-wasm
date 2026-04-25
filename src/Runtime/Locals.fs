@@ -267,7 +267,9 @@ let resolveLocals (func: WFuncDecl) : WFuncDecl =
         |> List.filter (fun (name, _) ->
             not (Set.contains name paramNames) &&
             not (Set.contains name declaredNames) &&
-            not (name.StartsWith("$")))  // Skip special compiler temporaries
+            // Only skip truly internal compiler temporaries, not user variables
+            // not (name.StartsWith("$")))  // Skip special compiler temporaries
+            not (name = "$clo_apply_tmp" || name = "$switch_tmp" || name = "$fsharp_exn_carrier"))
         |> List.distinctBy fst
     
     let allLocals = declaredLocals @ additionalLocals

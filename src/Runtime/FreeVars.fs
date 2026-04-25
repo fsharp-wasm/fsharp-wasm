@@ -14,6 +14,10 @@ open Fable.AST.Fable
 let rec collectFreeVars (bound: Set<string>) (expr: Fable.Expr) : Set<string> =
     match expr with
     | Fable.Expr.IdentExpr ident ->
+        // Only treat as free var if:
+        // 1. Not bound in this scope
+        // 2. Not a known module-level function (those become direct calls)
+        // 3. Not a Fable built-in
         if Set.contains ident.Name bound then Set.empty
         else Set.singleton ident.Name
     | Fable.Expr.Let(ident, value, body) ->
