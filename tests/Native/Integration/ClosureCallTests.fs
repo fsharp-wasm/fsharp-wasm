@@ -7,7 +7,7 @@ module Tests.Integration.ClosureCallTests
 open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
-// open Tests.WasmTestHelpers
+open Tests.WasmTestHelpers
 
 [<Tests>]
 let closureCallTests = testList "Closure call lifecycle" [

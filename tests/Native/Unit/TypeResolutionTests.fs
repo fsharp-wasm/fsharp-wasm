@@ -8,7 +8,7 @@ open Expecto
 open Fable.AST.Fable
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
-// open Tests.WasmTestHelpers
+open Tests.WasmTestHelpers
 
 [<Tests>]
 let typeResolutionTests = testList "mapTypeKnown" [

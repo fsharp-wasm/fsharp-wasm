@@ -12,4 +12,6 @@
     <Build Solution="Release|*" Project="false" />
   </Project>
   -->
+
+  <Project Path="tests/Native/TestNative.fsproj" />
 </Solution>

@@ -87,6 +87,7 @@
     <Compile Include="Transforms/ListOps.fs" />
     <Compile Include="Transforms/ArrayReplacements.fs" />
     <Compile Include="Transforms/MathMap.fs" />
+    <Compile Include="Transforms/FSharpCoreReplacements.fs" />
 
     <Compile Include="Pipeline/Validator.fs" />
 

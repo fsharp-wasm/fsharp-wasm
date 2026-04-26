@@ -1922,6 +1922,29 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
             let innerWType = exprWType initVal
             let refTypeIdx = getOrAddRefCellType ctx innerWType
             WExpr.StructNew(refTypeIdx, [initVal], WType.Ref(refTypeIdx, false))
+        // ── Unchecked.defaultof<'T> — zero-like value for type T ──────────────────────
+        | "defaultOf", [], _ ->
+            match ty with
+            | WType.Ref(_, _) -> WExpr.Const(WConst.Null ty)
+            | WType.I32 -> WExpr.Const(WConst.I32 0)
+            | WType.I64 -> WExpr.Const(WConst.I64 0L)
+            | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
+            | WType.F64 -> WExpr.Const(WConst.F64 0.0)
+            | _ -> WExpr.Nop
+        // ── IDisposable.Dispose → no-op (for now) ───────────────────────────────────────
+        | "disposeSafe", [_obj], _ ->
+            WExpr.Nop
+        // ── Seq.empty → null list ────────────────────────────────────────────────────────
+        | "empty", [], _ ->
+            WExpr.Const(WConst.Null ty)
+        // ── Seq.singleton(x) → single-element list Cons(x, null) ──────────────────────────
+        | "singleton", [elem], _ ->
+            // TODO: Implement via ctx.ListRegistry like ListOps.fs does
+            // For now: stub with Nop to unblock wasmecto
+            WExpr.Nop
+        // ── Object.GetHashCode stub → identityHash (return 0) ────────────────────────────
+        | "identityHash", [_obj], WType.I32 ->
+            WExpr.Const(WConst.I32 0)
         // ── toConsole (printfn final stage): calls $consolePrint(str) ─────────────
         // Emits a call to the JS-imported $consolePrint function.
         // String.toConsole is called with the final formatted string.
@@ -2022,8 +2045,12 @@ and transformCall (ctx: Ctx) (callee: Fable.Expr) (info: CallInfo) (typ: Fable.T
                 let callName = ctx.RegisterExternFunc(path, selector, paramTypes, ty)
                 WExpr.Call(callName, wArgs, ty)
             else
-                eprintfn "[WasmGc] WARNING: unhandled import call '%s' from '%s' — emitting Nop" selector path
-                WExpr.Nop
+                // Try stdlib import replacements before giving up
+                match FSharpCoreReplacements.tryHandleStdlibImport ctx selector wArgs ty with
+                | Some result -> result
+                | None ->
+                    eprintfn "[WasmGc] WARNING: unhandled import call '%s' from '%s' — emitting Nop" selector path
+                    WExpr.Nop
     // ── Numeric .toString() — for string(n), n.ToString(), sprintf, etc. ────
     | Fable.Expr.Get(numExpr, GetKind.FieldGet fi, _, _)
         when fi.Name = "toString"
