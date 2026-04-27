@@ -8,7 +8,8 @@ open Expecto
 open Fable.AST.Fable
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
-// open Tests.WasmTestHelpers
+
+open Tests.WasmTestHelpers
 
 // Helper: build Fable AST for List.map (fun x -> x + 1) myList
 let private buildListMapAst () =

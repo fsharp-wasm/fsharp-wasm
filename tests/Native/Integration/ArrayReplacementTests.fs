@@ -6,6 +6,7 @@ module Tests.Integration.ArrayReplacementTests
 open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
+
 open Tests.WasmTestHelpers
 
 [<Tests>]

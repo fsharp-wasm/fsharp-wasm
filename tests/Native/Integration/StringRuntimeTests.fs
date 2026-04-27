@@ -8,7 +8,8 @@ open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
 open Fable.Transforms.WasmGc.Locals
-// open Tests.WasmTestHelpers
+
+open Tests.WasmTestHelpers
 
 [<Tests>]
 let stringRuntimeTests = testList "String runtime helpers" [

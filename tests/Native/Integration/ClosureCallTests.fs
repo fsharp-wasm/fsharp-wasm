@@ -7,6 +7,7 @@ module Tests.Integration.ClosureCallTests
 open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
+
 open Tests.WasmTestHelpers
 
 [<Tests>]

@@ -7,7 +7,8 @@ module Tests.Unit.IdentExprTests
 open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
-// open Tests.WasmTestHelpers
+
+open Tests.WasmTestHelpers
 
 let private mkIdent name ty : Fable.Expr =
     Fable.Expr.IdentExpr {

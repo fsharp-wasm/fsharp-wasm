@@ -7,7 +7,8 @@ module Tests.Integration.ElmishTests
 open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
-// open Tests.WasmTestHelpers
+
+open Tests.WasmTestHelpers
 
 [<Tests>]
 let elmishTests = testList "Elmish dispatch" [

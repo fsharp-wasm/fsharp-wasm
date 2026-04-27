@@ -7,7 +7,8 @@ module Tests.Unit.CaptureTests
 open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
-// open Tests.WasmTestHelpers
+
+open Tests.WasmTestHelpers
 
 [<Tests>]
 let captureTests = testList "Free variable capture" [
