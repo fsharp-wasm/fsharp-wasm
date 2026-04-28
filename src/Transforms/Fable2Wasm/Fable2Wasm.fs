@@ -6,12 +6,11 @@ open Fable.AST.Wasm
 open WasmGc.Runtime.Types
 module RT = WasmGc.Runtime.Runtime
 
-// Imports unserer neuen Module
 open TransformConstruct
 open TransformClosures
 open TransformDispatch
 
-// Die eval-Funktion wird rekursiv aufgerufen, aber in Module injiziert.
+// the eval-Function get's called recursivly, but injected into module
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     match expr with
     // ── Constants ──
@@ -41,7 +40,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         else WExpr.Let(ident.Name, wValue, wBody)
 
     | LetRec(bindings, body) ->
-        // Delegation an TransformClosures
+        // Delegation to TransformClosures
         buildLetRecLambdas ctx transformExpr bindings body
 
     // ── Sequential ──
@@ -63,12 +62,12 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
 
     // ── Function calls ──
     | Call(callee, info, typ, _) ->
-        // Delegation an TransformDispatch
+        // Delegation to TransformDispatch
         transformCall ctx transformExpr callee info typ
 
     // ── Lambda ──
     | Lambda(arg, body, name) ->
-        // Delegation an TransformClosures
+        // Delegation to TransformClosures
         buildClosure ctx transformExpr [arg] body name
         
     | Delegate(args, body, name, _) ->

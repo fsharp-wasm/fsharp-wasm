@@ -35,7 +35,7 @@ let private nameCounter = ref 0
 
 /// Generate a unique local-variable name guaranteed not to clash with
 /// user-level names (which start with letters, not '$w').
-let freshName () =
+let freshName () = // TODO: use LabelGen
     let n = System.Threading.Interlocked.Increment(nameCounter)
     $"$w{n}"
 
