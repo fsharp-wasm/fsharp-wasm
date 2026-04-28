@@ -6,8 +6,8 @@ module Tests.Unit.LocalsCollectionTests
 
 open Expecto
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Builder
-open Fable.Transforms.WasmGc.Locals
+open WasmGc.Builder
+open WasmGc.Runtime.Locals
 
 [<Tests>]
 let localsCollectionTests = testList "collectLocals" [

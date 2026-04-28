@@ -1,8 +1,8 @@
-module Fable.Transforms.WasmGc.Runtime.ListShape
+module WasmGc.Runtime.ListShape
 
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Builder
+open WasmGc.Runtime.Types
+open WasmGc.Builder
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ListShape — captures all per-element-type list information once

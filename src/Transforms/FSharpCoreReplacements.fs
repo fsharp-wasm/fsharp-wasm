@@ -10,14 +10,14 @@
 ///   - `singleton(x)`     → Seq.singleton → single-element list
 ///   - `empty`            → Seq.empty → null list
 ///   - `identityHash(x)`  → GetHashCode stub (return 0 for now)
-module Fable.Transforms.WasmGc.Transforms.FSharpCoreReplacements
+module WasmGc.Transforms.FSharpCoreReplacements
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Builder
+open WasmGc.Runtime.Types
+open WasmGc.Builder
 
 // ─────────────────────────────────────────────────────────────────
 // Unchecked.defaultof<'T> → zero-like value for type T

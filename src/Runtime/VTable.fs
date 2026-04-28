@@ -15,10 +15,10 @@
 ///
 ///   CallVirtual(box, boxTypeIdx, vtableTypeIdx, methodIdx, funcTypeIdx, args, retTy)
 ///     → vtable dispatch using struct.get + call_ref
-module Fable.Transforms.WasmGc.Runtime.VTable
+module WasmGc.Runtime.VTable
 
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
+open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // Interface registration

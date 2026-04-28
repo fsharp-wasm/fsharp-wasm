@@ -1,10 +1,10 @@
-module Fable.Transforms.WasmGc.Transforms.TransformDispatch
+module WasmGc.Transforms.TransformDispatch
 
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-module RT = Fable.Transforms.WasmGc.Runtime.Runtime
-module VT = Fable.Transforms.WasmGc.Runtime.VTable
+open WasmGc.Runtime.Types
+module RT = WasmGc.Runtime.Runtime
+module VT = WasmGc.Runtime.VTable
 
 /// Demand-driven generic specialization (aus Zeile 775)
 let trySpecializeCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (funcName: string) (info: CallInfo) (resultFableType: Type) : WExpr option =

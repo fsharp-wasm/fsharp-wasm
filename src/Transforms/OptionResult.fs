@@ -7,15 +7,15 @@
 ///
 /// Compared to the old code (one explicit let-binding + two LocalGet refs
 /// per combinator):  -40 % lines, zero magic string variable names.
-module Fable.Transforms.WasmGc.Transforms.OptionResult
+module WasmGc.Transforms.OptionResult
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Builder
-open Fable.Transforms.WasmGc.Runtime.Runtime
+open WasmGc.Runtime.Types
+open WasmGc.Builder
+open WasmGc.Runtime.Runtime
 
 // ─────────────────────────────────────────────────────────────────
 // Private helpers — Option encoding

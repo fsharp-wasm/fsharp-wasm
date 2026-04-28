@@ -2,7 +2,7 @@
 /// Mirrors the pattern of Fable's built-in language backends.
 /// Call compileFile from any host that has a Fable.Compiler instance
 /// (e.g. a custom CLI, a dotnet tool wrapping Fable.Compiler.CodeServices).
-module Fable.Transforms.WasmGc.Pipeline
+module WasmGc.Pipeline
 
 open System.Collections.Concurrent
 open Fable
@@ -10,13 +10,13 @@ open Fable.AST
 open Fable.Transforms
 open Fable.AST.Wasm
 
-module T = Fable.Transforms.WasmGc.Runtime.Types
-module Lowering = Fable.Transforms.WasmGc.Transforms.Fable2Wasm
-module Opt = Fable.Transforms.WasmGc.Emit.Optimize
-module L = Fable.Transforms.WasmGc.Runtime.Locals
-module W = Fable.Transforms.WasmGc.Emit.Wat
-module E = Fable.Transforms.WasmGc.Emit.Emit
-module Bin = Fable.Transforms.WasmGc.Emit.Encoder
+module T = WasmGc.Runtime.Types
+module Lowering = WasmGc.Transforms.Fable2Wasm
+module Opt = WasmGc.Emit.Optimize
+module L = WasmGc.Runtime.Locals
+module W = WasmGc.Emit.Wat
+module E = WasmGc.Emit.Emit
+module Bin = WasmGc.Emit.Encoder
 
 // Per-project shared Ctx accumulated across source files.
 // Keyed by project file path; cleared when the last file has been processed.

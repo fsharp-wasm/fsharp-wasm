@@ -1,6 +1,6 @@
 /// Free variable analysis for lambda body capture computation.
 /// Extracted from Fable2Wasm.fs — purely functional, no WExpr dependency.
-module Fable.Transforms.WasmGc.Runtime.FreeVars
+module WasmGc.Runtime.FreeVars
 
 open Fable.AST
 open Fable.AST.Fable

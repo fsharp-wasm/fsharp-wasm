@@ -1,28 +1,28 @@
 /// Fable AST → WasmGc IR translation.
 /// Phase 1: Handles minimal Fable AST cases for integers, floats,
 /// let bindings, arithmetic, functions, and control flow.
-module Fable.Transforms.WasmGc.Transforms.Fable2Wasm
+module WasmGc.Transforms.Fable2Wasm
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Runtime.FreeVars
-open Fable.Transforms.WasmGc.Runtime.LoopHelpers
-open Fable.Transforms.WasmGc.Builder
-open Fable.Transforms.WasmGc.Runtime.Runtime
-open Fable.Transforms.WasmGc.Runtime.Locals
-open Fable.Transforms.WasmGc.Runtime.Equality
-module RT = Fable.Transforms.WasmGc.Runtime.Runtime
-module VT = Fable.Transforms.WasmGc.Runtime.VTable
-module Lc = Fable.Transforms.WasmGc.Runtime.Locals
-module Val = Fable.Transforms.WasmGc.PipelineValidator
-open Fable.Transforms.WasmGc.Transforms.OptionResult
-open Fable.Transforms.WasmGc.Transforms.ListCombinators
-open Fable.Transforms.WasmGc.Transforms.ListOps
-open Fable.Transforms.WasmGc.Transforms.ArrayReplacements
-open Fable.Transforms.WasmGc.Transforms.MathMap
+open WasmGc.Runtime.Types
+open WasmGc.Runtime.FreeVars
+open WasmGc.Runtime.LoopHelpers
+open WasmGc.Builder
+open WasmGc.Runtime.Runtime
+open WasmGc.Runtime.Locals
+open WasmGc.Runtime.Equality
+module RT = WasmGc.Runtime.Runtime
+module VT = WasmGc.Runtime.VTable
+module Lc = WasmGc.Runtime.Locals
+module Val = WasmGc.PipelineValidator
+open WasmGc.Transforms.OptionResult
+open WasmGc.Transforms.ListCombinators
+open WasmGc.Transforms.ListOps
+open WasmGc.Transforms.ArrayReplacements
+open WasmGc.Transforms.MathMap
 
 /// Parse a printf-style format string into prefix parts and specifier chars.
 /// e.g. "Hello %s, you are %d!" → (["Hello "; ", you are "; "!"], ['s'; 'd'])

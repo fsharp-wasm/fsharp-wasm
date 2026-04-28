@@ -1,10 +1,10 @@
-module Fable.Transforms.WasmGc.Transforms.Fable2Wasm
+module WasmGc.Transforms.Fable2Wasm
 
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-module RT = Fable.Transforms.WasmGc.Runtime.Runtime
+open WasmGc.Runtime.Types
+module RT = WasmGc.Runtime.Runtime
 
 // Imports unserer neuen Module
 open TransformConstruct

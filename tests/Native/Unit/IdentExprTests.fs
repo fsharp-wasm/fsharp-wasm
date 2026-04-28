@@ -6,7 +6,7 @@ module Tests.Unit.IdentExprTests
 
 open Expecto
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc
+open WasmGc
 
 open Tests.WasmTestHelpers
 

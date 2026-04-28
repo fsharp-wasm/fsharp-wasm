@@ -16,7 +16,7 @@
     <Nullable>enable</Nullable>
     <OtherFlags>$(OtherFlags) --nowarn:3536 --nowarn:3261</OtherFlags>
     <DebugType>embedded</DebugType>
-    <RootNamespace>Fable.Transforms.WasmGc</RootNamespace>
+    <RootNamespace>WasmGc</RootNamespace>
     <Authors>fsharp-wasm contributors</Authors>
     <Description>WasmGC backend for the Fable F# compiler.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

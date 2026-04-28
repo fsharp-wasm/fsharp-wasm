@@ -1,20 +1,20 @@
 /// WasmGC inline replacements for List operations: sort, take, skip, partition,
 /// primitives (head, tail, length, rev, append, nth, isEmpty, ofArray, toArray),
 /// tryHead, tryFind, tryFindIndex, findIndex, and List.range.
-module Fable.Transforms.WasmGc.Transforms.ListOps
+module WasmGc.Transforms.ListOps
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Builder
-open Fable.Transforms.WasmGc.Runtime.Runtime
-open Fable.Transforms.WasmGc.Runtime.LoopHelpers
+open WasmGc.Runtime.Types
+open WasmGc.Builder
+open WasmGc.Runtime.Runtime
+open WasmGc.Runtime.LoopHelpers
 
-open Fable.Transforms.WasmGc.Runtime.ListShape
-open Fable.Transforms.WasmGc.Runtime.ListOps
-open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
+open WasmGc.Runtime.ListShape
+open WasmGc.Runtime.ListOps
+open WasmGc.Runtime.LoopPrimitives
 
 let tryListTakeSkipSortInline
         (transform: TransformFn)

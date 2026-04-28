@@ -1,10 +1,10 @@
 /// WasmGc Emit: Lower WExpr (high-level IR) → Instr list (flat WASM instructions).
 /// This phase resolves names to indices, lowers control flow, and produces
 /// a WasmModule ready for binary encoding.
-module Fable.Transforms.WasmGc.Emit.Emit
+module WasmGc.Emit.Emit
 
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
+open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // Emitter Context — tracks index assignments

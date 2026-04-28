@@ -1,6 +1,6 @@
 /// WasmGC context, type mapping, and exprWType utilities.
 /// Extracted from Fable2Wasm.fs to keep concerns separated.
-module Fable.Transforms.WasmGc.Runtime.Types
+module WasmGc.Runtime.Types
 
 open Fable
 open Fable.AST

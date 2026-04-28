@@ -1,11 +1,11 @@
-module Fable.Transforms.WasmGc.Transforms.TransformClosures
+module WasmGc.Transforms.TransformClosures
 
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Runtime.FreeVars
-module Lc = Fable.Transforms.WasmGc.Runtime.Locals
+open WasmGc.Runtime.Types
+open WasmGc.Runtime.FreeVars
+module Lc = WasmGc.Runtime.Locals
 
 let rec buildClosure (ctx: Ctx) (eval: Ctx -> Fable.Expr -> WExpr) (args: Ident list) (body: Fable.Expr) (maybeName: string option) : WExpr =
     let baseName = defaultArg maybeName "$closure"

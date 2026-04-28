@@ -2,10 +2,10 @@
 /// Extracted from Runtime.fs — the infrastructure every helper needs.
 /// Kept lean so emitters (Emit, Wat) can open this without pulling in
 /// all the BCL string/char helpers.
-module Fable.Transforms.WasmGc.Runtime.Locals
+module WasmGc.Runtime.Locals
 
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
+open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // Local variable collection

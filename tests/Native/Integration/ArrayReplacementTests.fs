@@ -9,8 +9,8 @@ open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
 // open Fable.Transforms.WasmGc
-open Fable.Transforms.WasmGc.Transforms
-open Fable.Transforms.WasmGc.Transforms.ArrayReplacements
+open WasmGc.Transforms
+open WasmGc.Transforms.ArrayReplacements
 
 open Tests.WasmTestHelpers
 

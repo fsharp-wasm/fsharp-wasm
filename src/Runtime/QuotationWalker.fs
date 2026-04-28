@@ -14,7 +14,7 @@
 ///   • Supported: let/let mutable, while, if-then-else, arithmetic, comparisons,
 ///     array indexing, Array.zeroCreate, explicit WasmIntrinsic calls.
 ///   • Not supported (clear error message): tuples, object expressions, match.
-module Fable.Transforms.WasmGc.Runtime.QuotationWalker
+module WasmGc.Runtime.QuotationWalker
 
 open Microsoft.FSharp.Quotations
 open Microsoft.FSharp.Quotations.Patterns
@@ -23,8 +23,8 @@ open System
 open System.Reflection
 
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Builder
+open WasmGc.Runtime.Types
+open WasmGc.Builder
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Intrinsic attribute

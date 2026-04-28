@@ -1,11 +1,11 @@
 /// Type-resolution helpers for list and seq shapes used by replacement routing.
 /// Note: loop-shape builders were removed; loop construction lives in Runtime.Builder / CE while!.
-module Fable.Transforms.WasmGc.Runtime.LoopHelpers
+module WasmGc.Runtime.LoopHelpers
 
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
+open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // List type info helpers

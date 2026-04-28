@@ -8,7 +8,7 @@ open Expecto
 open Fable
 open Fable.AST
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
+open WasmGc.Runtime.Types
 
 let mockEntity (fullName: string) =
     { new Fable.AST.Fable.Entity with
@@ -214,7 +214,7 @@ let makeCtxFull
 // WExpr builders (convenience for test setup)
 // ─────────────────────────────────────────────────────────────────
 
-open Fable.Transforms.WasmGc.Builder
+open WasmGc.Builder
 
 let inline i32Const  n    = WExpr.Const(WConst.I32 n)
 let inline i64Const  n    = WExpr.Const(WConst.I64 n)

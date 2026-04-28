@@ -1,13 +1,13 @@
 /// String and char runtime helpers for WasmGC.
 /// Local variable collection lives in Locals.fs.
 /// Structural equality lives in WasmGcEquality.fs.
-module Fable.Transforms.WasmGc.Runtime.Runtime
+module WasmGc.Runtime.Runtime
 
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Builder
-open Fable.Transforms.WasmGc.Runtime.Locals
-open Fable.Transforms.WasmGc.Runtime.QuotationWalker
+open WasmGc.Runtime.Types
+open WasmGc.Builder
+open WasmGc.Runtime.Locals
+open WasmGc.Runtime.QuotationWalker
 
 // ─────────────────────────────────────────────────────────────────
 // Quotation walker helpers — shared by all Tier 1 string/char helpers

@@ -5,10 +5,10 @@
 ///
 /// Insert into buildWModule after fixClosureApply:
 ///   Validator.validate true ctx.TypeDefs fixedFunctions
-module Fable.Transforms.WasmGc.PipelineValidator
+module WasmGc.PipelineValidator
 
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
+open WasmGc.Runtime.Types
 
 // let _ = printfn "Validator loaded from %s" dllPath
 // ─────────────────────────────────────────────────────────────────

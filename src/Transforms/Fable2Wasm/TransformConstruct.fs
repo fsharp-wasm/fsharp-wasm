@@ -1,10 +1,10 @@
-module Fable.Transforms.WasmGc.Transforms.TransformConstruct
+module WasmGc.Transforms.TransformConstruct
 
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Builder
+open WasmGc.Runtime.Types
+open WasmGc.Builder
 
 /// Baut eine If-Then-Else Wasm-Expression
 let buildIf (wGuard: WExpr) (wThen: WExpr) (wElse: WExpr) (ty: WType) =

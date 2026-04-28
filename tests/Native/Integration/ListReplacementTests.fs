@@ -8,7 +8,7 @@ open Expecto
 open Fable
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc
+open WasmGc
 
 open Tests.WasmTestHelpers
 

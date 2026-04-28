@@ -6,7 +6,7 @@
 ///
 /// Output style: unfolded instruction-per-line format (valid WAT, easy to generate,
 /// easy to validate with wasm-tools / wat2wasm).
-module Fable.Transforms.WasmGc.Emit.Wat
+module WasmGc.Emit.Wat
 
 open System.Text
 open Fable.AST.Wasm

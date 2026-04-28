@@ -6,7 +6,7 @@ module Tests.Unit.CEBuilderTests
 
 open Expecto
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Builder
+open WasmGc.Builder
 
 [<Tests>]
 let ceBuilderTests = testList "wasm {} CE builder" [

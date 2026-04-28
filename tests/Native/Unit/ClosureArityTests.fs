@@ -6,7 +6,7 @@ module Tests.Unit.ClosureArityTests
 
 open Expecto
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Builder
+open WasmGc.Builder
 
 open Tests.WasmTestHelpers
 

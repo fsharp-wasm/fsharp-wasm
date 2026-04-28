@@ -1,20 +1,19 @@
 /// WasmGC inline replacements for List higher-order functions.
 /// Uses high-level combinators from WasmGcLoopCombinators for clean, composable code.
-module Fable.Transforms.WasmGc.Transforms.ListCombinators
+module WasmGc.Transforms.ListCombinators
 
 open Fable
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Builder
-open Fable.Transforms.WasmGc.Runtime.Runtime
-open Fable.Transforms.WasmGc.Runtime.LoopHelpers
-open Fable.Transforms.WasmGc.Runtime.Equality
-
-open Fable.Transforms.WasmGc.Runtime.ListShape
-open Fable.Transforms.WasmGc.Runtime.LoopPrimitives
-open Fable.Transforms.WasmGc.Runtime.ListOps
+open WasmGc.Runtime.Types
+open WasmGc.Builder
+open WasmGc.Runtime.Runtime
+open WasmGc.Runtime.LoopHelpers
+open WasmGc.Runtime.Equality
+open WasmGc.Runtime.ListShape
+open WasmGc.Runtime.LoopPrimitives
+open WasmGc.Runtime.ListOps
 
 
 /// Extract only the element Fable.Type shape for list-like sequence signatures:

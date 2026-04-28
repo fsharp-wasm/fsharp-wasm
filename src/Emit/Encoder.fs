@@ -1,7 +1,7 @@
 /// WasmGc Binary Encoder: WasmModule → byte array (.wasm binary format).
 /// Encodes all WASM sections following the spec: magic, version, type section,
 /// function section, export section, code section, etc.
-module Fable.Transforms.WasmGc.Emit.Encoder
+module WasmGc.Emit.Encoder
 
 open Fable.AST.Wasm
 
