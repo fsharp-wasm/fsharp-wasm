@@ -5,6 +5,7 @@
 module Tests.Unit.CaptureTests
 
 open Expecto
+open Fable.AST
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
 

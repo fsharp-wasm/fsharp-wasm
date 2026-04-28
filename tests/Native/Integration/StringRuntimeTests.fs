@@ -8,6 +8,7 @@ open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
 open Fable.Transforms.WasmGc.Locals
+open Fable.Transforms.WasmGc.Runtime.Runtime
 
 open Tests.WasmTestHelpers
 

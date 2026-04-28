@@ -5,8 +5,12 @@
 module Tests.Integration.ClosureCallTests
 
 open Expecto
+open Fable.AST
+open Fable.AST.Fable
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
+
+// open Fable.Transforms.WasmGc.Transforms.Fable2Wasm
 
 open Tests.WasmTestHelpers
 
@@ -16,8 +20,17 @@ let closureCallTests = testList "Closure call lifecycle" [
     test "zero-arg closure: fun () -> 42 has correct functype" {
         let ctx = makeTestCtx()
         let lambda = Fable.Expr.Lambda(
-            { Name = "_"; Type = Fable.Type.Unit; Range = None; IsMutable = false },
-            Fable.Expr.Value(Fable.NumberConstant(42.0, Fable.Int32, Fable.NumberInfo.Empty), None),
+            FableAst.mkParam "_" Fable.Type.Unit
+            // { Name = "_";
+            //   Type = Fable.Type.Unit;
+            //   Range = None;
+            //   IsMutable = false
+            //   IsThisArgument
+            //   }
+            ,
+            Fable.Expr.Value(
+              Fable.NumberConstant(Fable.Int32 42, Fable.NumberInfo.Empty),
+              None),
             None)
         let result = Fable2WasmGc.transformExpr ctx lambda
         // The closure should have functype (self) → i32 (1 param: self only)
@@ -33,7 +46,8 @@ let closureCallTests = testList "Closure call lifecycle" [
 
     test "one-arg i32 closure: fun x -> x + 1 has functype (self, i32) → i32" {
         let ctx = makeTestCtx()
-        let xIdent = { Fable.Name = "x"; Fable.Type = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false }
+        // let xIdent = { Fable.Name = "x"; Fable.Type = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false }
+        let xIdent = mkParam "x" (Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty))
         let lambda = Fable.Expr.Lambda(
             xIdent,
             Fable.Expr.Operation(

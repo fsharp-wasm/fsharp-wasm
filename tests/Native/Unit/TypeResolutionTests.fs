@@ -7,7 +7,8 @@ module Tests.Unit.TypeResolutionTests
 open Expecto
 open Fable.AST.Fable
 open Fable.AST.Wasm
-open Fable.Transforms.WasmGc
+// open Fable.Transforms.WasmGc
+open Fable.Transforms.WasmGc.Runtime.Types
 open Tests.WasmTestHelpers
 
 [<Tests>]

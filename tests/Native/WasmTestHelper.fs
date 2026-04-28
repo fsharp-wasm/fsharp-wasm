@@ -4,27 +4,134 @@
 module Tests.WasmTestHelpers
 
 open System
+open Expecto
+open Fable
 open Fable.AST
 open Fable.AST.Wasm
-
 open Fable.Transforms.WasmGc.Runtime.Types
+
+let mockEntity (fullName: string) =
+    { new Fable.AST.Fable.Entity with
+        member _.Ref = { FullName = fullName; Path = Fable.AST.Fable.SourcePath "" }
+        member _.FullName = fullName
+        member _.DisplayName = fullName
+        member _.CompiledName = fullName
+        member _.Attributes = Seq.empty
+        member _.MembersFunctionsAndValues = Seq.empty
+        member _.AllInterfaces = Seq.empty
+        member _.DeclaredInterfaces = Seq.empty
+        member _.FSharpFields = []
+        member _.UnionCases = []
+        member _.GenericParameters = []
+        member _.BaseType = None
+        member _.DeclaringEntity = None
+        member _.TryFindMember(_) = None
+        member _.IsPublic = true
+        member _.IsPrivate = false
+        member _.IsInternal = false
+        member _.IsNamespace = false
+        member _.IsFSharpModule = false
+        member _.IsFSharpUnion = false
+        member _.IsFSharpRecord = false
+        member _.IsFSharpAbbreviation = false
+        member _.IsFSharpExceptionDeclaration = false
+        member _.IsValueType = false
+        member _.IsInterface = false
+        member _.IsMeasure = false
+        member _.IsByRef = false
+        member _.IsEnum = false
+        member _.IsAbstractClass = false }
 
 // ─────────────────────────────────────────────────────────────────
 // NullCompiler — minimal Fable.Compiler stub for tests
 // ─────────────────────────────────────────────────────────────────
-
 type NullCompiler() =
     interface Fable.Compiler with
-        member _.Options = { Fable.CompilerOptions.Default with DebugMode = false }
-        member _.Plugins = []
+        member _.Options =
+          CompilerOptionsHelper.Make(debugMode = false, typedArrays = true)
+          // { Fable.CompilerOptions.Default with
+          //     DebugMode = false
+          //     TypedArrays = true
+          //     Watch = false
+          //     Language = Fable.Language.WasmGc
+          //     FileExtension = ".fs"
+          //     Define = []
+          //     Optimize = false
+          //     SourceMaps = false
+          //     Clamp = false }
+
+        // Fable 5: Plugins is a record, not a list
+        member _.Plugins =
+          { MemberDeclarationPlugins = Map.empty }
+          // Fable.CompilerPlugins.Default
+          // { MemberDeclarationPlugins = []
+          //   PluginPlugins = [] }
+
         member _.LibraryDir = ""
         member _.CurrentFile = "<test>"
         member _.SourceFiles = [||]
-        member _.GetEntity(_) = None
-        member _.GetImplementation(_) = None
-        member _.GetRootModule(_) = None
-        member _.AddLog(_, _, _, _, _) = ()
-        member _.GetOrAddInlineExpr(_, factory) = factory ()
+        // member _.GetEntity(_) = failwith "Not implemented"
+        // member _.GetEntity(entityRef: Fable.EntityRef): Fable.Entity =
+        //     failwith $"Test error: Tried to look up entity {entityRef.FullName}"
+
+        member _.OutputDir = None
+        member _.OutputType = OutputType.Exe // Or Library depending on Fable version
+        member _.ProjectFile = ""
+        member _.ProjectOptions = Unchecked.defaultof<_> // Stub for FSharpProjectOptions
+        member _.IncrementCounter() = 0
+        member _.IsPrecompilingInlineFunction = false
+        member _.WillPrecompileInlineFunction(_file) = failwith "Not implemented"
+
+        member _.GetImplementationFile(_fileName) = []
+        member _.GetRootModule(fileName) = (fileName, None)
+
+        member _.TryGetEntity(entityRef) =
+            // We can reuse the logic from your previous GetEntity here
+            // but wrapped in Some() since this is TryGetEntity
+            None
+
+        member _.GetInlineExpr(_str) = failwith "Not implemented"
+        member _.AddWatchDependency(_file) = ()
+
+        // member _.GetEntity(entityRef: Fable.EntityRef) =
+        //     // { FullName = entityRef.FullName
+        //     //   Path = entityRef.Path
+        //     //   BaseEntity = None
+        //     //   AllInterfaces = []
+        //     //   Attributes = []
+        //     //   IsValueType = false
+        //     //   IsInterface = false
+        //     //   IsEnum = false
+        //     //   IsFSharpUnion = false
+        //     //   IsFSharpRecord = false
+        //     //   IsFSharpModule = false
+        //     //   MembersFunctionsAndValues = [] }
+
+        //     { new Fable.Entity with
+        //         member _.FullName = entityRef.FullName
+        //         member _.Path = entityRef.Path
+        //         member _.BaseEntity = None
+        //         member _.AllInterfaces = [||]
+        //         member _.Attributes = [||]
+        //         member _.IsValueType = false
+        //         member _.IsInterface = false
+        //         member _.IsEnum = false
+        //         member _.IsFSharpUnion = false
+        //         member _.IsFSharpRecord = false
+        //         member _.IsFSharpModule = false
+        //         member _.MembersFunctionsAndValues = [||] }
+
+        // member _.GetImplementation(_) = None
+        // member _.GetRootModule(_) = ("", None)
+
+        member _.AddLog(msg, severity, ?range, ?fileName, ?tag) =
+            printfn "[%A] %s" severity msg
+
+        // member _.GetOrAddInlineExpr(fullName, factory) = factory ()
+
+        // member _.DefineDeclaration(_) = ()
+        // member _.GetImportExpr(r, t, selector, path, kind) =
+        //     Fable.Expr.Value(Fable.Value.StringConstant selector, r) // Minimal stub
 
 // ─────────────────────────────────────────────────────────────────
 // wTypeKey — mirrors Wat.fs (needed for registry key lookups in tests)
@@ -50,6 +157,7 @@ let rec wTypeKey (t: WType) : string =
         let rk = rs |> List.map wTypeKey |> String.concat ","
         sprintf "fn(%s)->(%s)" pk rk
     | WType.Struct fields ->
+        // let fk = fields |> List.map (fun (f: wStructField) -> sprintf "%s:%s" f.Name (wTypeKey f.Type)) |> String.concat ";"
         let fk = fields |> List.map (fun f -> sprintf "%s:%s" f.Name (wTypeKey f.Type)) |> String.concat ";"
         sprintf "struct{%s}" fk
     | WType.Array(elem, mut_) ->
@@ -91,7 +199,7 @@ let makeCtxFull
         : Ctx =
     let ctx = makeTestCtx ()
     let kf  = funcs |> List.map (fun (n, ps, r) -> n, (ps, r)) |> Map.ofList
-    let ctx' = locals |> List.fold (fun c (n, t) -> c.WithLocal(n, t)) ctx
+    let ctx' = locals |> List.fold (fun (c: Ctx) (n, t) -> c.WithLocal(n, t)) ctx
     { ctx' with KnownFuncs = kf }
 
 // ─────────────────────────────────────────────────────────────────
@@ -106,7 +214,7 @@ let makeCtxFull
 // WExpr builders (convenience for test setup)
 // ─────────────────────────────────────────────────────────────────
 
-open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Builder
 
 let inline i32Const  n    = WExpr.Const(WConst.I32 n)
 let inline i64Const  n    = WExpr.Const(WConst.I64 n)
@@ -355,17 +463,32 @@ let assertUniqueLoopLabels (expr: WExpr) =
 module FableAst =
     open Fable.AST.Fable
 
-    let mkParam name ty =
-        { Name = name; Type = ty; Range = None; IsMutable = false; IsCompilerGenerated = false }
+    let mkParam name ty = // TODO: this is not only FableAst related
+        { Name = name
+          Type = ty
+          Range = None
+          IsMutable = false
+          IsCompilerGenerated = false
+          IsThisArgument = false
+          // Tags = []
+          // Tags = Fable.Tags.empty
+          IsInlineIfLambda = false
+          }
 
     let mkIdent name ty =
         Fable.Expr.IdentExpr(mkParam name ty)
 
     let mkIntLit n =
-        Fable.Expr.Value(Fable.NumberConstant(float n, Fable.Int32, Fable.NumberInfo.Empty), None)
+        // Expr.Value(NumberConstant(NumberValue.Int32 n, NumberInfo.Empty), None)
+        // Fable.Expr.Value(Fable.NumberConstant(float n, Fable.Int32, Fable.NumberInfo.Empty), None)
+        // NumberConstant takes (NumberValue * NumberInfo)
+        // Int32 must be qualified as NumberValue.Int32
+        let value = NumberValue.Int32 (int n)
+        Expr.Value(ValueKind.NumberConstant(value, NumberInfo.Empty), None)
 
     let mkUnit =
-        Fable.Expr.Value(Fable.UnitConstant, None)
+        Expr.Value(UnitConstant, None)
+        // Fable.Expr.Value(Fable.UnitConstant, None)
 
     let mkLambda paramName paramTy body =
         Fable.Expr.Lambda(mkParam paramName paramTy, body, None)
@@ -376,18 +499,21 @@ module FableAst =
     let mkLet name ty value body =
         Fable.Expr.Let(mkParam name ty, value, body)
 
-    let mkInt32T = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty)
-    let mkFloat64T = Fable.Type.Number(Fable.Float64, Fable.NumberInfo.Empty)
+    let mkInt32T = Type.Number(NumberKind.Int32, NumberInfo.Empty)
+    let mkFloat64T = Type.Number(NumberKind.Float64, NumberInfo.Empty)
+
     let mkBoolT   = Fable.Type.Boolean
     let mkStringT = Fable.Type.String
     let mkUnitT   = Fable.Type.Unit
     let mkListT t  = Fable.Type.List t
-    let mkArrayT t = Fable.Type.Array(t, Fable.ArrayKind.Array)
+    // let mkArrayT t = Fable.Type.Array(t, Fable.ArrayKind.Array)
+    let mkArrayT t = Fable.Type.Array(t, Fable.ArrayKind.ResizeArray)
     let mkOptionT (t: Fable.Type) = Fable.Type.Option(t, false)
     let mkTupleT ts = Fable.Type.Tuple(ts, false)
 
     let mkEntity (fullName: string) : Fable.EntityRef =
-        { FullName = fullName; Path = Fable.EntityPath.PrecompiledLib }
+        // { FullName = fullName; Path = Fable.EntityPath.PrecompiledLib }
+        { FullName = fullName; Path = Fable.EntityPath.SourcePath "" }
 
     let mkDeclaredT fullName =
         Fable.Type.DeclaredType(mkEntity fullName, [])

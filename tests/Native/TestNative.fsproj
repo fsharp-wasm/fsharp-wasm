@@ -29,6 +29,7 @@
     <Compile Include="Integration/ElmishTests.fs" />
     <Compile Include="Integration/FableQueryTests.fs" />
     <Compile Include="Integration/ListReplacementTests.fs" />
+    <Compile Include="Integration/PatternMatchTests.fs" />
     <Compile Include="Integration/StringRuntimeTests.fs" />
     <Compile Include="Integration/WhileBangTests.fs" />
 

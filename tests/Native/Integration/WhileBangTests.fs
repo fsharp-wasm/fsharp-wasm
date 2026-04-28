@@ -7,6 +7,7 @@ module Tests.Integration.WhileBangTests
 open Expecto
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc.Builder
+open Fable.Transforms.WasmGc.Builder
 
 [<Tests>]
 let whileBangTests = testList "while! loop generation" [

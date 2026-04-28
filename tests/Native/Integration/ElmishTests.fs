@@ -5,6 +5,9 @@
 module Tests.Integration.ElmishTests
 
 open Expecto
+
+open Fable.AST
+open Fable.AST.Fable
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc
 
@@ -17,7 +20,12 @@ let elmishTests = testList "Elmish dispatch" [
         // ClosureType_122 in the original WAT: (func (param i32)) — MISSING self!
         // After fix: (func (param (ref $AnyFn)) (param i32)) — correct
         let ctx = makeTestCtx()
-        let msgArg = { Fable.Name = "_"; Fable.Type = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false }
+        let msgArg = FableAst.mkParam "_" (Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty))
+          // {
+          // Fable.Name = "_"
+          // Fable.Type = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty)
+          // Fable.Range = None
+          // Fable.IsMutable = false }
         let stub = Fable.Expr.Lambda(msgArg, Fable.Expr.Value(Fable.UnitConstant, None), None)
         let wStub = Fable2WasmGc.transformExpr ctx stub
         match wStub with

@@ -6,7 +6,7 @@ module Tests.Integration.FableQueryTests
 
 open Expecto
 open Fable.AST.Fable
-open Tests.FableAstHelpers // helpers to build Fable.Expr
+// open Tests.FableAstHelpers // helpers to build Fable.Expr
 
 [<Tests>]
 let fableQueryTests = testList "FableQuery patterns" [
