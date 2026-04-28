@@ -105,12 +105,12 @@ let trySpecializeCall
 
             // 13. Emit the specialized WFuncDecl.
             let func : WFuncDecl =
-                { Name = mangledName
-                Params = funcParams
-                Result = retTy'
-                Locals = []
-                Body = wBody
-                Exported = false }
+                {   Name = mangledName
+                    Params = funcParams
+                    Result = retTy'
+                    Locals = []
+                    Body = wBody
+                    Exported = false }
             ctx.Functions.Add(func |> resolveLocals)
             Some(WExpr.Call(mangledName, wArgs, retTy'))
 
@@ -627,7 +627,13 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
 // ─────────────────────────────────────────────────────────────────
 
 /// Main-Dispatcher for all Call-Expressions
-let transformCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (callee: Expr) (info: CallInfo) (typ: Type) : WExpr =
+let transformCall 
+    (ctx: Ctx) 
+    (eval: Ctx -> Expr -> WExpr)
+    // eval
+    (callee: Expr)
+    (info: CallInfo) 
+    (typ: Type) : WExpr =
     let ty = mapTypeKnown ctx typ
     let wArgs = info.Args |> List.map (eval ctx)
 
@@ -655,6 +661,7 @@ let transformCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (callee: Expr) (info: 
         match callee with
         | IdentExpr ident ->
             // Sprint 5: try demand-driven generic specialization first.
+            // match trySpecializeCall ctx eval ident.Name info typ with
             match trySpecializeCall ctx eval ident.Name info typ with
             | Some specialized -> specialized
             | None ->

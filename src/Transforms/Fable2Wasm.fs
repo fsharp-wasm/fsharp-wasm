@@ -8,20 +8,21 @@ open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
 open WasmGc.Runtime.Types
-open WasmGc.Runtime.FreeVars
-open WasmGc.Runtime.LoopHelpers
+// open WasmGc.Runtime.FreeVars
+// open WasmGc.Runtime.LoopHelpers
 open WasmGc.Builder
-open WasmGc.Runtime.Runtime
+// open WasmGc.Runtime.Runtime
 open WasmGc.Runtime.Locals
 open WasmGc.Runtime.Equality
 module RT = WasmGc.Runtime.Runtime
 module VT = WasmGc.Runtime.VTable
 module Lc = WasmGc.Runtime.Locals
 module Val = WasmGc.PipelineValidator
-open WasmGc.Transforms.OptionResult
-open WasmGc.Transforms.ListCombinators
-open WasmGc.Transforms.ListOps
-
+// open WasmGc.Transforms.OptionResult
+// open WasmGc.Transforms.ListCombinators
+// open WasmGc.Transforms.ListOps
+open WasmGc.Transforms.ArrayReplacements
+open WasmGc.Transforms.MathMap
 open WasmGc.Transforms.TransformClosures
 open WasmGc.Transforms.TransformDispatch
 
