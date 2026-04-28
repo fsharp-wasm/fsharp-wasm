@@ -1,0 +1,12 @@
+<Project>
+  <!-- Sucht nach der Directory.Build.props im übergeordneten Ordner -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))"
+          Condition="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../')) != ''" />
+
+
+  <!-- Vendor subtree overrides: keep FABLE_CORE_ONLY, but disable Nullable to avoid constraint mismatches. -->
+  <PropertyGroup>
+    <!-- <Nullable>disable</Nullable> -->
+    <!-- Keep language as set globally or by project; no override here. -->
+  </PropertyGroup>
+</Project>
