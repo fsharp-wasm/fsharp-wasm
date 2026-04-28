@@ -5,7 +5,7 @@ module Fable.Transforms.WasmGc.Runtime.Equality
 
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Builder
 open Fable.Transforms.WasmGc.Runtime.Locals
 
 // ─────────────────────────────────────────────────────────────────

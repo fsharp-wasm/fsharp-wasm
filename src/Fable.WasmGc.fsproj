@@ -67,9 +67,13 @@
         11. Low-level struct emitter
         12. Binary encoder
     -->
-    <Compile Include="AST.fs" />
-    <Compile Include="Runtime/Types.fs" />
-    <Compile Include="Runtime/Builder.fs" />
+    <Compile Include="Core/AST.fs" />
+    <Compile Include="Core/Types.fs" />
+
+    <Compile Include="Builder/Builder.fs" />
+    <Compile Include="Builder/Locals.fs" />
+    <Compile Include="Builder/Equality.fs" />
+
     <Compile Include="Runtime/LoopHelpers.fs" />
     <Compile Include="Runtime/ListShape.fs" />
     <Compile Include="Runtime/LoopPrimitives.fs" />
@@ -77,9 +81,7 @@
     <Compile Include="Runtime/ArrayOps.fs" />
     <Compile Include="Runtime/QuotationWalker.fs" />
     <Compile Include="Runtime/FreeVars.fs" />
-    <Compile Include="Runtime/Locals.fs" />
     <Compile Include="Runtime/Runtime.fs" />
-    <Compile Include="Runtime/Equality.fs" />
     <Compile Include="Runtime/VTable.fs" />
 
     <Compile Include="Transforms/OptionResult.fs" />

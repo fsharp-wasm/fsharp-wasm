@@ -20,7 +20,7 @@
 ///   ForExpr   — for x in col do body   with WExpr collection (no IEnumerable constraint)
 ///
 /// These complement the existing WhileBang (while! guard do body) path.
-module Fable.Transforms.WasmGc.Runtime.Builder
+module Fable.Transforms.WasmGc.Builder
 
 open System.Collections.Concurrent
 

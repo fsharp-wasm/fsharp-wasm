@@ -24,7 +24,7 @@ open System.Reflection
 
 open Fable.AST.Wasm
 open Fable.Transforms.WasmGc.Runtime.Types
-open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Builder
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Intrinsic attribute

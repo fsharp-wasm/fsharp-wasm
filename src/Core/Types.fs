@@ -41,99 +41,135 @@ type Ctx =
     {
         /// Currently known local variable types
         Locals: Map<string, WType>
+
         /// Accumulated type definitions for the module
         TypeDefs: ResizeArray<WTypeDeclEntry>
+
         /// Accumulated function definitions
         Functions: ResizeArray<WFuncDecl>
+
         /// Currently processing function name (for recursion detection)
         CurrentFunc: string option
+
         /// Map of known functions and their wasm types
         KnownFuncs: Map<string, WType list * WType>
+
         /// Entity FullName → WASM struct type index (for records, DUs)
         TypeRegistry: Map<string, int>
+
         /// Tuple element-type signature → WASM struct type index
         TupleRegistry: System.Collections.Generic.Dictionary<string, int>
+
         /// Option inner WType → WASM struct type index for the { value: T } box struct.
         OptionRegistry: System.Collections.Generic.Dictionary<string, int>
+
         /// List element WType key → WASM struct type index for the $ListCons_T struct.
         ListRegistry: System.Collections.Generic.Dictionary<string, int>
+
         /// F# array element WType key → WASM (array (mut T)) type index.
         ArrayRegistry: System.Collections.Generic.Dictionary<string, int>
+
         /// FSharpRef inner WType key → WASM struct type index for the mutable single-field box.
         RefRegistry: System.Collections.Generic.Dictionary<string, int>
+
         /// On-demand generic DU instantiation key → base type index.
         /// Key format: "FullName<WType1,WType2>" e.g. "FSharpResult`2<I32,I32>".
         /// Used for built-in generic DUs (Result<T,E>, Choice<T,U>, etc.) not emitted via ClassDeclaration.
         GenericDuRegistry: System.Collections.Generic.Dictionary<string, int>
+
         /// FuncType signature → WTypeDef.Func type index (in TypeDefs).
         FuncTypeRegistry: System.Collections.Generic.Dictionary<string, int>
+
         /// funcName → (closureTypeIdx, funcTypeIdx, captureCount)
         ClosureRegistry: System.Collections.Generic.Dictionary<string, int * int * int>
+
         /// funcTypeIdx → closureTypeIdx
         FuncTypeToClosureMap: System.Collections.Generic.Dictionary<int, int>
+
         /// funcTypeIdx → base closure type index (struct with only the code field, sub $AnyFn).
         /// Used for ref.cast in library functions that accept closure parameters.
         ClosureBaseTypeMap: System.Collections.Generic.Dictionary<int, int>
+
         /// Runtime helpers actually used in this module — demand-driven emission.
         UsedHelpers: System.Collections.Generic.HashSet<string>
+
         /// Structural equality functions generated on-demand.
         /// Key: typeIdx (in TypeDefs); Value: generated function name ($equals_N).
         /// Pre-registered before body generation to allow recursive types.
         EqualityRegistry: System.Collections.Generic.Dictionary<int, string>
+
         /// Generic MemberDecl bodies, pre-scanned before translation.
         /// Key: fully-qualified F# function name (e.g. "MyModule.swap")
         /// Value: (per-file Compiler instance, Fable MemberDecl as obj)
         /// The per-file Compiler is needed for cross-file entity lookups during specialization.
+        // TODO: we shouldn't reference the full Compiler
         GenericFuncRegistry: System.Collections.Generic.Dictionary<string, Compiler * obj>
+
         /// Cache of already-emitted or in-progress specializations.
         /// Key = mangled name (e.g. "MyModule.swap|i32,ref1"); Value = same mangled name (sentinel).
         MonoCache: System.Collections.Generic.Dictionary<string, string>
+
         /// Active type substitution during specialized translation.
         /// Empty outside generic function bodies.
         /// Key: F# generic param name ("T", "U", ...); Value: concrete WType.
         TypeSubst: Map<string, WType>
+
         /// Compiler reference for diagnostics
         Compiler: Compiler
+
         // ── Multi-file / library-compilation support ──────────────────────────
         /// True when compiling a non-last file (library context).
         /// Library functions get module-qualified names and are not exported.
         IsLibraryContext: bool
+
         /// Filename stem of the current source file (e.g. "Map" for Map.fs).
         /// Used to key KnownFuncsByPath for cross-file import resolution.
         CurrentFileStem: string
+
         /// Current module name prefix (e.g. "MapModule") set while processing a
         /// ModuleDeclaration inside a library file. Empty for non-library files.
         NamePrefix: string
+
         /// Short name → qualified WAsmGC function name within the current library module.
         /// Populated before compiling each library module so recursive calls resolve correctly.
         FuncNameAlias: Map<string, string>
+
         /// (fileStem, selector) → qualified WasmGC function name.
         /// Enables cross-file import dispatch to resolve the correct qualified name.
         KnownFuncsByPath: Map<string * string, string>
+
         /// External Wasm function imports declared via [<Import("name","module")>] on nativeOnly funcs.
         /// Key = internal call-name "$ext$module$name"; Value = WImport to be emitted in import section.
         ExternImports: System.Collections.Concurrent.ConcurrentDictionary<string, WImport>
+
         /// String storage mode: I32 (default, wide) or I16 (packed, 50 % smaller for ASCII).
         StringMode: StringMode
+
         // ── Interface vtable support ───────────────────────────────────────
         /// Interface full name → (vtableTypeIdx, boxTypeIdx, methodFuncTypeIndices, orderedMethodNames).
         /// Populated on first encounter of an interface being implemented.
         VTableRegistry: System.Collections.Generic.Dictionary<string, int * int * int list * string list>
+
         /// (implTypeName, ifaceName) → vtable global name ($ImplType_IFace_vtable).
         VTableImplRegistry: System.Collections.Generic.Dictionary<string * string, string>
+
         /// Accumulated vtable globals to emit in the final WModule.
         VTableGlobals: ResizeArray<WGlobalDecl>
+
         /// ResizeArray element WType key → (arrTypeIdx, ravTypeIdx).
         /// ravTypeIdx: index of struct { data: (mut ref? $Arr_T); len: (mut i32) }.
         ResizeArrayRegistry: System.Collections.Generic.Dictionary<string, int * int>
+
         /// Monotonically increasing counter for generating globally-unique decision-tree target labels.
         /// Shared (mutable ref cell) so nested transformDecisionTree calls don't collide.
         DecisionTreeCounter: int ref
+
         /// The base offset for the current DecisionTree being translated.
         /// Set by transformDecisionTree before processing matchExpr so that
         /// DecisionTreeSuccess(localIdx) → JoinApply("$target_{TargetBase + localIdx}").
         /// Saved/restored around nested DecisionTree calls (LIFO via mutable mutation).
         TargetBase: int ref
+
         /// Set to true when any wasm:memory intrinsic is lowered in this compilation.
         /// Controls whether a linear memory section is emitted in the output.
         HasLinearMemory: bool ref

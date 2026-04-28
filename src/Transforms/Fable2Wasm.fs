@@ -10,7 +10,7 @@ open Fable.AST.Wasm
 open Fable.Transforms.WasmGc.Runtime.Types
 open Fable.Transforms.WasmGc.Runtime.FreeVars
 open Fable.Transforms.WasmGc.Runtime.LoopHelpers
-open Fable.Transforms.WasmGc.Runtime.Builder
+open Fable.Transforms.WasmGc.Builder
 open Fable.Transforms.WasmGc.Runtime.Runtime
 open Fable.Transforms.WasmGc.Runtime.Locals
 open Fable.Transforms.WasmGc.Runtime.Equality
