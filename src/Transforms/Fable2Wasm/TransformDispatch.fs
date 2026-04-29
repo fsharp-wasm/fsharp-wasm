@@ -634,6 +634,9 @@ let transformCall
     (callee: Expr)
     (info: CallInfo) 
     (typ: Type) : WExpr =
+
+    // TODO: for better diagnostics, we could match on the callee expression and print more info about it here
+    // eprintfn "[WasmGc] Call callee=%A in func=%A" callee ctx.CurrentFunc
     let ty = mapTypeKnown ctx typ
     let wArgs = info.Args |> List.map (eval ctx)
 
