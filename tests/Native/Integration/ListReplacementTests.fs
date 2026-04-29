@@ -10,7 +10,9 @@ open Fable.AST.Fable
 open Fable.AST.Wasm
 open WasmGc
 
-open Tests.WasmTestHelpers
+open WasmGc.Runtime.Types
+
+open Tests.WasmTestHelper
 
 // Helper: build Fable AST for List.map (fun x -> x + 1) myList
 let private buildListMapAst () =
@@ -41,7 +43,7 @@ let listReplacementTests = testList "List replacements" [
         let (lambda, listArg, _) = buildListMapAst()
         let wList = WExpr.LocalGet("myList", WType.Ref(100, true))
         let result = ListCombinators.tryListMapInline
-                        Fable2WasmGc.transformExpr ctx "map"
+                        transformExpr ctx "map"
                         [lambda; listArg] (Fable.Type.List(Fable.Type.Number(Int32, NumberInfo.Empty)))
         Expect.isSome result "List.map should produce a replacement"
         let wExpr = result.Value
@@ -58,7 +60,7 @@ let listReplacementTests = testList "List replacements" [
         let (lambda, listArg, listType) = buildListMapAst()
         let ctxWithList = { ctx with Locals = Map.ofList [("myList", WType.Ref(100, true))] }
         let result = ListCombinators.tryListMapInline
-                        Fable2WasmGc.transformExpr ctxWithList "map"
+                        transformExpr ctxWithList "map"
                         [lambda; listArg] listType
         match result with
         | None -> failtest "List.map should produce a replacement"
@@ -88,11 +90,11 @@ let listReplacementTests = testList "List replacements" [
         let ctx = makeTestCtx()
         let _ = mapTypeKnown ctx (Fable.Type.List(Fable.Type.Number(Int32, NumberInfo.Empty)))
         let listArg = Fable.Expr.IdentExpr { Name = "xs"; Type = Fable.Type.List(Fable.Type.Number(Int32, NumberInfo.Empty)); Range = None; IsMutable = false }
-        let farg = { Name = "x"; Type = Fable.Type.Number(Int32, NumberInfo.Empty); Range = None; IsMutable = false }
+        let farg = { Name = "x"; Type = Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty); Range = None; IsMutable = false }
         let fbody = listArg  // trivial: identity (maps each int to a list of... something)
         let lambda = Fable.Expr.Lambda(farg, fbody, None)
         let result = ListCombinators.tryListMapInline
-                        Fable2WasmGc.transformExpr ctx "collect"
+                        transformExpr ctx "collect"
                         [lambda; listArg] (Fable.Type.List(Fable.Type.Number(Int32, NumberInfo.Empty)))
         // Currently None (unimplemented) — should be Some after fix
         Expect.isSome result "List.collect must be implemented (required by Html/Elements.fs)"

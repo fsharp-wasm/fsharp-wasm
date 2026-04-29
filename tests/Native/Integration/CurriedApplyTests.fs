@@ -4,7 +4,7 @@ open Expecto
 open Fable.AST.Fable
 open Fable.AST.Wasm
 open WasmGc
-open Tests.WasmTestHelpers
+open Tests.WasmTestHelper
 
 [<Tests>]
 let curryingTests = testList "Curried Application" [
@@ -19,7 +19,7 @@ let curryingTests = testList "Curried Application" [
 
         let partialApply = Expr.Delegate(addFn, [mkIntLit 10], None)
 
-        let result = Fable2WasmGc.transformExpr ctx partialApply
+        let result = transformExpr ctx partialApply
 
         match result with
         | WExpr.Closure(_, captures, _) ->

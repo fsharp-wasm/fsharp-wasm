@@ -10,9 +10,12 @@ open Fable.AST.Fable
 open Fable.AST.Wasm
 open WasmGc
 
-// open Fable.Transforms.WasmGc.Transforms.Fable2Wasm
 
-open Tests.WasmTestHelpers
+open WasmGc.Transforms.TransformExpr
+
+open Tests.WasmTestHelper
+open Tests.WasmTestHelper.FableAst
+
 
 [<Tests>]
 let closureCallTests = testList "Closure call lifecycle" [
@@ -29,10 +32,10 @@ let closureCallTests = testList "Closure call lifecycle" [
             //   }
             ,
             Fable.Expr.Value(
-              Fable.NumberConstant(Fable.Int32 42, Fable.NumberInfo.Empty),
+              Fable.NumberConstant(NumberKind.Int32 42, Fable.NumberInfo.Empty),
               None),
             None)
-        let result = Fable2WasmGc.transformExpr ctx lambda
+        let result = transformExpr ctx lambda
         // The closure should have functype (self) → i32 (1 param: self only)
         match result with
         | WExpr.Closure(liftedName, captures, ty) ->
@@ -46,17 +49,17 @@ let closureCallTests = testList "Closure call lifecycle" [
 
     test "one-arg i32 closure: fun x -> x + 1 has functype (self, i32) → i32" {
         let ctx = makeTestCtx()
-        // let xIdent = { Fable.Name = "x"; Fable.Type = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false }
-        let xIdent = mkParam "x" (Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty))
+        // let xIdent = { Fable.Name = "x"; Fable.Type = Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false }
+        let xIdent = mkParam "x" (Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty))
         let lambda = Fable.Expr.Lambda(
             xIdent,
             Fable.Expr.Operation(
                 Fable.OperationKind.Binary(Fable.BinaryOperator.BinaryPlus,
                     Fable.Expr.IdentExpr xIdent,
-                    Fable.Expr.Value(Fable.NumberConstant(1.0, Fable.Int32, Fable.NumberInfo.Empty), None)),
-                Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty), None),
+                    Fable.Expr.Value(Fable.NumberConstant(1.0, NumberKind.Int32, Fable.NumberInfo.Empty), None)),
+                Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty), None),
             None)
-        let result = Fable2WasmGc.transformExpr ctx lambda
+        let result = transformExpr ctx lambda
         match result with
         | WExpr.Closure(liftedName, _, _) ->
             match ctx.Functions |> Seq.tryFind (fun f -> f.Name = liftedName) with
@@ -73,9 +76,9 @@ let closureCallTests = testList "Closure call lifecycle" [
         let ctx = { makeTestCtx() with Locals = Map.ofList [("capturedValue", WType.I32)] }
         let lambda = Fable.Expr.Lambda(
             { Fable.Name = "_"; Fable.Type = Fable.Type.Unit; Fable.Range = None; Fable.IsMutable = false },
-            Fable.Expr.IdentExpr { Fable.Name = "capturedValue"; Fable.Type = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false },
+            Fable.Expr.IdentExpr { Fable.Name = "capturedValue"; Fable.Type = Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false },
             None)
-        let result = Fable2WasmGc.transformExpr ctx lambda
+        let result = transformExpr ctx lambda
         match result with
         | WExpr.Closure(liftedName, captures, _) ->
             Expect.exists captures (fun (n, _) -> n = "capturedValue") "capturedValue should be in captures"
@@ -105,12 +108,12 @@ let closureCallTests = testList "Closure call lifecycle" [
         // fun _ -> () where _ : 'Msg = int
         // ClosureType_122 in the WAT — this is the initial no-op dispatch
         let ctx = makeTestCtx()
-        let msgArg = { Fable.Name = "_"; Fable.Type = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false }
+        let msgArg = { Fable.Name = "_"; Fable.Type = Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false }
         let lambda = Fable.Expr.Lambda(
             msgArg,
             Fable.Expr.Value(Fable.UnitConstant, None),
             None)
-        let result = Fable2WasmGc.transformExpr ctx lambda
+        let result = transformExpr ctx lambda
         match result with
         | WExpr.Closure(liftedName, _, _) ->
             match ctx.Functions |> Seq.tryFind (fun f -> f.Name = liftedName) with

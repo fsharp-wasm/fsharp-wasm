@@ -10,8 +10,10 @@ open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
 open WasmGc
+open WasmGc.Runtime.Types
+open WasmGc.Transforms.TransformExpr
 
-open Tests.WasmTestHelpers
+open Tests.WasmTestHelper
 
 [<Tests>]
 let elmishTests = testList "Elmish dispatch" [
@@ -20,14 +22,14 @@ let elmishTests = testList "Elmish dispatch" [
         // ClosureType_122 in the original WAT: (func (param i32)) — MISSING self!
         // After fix: (func (param (ref $AnyFn)) (param i32)) — correct
         let ctx = makeTestCtx()
-        let msgArg = FableAst.mkParam "_" (Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty))
+        let msgArg = FableAst.mkParam "_" (Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty))
           // {
           // Fable.Name = "_"
-          // Fable.Type = Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty)
+          // Fable.Type = Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty)
           // Fable.Range = None
           // Fable.IsMutable = false }
         let stub = Fable.Expr.Lambda(msgArg, Fable.Expr.Value(Fable.UnitConstant, None), None)
-        let wStub = Fable2WasmGc.transformExpr ctx stub
+        let wStub = transformExpr ctx stub
         match wStub with
         | WExpr.Closure(name, _, _) ->
             match ctx.Functions |> Seq.tryFind (fun f -> f.Name = name) with

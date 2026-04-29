@@ -9,6 +9,9 @@ open Fable.AST.Wasm
 open WasmGc.Builder
 open WasmGc.Builder
 
+open WasmGc.Runtime.ListShape
+open WasmGc.Runtime.ListOps
+
 [<Tests>]
 let whileBangTests = testList "while! loop generation" [
 

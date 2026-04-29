@@ -6,10 +6,13 @@ module Tests.Unit.CaptureTests
 
 open Expecto
 open Fable.AST
+open Fable.AST.Fable
 open Fable.AST.Wasm
 open WasmGc
 
-open Tests.WasmTestHelpers
+open WasmGc.Transform.TransformExpr
+
+open Tests.WasmTestHelper
 
 [<Tests>]
 let captureTests = testList "Free variable capture" [
@@ -21,15 +24,20 @@ let captureTests = testList "Free variable capture" [
                         Locals = Map.ofList [("db", WType.Ref(77, false))] }
         let lambdaBody =
             Fable.Expr.Call(
-                Fable.Expr.Import({ Selector = "put"; Path = "runtime/indexeddb.js" }, Fable.Type.Unit, None),
+                Fable.Expr.Import({ 
+                    Selector = "put"
+                    Path = "runtime/indexeddb.js" 
+                    Kind = ImportKind.UserImport false // TODO: more tests needed
+                }, Fable.Type.Unit, None),
                 { Args = [Fable.Expr.IdentExpr { Name = "db"; Type = Fable.Type.Any; Range = None; IsMutable = false }]
-                  ThisArg = None; HasSpread = false; IsConstructor = false },
+                  ThisArg = None; HasSpread = false; IsConstructor = false 
+                },
                 Fable.Type.Unit, None)
         let lambda =
             Fable.Expr.Lambda(
                 { Name = "_unit"; Type = Fable.Type.Unit; Range = None; IsMutable = false },
                 lambdaBody, None)
-        let wClosure = Fable2WasmGc.transformExpr ctx lambda
+        let wClosure = transformExpr ctx lambda
         // The lifted function should have 'db' as a capture parameter
         // i.e., the ClosureStruct should include db's type
         match wClosure with
@@ -53,7 +61,7 @@ let captureTests = testList "Free variable capture" [
         let lambda = Fable.Expr.Lambda(
             { Name = "_"; Type = Fable.Type.Unit; Range = None; IsMutable = false },
             lambdaBody, None)
-        let wClosure = Fable2WasmGc.transformExpr ctx lambda
+        let wClosure = transformExpr ctx lambda
         match wClosure with
         | WExpr.Closure(_, captures, _) ->
             let hasHelperFn = captures |> List.exists (fun (n, _) -> n = "helperFn")
@@ -74,7 +82,7 @@ let captureTests = testList "Free variable capture" [
         let lambda = Fable.Expr.Lambda(
             { Name = "_"; Type = Fable.Type.Unit; Range = None; IsMutable = false },
             lambdaBody, None)
-        let wClosure = Fable2WasmGc.transformExpr ctx lambda
+        let wClosure = transformExpr ctx lambda
         match wClosure with
         | WExpr.Closure(_, captures, _) ->
             Expect.exists captures (fun (n, _) -> n = "db_2")
@@ -91,7 +99,7 @@ let captureTests = testList "Free variable capture" [
         let lambda = Fable.Expr.Lambda(
             { Name = "_"; Type = Fable.Type.Unit; Range = None; IsMutable = false },
             lambdaBody, None)
-        let wClosure = Fable2WasmGc.transformExpr ctx lambda
+        let wClosure = transformExpr ctx lambda
         match wClosure with
         | WExpr.Closure(liftedFuncName, captures, _) ->
             // Find the lifted function in ctx.Functions

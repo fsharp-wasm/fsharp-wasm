@@ -7,8 +7,9 @@ module Tests.Unit.ClosureArityTests
 open Expecto
 open Fable.AST.Wasm
 open WasmGc.Builder
+open WasmGc.Runtime.Types
 
-open Tests.WasmTestHelpers
+open Tests.WasmTestHelper
 
 // The pattern that caused closure_4 crash:
 // JS bridge closure: fun (handle: unit) -> render handle

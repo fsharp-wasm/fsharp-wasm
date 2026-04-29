@@ -8,11 +8,12 @@ open Fable
 open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
-// open Fable.Transforms.WasmGc
+
 open WasmGc.Transforms
 open WasmGc.Transforms.ArrayReplacements
+open WasmGc.Transforms.TransformExpr
 
-open Tests.WasmTestHelpers
+open Tests.WasmTestHelper
 
 
 [<Tests>]
@@ -76,7 +77,7 @@ let arrayReplacementTests = testList "Array replacements" [
         let arrArg = FableAst.mkIdent "src" arrType
         let ctxWithArr = { ctx with Locals = Map.ofList [("src", WType.Ref(200, false))] }
         let result = ArrayReplacements.tryArrayInline
-                        Fable2Wasm.transformExpr ctxWithArr "copy"
+                        transformExpr ctxWithArr "copy"
                         [arrArg] [localGet "src" (WType.Ref(200, false))]
                         arrType
         Expect.isSome result "Array.copy should be handled"
@@ -92,10 +93,10 @@ let arrayReplacementTests = testList "Array replacements" [
     test "Array.zeroCreate n → arrayNew with zero init" {
         let ctx = makeTestCtx()
         let result = ArrayReplacements.tryArrayInline
-                        Fable2Wasm.transformExpr ctx "zeroCreate"
-                        [Fable.Expr.Value(Fable.NumberConstant(10.0, Fable.Int32, Fable.NumberInfo.Empty), None)]
+                        transformExpr ctx "zeroCreate"
+                        [Fable.Expr.Value(Fable.NumberConstant(10.0, NumberKind.Int32, Fable.NumberInfo.Empty), None)]
                         [i32Const 10]
-                        (Fable.Type.Array(Fable.Type.Number(Fable.Int32, Fable.NumberInfo.Empty), Fable.ArrayKind.ResizeArray))
+                        (Fable.Type.Array(Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty), Fable.ArrayKind.ResizeArray))
         Expect.isSome result "Array.zeroCreate should be handled"
         let wExpr = result.Value
         let hasNew = WExprQuery.collect (function WExpr.ArrayNew _ -> true | _ -> false) wExpr

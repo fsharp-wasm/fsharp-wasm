@@ -7,9 +7,9 @@ module Tests.Unit.TypeResolutionTests
 open Expecto
 open Fable.AST.Fable
 open Fable.AST.Wasm
-// open Fable.Transforms.WasmGc
+
 open WasmGc.Runtime.Types
-open Tests.WasmTestHelpers
+open Tests.WasmTestHelper
 
 [<Tests>]
 let typeResolutionTests = testList "mapTypeKnown" [

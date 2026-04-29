@@ -1,7 +1,7 @@
 /// Test helpers for WasmGC compiler unit tests.
 /// makeTestCtx creates a real Ctx via Ctx.Create using a NullCompiler stub.
 /// All field names, type indices, and helper functions match the actual source.
-module Tests.WasmTestHelpers
+module Tests.WasmTestHelper
 
 open System
 open Expecto
@@ -207,7 +207,7 @@ let makeCtxFull
 // ─────────────────────────────────────────────────────────────────
 
 // mapTypeKnown is defined in Types.fs, imported via:
-//   open Fable.Transforms.WasmGc.Runtime.Types
+//   open WasmGc.Runtime.Types
 // Tests call it as: mapTypeKnown ctx fableType
 
 // ─────────────────────────────────────────────────────────────────
@@ -480,7 +480,7 @@ module FableAst =
 
     let mkIntLit n =
         // Expr.Value(NumberConstant(NumberValue.Int32 n, NumberInfo.Empty), None)
-        // Fable.Expr.Value(Fable.NumberConstant(float n, Fable.Int32, Fable.NumberInfo.Empty), None)
+        // Fable.Expr.Value(Fable.NumberConstant(float n, NumberKind.Int32, Fable.NumberInfo.Empty), None)
         // NumberConstant takes (NumberValue * NumberInfo)
         // Int32 must be qualified as NumberValue.Int32
         let value = NumberValue.Int32 (int n)

@@ -8,15 +8,18 @@ open Expecto
 open Fable.AST.Wasm
 open WasmGc
 open WasmGc.Runtime.Locals
+open WasmGc.Runtime.Types
 open WasmGc.Runtime.Runtime
 
-open Tests.WasmTestHelpers
+module RT = WasmGc.Runtime.Runtime
+
+open Tests.WasmTestHelper
 
 [<Tests>]
 let stringRuntimeTests = testList "String runtime helpers" [
 
     test "makeStrConcatHelper produces valid WFuncDecl" {
-        let decl = Runtime.makeStrConcatHelper()
+        let decl = RT.makeStrConcatHelper()
         Expect.equal decl.Name "$strConcat" "name must be $strConcat"
         Expect.equal decl.Params.Length 2 "must have 2 params (a, b)"
         Expect.notEqual decl.Body WExpr.Nop "body must not be Nop"
@@ -26,13 +29,13 @@ let stringRuntimeTests = testList "String runtime helpers" [
     }
 
     test "makeStrConcatHelper: no unknown locals" {
-        let decl = Runtime.makeStrConcatHelper()
+        let decl = RT.makeStrConcatHelper()
         let paramNames = decl.Params |> List.map fst
         assertNoUnknownLocals paramNames (decl.Locals |> List.map fst) decl.Body
     }
 
     test "makeStrEqHelper produces correct structure" {
-        let decl = Runtime.makeStrEqHelper()
+        let decl = RT.makeStrEqHelper()
         Expect.equal decl.Name "$strEq" "name must be $strEq"
         Expect.equal decl.Result WType.I32 "strEq must return I32 (bool)"
         let loops = WExprQuery.collect (function WExpr.Loop _ -> true | _ -> false) decl.Body
@@ -42,7 +45,7 @@ let stringRuntimeTests = testList "String runtime helpers" [
     test "makeStrIndexOfHelper: multi-level break produces no mutable result flag" {
         // After rewrite: should NOT contain a 'result = -1' pattern
         // Instead: Block + Break-with-value for early exit
-        let decl = Runtime.makeStrIndexOfHelper()
+        let decl = RT.makeStrIndexOfHelper()
         // Check: does it use break-with-value? (sign of the new implementation)
         let breakWithVal = WExprQuery.collect (function WExpr.Break(_, Some _) -> true | _ -> false) decl.Body
         // Either new CE-based (breakWithVal) or old QW-based (no break-with-value, uses flag)
@@ -51,13 +54,13 @@ let stringRuntimeTests = testList "String runtime helpers" [
     }
 
     test "makeStrSubstringHelper uses ArrayCopy" {
-        let decl = Runtime.makeStrSubstringHelper()
+        let decl = RT.makeStrSubstringHelper()
         let copies = WExprQuery.collect (function WExpr.ArrayCopy _ -> true | _ -> false) decl.Body
         Expect.isNonEmpty copies "substring must copy chars via ArrayCopy"
     }
 
     test "makeIntToStrHelper: result is WasmStr (not I32)" {
-        let decl = Runtime.makeIntToStrHelper()
+        let decl = RT.makeIntToStrHelper()
         Expect.equal decl.Result (WType.Ref(StringTypeIdx, false)) "intToStr must return WasmStr"
     }
 

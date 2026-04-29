@@ -5,7 +5,10 @@ open Fable.AST
 open Fable.AST.Fable
 open Fable.AST.Wasm
 open WasmGc
-open Tests.WasmTestHelpers
+open WasmGc.Transform.TransformExpr
+
+open Tests.WasmTestHelper
+open Tests.WasmTestHelper.FableAst
 
 [<Tests>]
 let patternMatchTests = testList "Pattern Matching" [
@@ -36,7 +39,7 @@ let patternMatchTests = testList "Pattern Matching" [
             intType, None
         )
 
-        let result = Fable2WasmGc.transformExpr ctx matchExpr
+        let result = transformExpr ctx matchExpr
 
         // Expectation: WasmGC should produce an 'if' checking the tag
         // followed by a struct.get to extract the value
