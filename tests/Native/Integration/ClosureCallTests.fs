@@ -10,7 +10,7 @@ open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc
 
-module Validator = WasmGc.PipelineValidator
+module Validator = WasmGc.Pipeline.Validator
 open WasmGc.Transforms.TransformExpr
 
 open Tests.WasmTestHelper

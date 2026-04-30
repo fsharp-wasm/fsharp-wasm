@@ -9,8 +9,8 @@ open WasmGc.Core.AST
 open WasmGc.Builder
 open WasmGc.Runtime.Types
 
-open WasmGc.Pipeline
-module Validator = WasmGc.PipelineValidator
+open WasmGc.Pipeline.Core
+module Validator = WasmGc.Pipeline.Validator
 
 open Tests.WasmTestHelper
 

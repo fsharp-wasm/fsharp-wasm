@@ -21,8 +21,6 @@
 module WasmGc.Pipeline.Phases
 
 open System
-open System.Collections.Generic
-open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
@@ -78,7 +76,7 @@ let phase1_AnalyzeScopes (ctx: Ctx) (decls: Declaration list) : Map<string, Scop
 /// Transform Fable declarations to WExpr using scope information.
 /// (Existing Fable2WasmGc.fs is called here; integration point.)
 let phase3_TransformToWExpr (ctx: Ctx) (scopeMaps: Map<string, ScopeMap>) (decls: Declaration list)
-    (opts: PipelineOptions) : WModule =
+    (_opts: PipelineOptions) : WModule =
     // TODO: Call into existing Fable2WasmGc.transformDeclarations,
     // passing scopeMaps so it can use ScopeMap instead of Ctx.Locals for IdentExpr resolution.
     // For now, this is a placeholder.
@@ -104,7 +102,7 @@ let phase4_Normalize (wmod: WModule) (opts: PipelineOptions) : WModule =
 // ─────────────────────────────────────────────────────────────────
 
 /// Validate the module for structural correctness before emission.
-let phase6_Validate (wmod: WModule) (opts: PipelineOptions) : Result<WModule, string list> =
+let phase6_Validate (wmod: WModule) (_opts: PipelineOptions) : Result<WModule, string list> =
     // TODO: Integrate WasmGcValidator.validate
     // For now, stub.
     printfn "[Phase 6] Validation (stub)"

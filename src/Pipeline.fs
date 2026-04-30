@@ -2,7 +2,7 @@
 /// Mirrors the pattern of Fable's built-in language backends.
 /// Call compileFile from any host that has a Fable.Compiler instance
 /// (e.g. a custom CLI, a dotnet tool wrapping Fable.Compiler.CodeServices).
-module WasmGc.Pipeline
+module WasmGc.Pipeline.Core
 
 open System.Collections.Concurrent
 open Fable

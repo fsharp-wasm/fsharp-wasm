@@ -1,25 +1,23 @@
 module WasmGc.Pipeline.Dumps
 
 open System.IO
-open System.Text
 open Fable.AST.Fable
 open WasmGc.Core.AST
 
 module FableAstDump =
 
-    let private dumpDecl (decl: Declaration) : string =
+    let private declHeader (decl: Declaration) : string =
         match decl with
         | Declaration.MemberDeclaration md -> $"[member] {md.Name}"
         | Declaration.ClassDeclaration cd -> $"[class] {cd.Name}"
         | Declaration.ModuleDeclaration md -> $"[module] {md.Name}"
         | Declaration.ActionDeclaration _ -> "[action]"
 
-    /// Minimal phase-0 dump writer kept local to the pipeline.
     let dumpToFile (outPath: string) (decls: Declaration list) : unit =
         let lines =
             [
-                ";; phase0 fable declarations"
-                yield! decls |> List.map dumpDecl
+                ";; Phase 0 Fable AST dump"
+                yield! decls |> List.map declHeader
             ]
 
         File.WriteAllLines(outPath, lines)
@@ -35,35 +33,59 @@ module IrDump =
         | WExpr.Const c -> $"{p}(const {c})"
         | WExpr.LocalGet(name, ty) -> $"{p}(local.get {name} : {ty})"
         | WExpr.GlobalGet(name, ty) -> $"{p}(global.get {name} : {ty})"
-        | WExpr.Nop -> $"{p}nop"
-        | WExpr.Sequence exprs ->
-            let inner = exprs |> List.map (dumpExpr (indent + 2)) |> String.concat "\n"
-            $"{p}(seq\n{inner}\n{p})"
+        | WExpr.GlobalSet(name, value) ->
+            $"{p}(global.set {name}\n{dumpExpr (indent + 2) value}\n{p})"
         | WExpr.Let(name, value, body) ->
             $"{p}(let {name}\n{dumpExpr (indent + 2) value}\n{dumpExpr (indent + 2) body}\n{p})"
         | WExpr.LetMut(name, value, body) ->
             $"{p}(let-mut {name}\n{dumpExpr (indent + 2) value}\n{dumpExpr (indent + 2) body}\n{p})"
+        | WExpr.Assign(name, value) ->
+            $"{p}(set {name}\n{dumpExpr (indent + 2) value}\n{p})"
+        | WExpr.Sequence exprs ->
+            let inner = exprs |> List.map (dumpExpr (indent + 2)) |> String.concat "\n"
+            $"{p}(seq\n{inner}\n{p})"
         | WExpr.If(cond, thenExpr, elseExpr, ty) ->
             $"{p}(if : {ty}\n{dumpExpr (indent + 2) cond}\n{dumpExpr (indent + 2) thenExpr}\n{dumpExpr (indent + 2) elseExpr}\n{p})"
-        | _ ->
-            // Keep a safe fallback for all other current/future IR nodes.
-            $"{p}{expr}"
+        | WExpr.Block(label, body, ty) ->
+            $"{p}(block {label} : {ty}\n{dumpExpr (indent + 2) body}\n{p})"
+        | WExpr.Loop(label, body, ty) ->
+            $"{p}(loop {label} : {ty}\n{dumpExpr (indent + 2) body}\n{p})"
+        | WExpr.Break(label, valueOpt) ->
+            match valueOpt with
+            | Some value -> $"{p}(break {label}\n{dumpExpr (indent + 2) value}\n{p})"
+            | None -> $"{p}(break {label})"
+        | WExpr.Continue(label, args) ->
+            let inner = args |> List.map (dumpExpr (indent + 2)) |> String.concat "\n"
+            if System.String.IsNullOrEmpty(inner) then $"{p}(continue {label})"
+            else $"{p}(continue {label}\n{inner}\n{p})"
+        | WExpr.Return valueOpt ->
+            match valueOpt with
+            | Some value -> $"{p}(return\n{dumpExpr (indent + 2) value}\n{p})"
+            | None -> $"{p}(return)"
+        | WExpr.Nop -> $"{p}nop"
+        | _ -> $"{p}{expr}"
 
     let private dumpFuncDecl (f: WFuncDecl) : string =
-        let sb = StringBuilder()
-        sb.AppendLine($"(func {f.Name} (result {f.Result})") |> ignore
+        let paramLines =
+            f.Params
+            |> List.map (fun (name, ty) -> $"  (param {name} {ty})")
 
-        for (n, t) in f.Params do
-            sb.AppendLine($"  (param {n} {t})") |> ignore
+        let localLines =
+            f.Locals
+            |> List.map (fun (name, ty) -> $"  (local {name} {ty})")
 
-        for (n, t) in f.Locals do
-            sb.AppendLine($"  (local {n} {t})") |> ignore
+        let body = dumpExpr 2 f.Body
 
-        sb.AppendLine(dumpExpr 2 f.Body) |> ignore
-        sb.AppendLine(")") |> ignore
-        sb.ToString().TrimEnd()
+        String.concat "\n" (
+            [
+                $"(func {f.Name} (result {f.Result})"
+                yield! paramLines
+                yield! localLines
+                body
+                ")"
+            ]
+        )
 
-    /// Minimal phase-3 IR dump writer kept local to the pipeline.
     let dumpToFile (outPath: string) (wmod: WModule) : unit =
         let content =
             wmod.Functions

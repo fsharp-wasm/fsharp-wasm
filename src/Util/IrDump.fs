@@ -14,7 +14,7 @@
 ///           (break $exit)))))
 ///
 /// Enable via --dump-phases 3 CLI flag.
-module WasmGc.Pipeline.Dumps.IrDump
+module WasmGc.Util.IrDump
 
 open System.IO
 open WasmGc.Core.AST

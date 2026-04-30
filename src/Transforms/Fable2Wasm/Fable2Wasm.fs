@@ -11,7 +11,7 @@ open WasmGc.Runtime.Locals
 open WasmGc.Runtime.Types
 module RT = WasmGc.Runtime.Runtime
 module VT = WasmGc.Runtime.VTable
-module Val = WasmGc.PipelineValidator
+module Val = WasmGc.Pipeline.Validator
 
 open TransformMemberDecl
 open TransformExpr

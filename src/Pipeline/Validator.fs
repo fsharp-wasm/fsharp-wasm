@@ -5,7 +5,7 @@
 ///
 /// Insert into buildWModule after fixClosureApply:
 ///   Validator.validate true ctx.TypeDefs fixedFunctions
-module WasmGc.PipelineValidator
+module WasmGc.Pipeline.Validator
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types

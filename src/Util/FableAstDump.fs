@@ -9,7 +9,7 @@
 /// - Calls and applications
 ///
 /// Enable via --dump-phases 0 CLI flag.
-module WasmGc.Pipeline.Dumps.FableAstDump
+module WasmGc.Util.FableAstDump
 
 open System.IO
 open Fable.AST

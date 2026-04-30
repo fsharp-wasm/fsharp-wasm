@@ -248,7 +248,8 @@ let flattenSequences (expr: WExpr) : WExpr =
             let rec flattenList acc = function
                 | [] -> List.rev acc
                 | WExpr.Sequence inner :: rest ->
-                    flattenList (List.revAppend (flattenList [] inner) acc) rest
+                    let innerFlat = flattenList [] inner
+                    flattenList ((List.rev innerFlat) @ acc) rest
                 | e :: rest ->
                     flattenList (e :: acc) rest
             let flattened = flattenList [] exprs
