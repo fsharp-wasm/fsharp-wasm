@@ -23,272 +23,528 @@ open WasmGc.Core.AST
 // Type and operator formatting
 // ─────────────────────────────────────────────────────────────────
 
-let wTypeToString (ty: WType) : string =
+let rec wTypeToString (ty: WType) : string =
     match ty with
     | WType.I32 -> "i32"
     | WType.I64 -> "i64"
     | WType.F32 -> "f32"
     | WType.F64 -> "f64"
+    | WType.I16 -> "i16"
     | WType.Void -> "void"
+    | WType.Externref -> "externref"
+    | WType.I31ref -> "i31ref"
+    | WType.EqRef -> "eqref"
+    | WType.AnyRef -> "anyref"
     | WType.Ref(idx, nullable) ->
-        if nullable then sprintf "ref?(t%d)" idx else sprintf "ref(t%d)" idx
-    | WType.Array elemTy -> sprintf "array(%s)" (wTypeToString elemTy)
-    | WType.ArrayMut elemTy -> sprintf "array!(mut %s)" (wTypeToString elemTy)
+        if nullable then $"(ref null t{idx})" else $"(ref t{idx})"
+    | WType.Func(args, results) ->
+        let a = args |> List.map wTypeToString |> String.concat " "
+        let r = results |> List.map wTypeToString |> String.concat " "
+        $"(func ({a}) -> ({r}))"
+    | WType.Struct fields ->
+        let fs =
+            fields
+            |> List.map (fun f ->
+                let mutSuffix = if f.Mutable then " mut" else ""
+                $"{f.Name}:{wTypeToString f.Type}{mutSuffix}")
+            |> String.concat "; "
+        $"(struct {fs})"
+    | WType.Array(elem, mutable_) ->
+        if mutable_ then $"(array mut {wTypeToString elem})"
+        else $"(array {wTypeToString elem})"
 
-let wUnOpToString (op: WUnOp) : string =
+let wUnaryOpToString (op: WUnaryOp) : string =
     match op with
-    | WUnOp.I32Clz -> "clz-s"
-    | WUnOp.I32Ctz -> "ctz-s"
-    | WUnOp.I32Popcnt -> "popcnt-s"
-    | WUnOp.I64Clz -> "clz-l"
-    | WUnOp.I64Ctz -> "ctz-l"
-    | WUnOp.I64Popcnt -> "popcnt-l"
-    | WUnOp.F32Abs -> "abs-f32"
-    | WUnOp.F32Neg -> "neg-f32"
-    | WUnOp.F32Sqrt -> "sqrt-f32"
-    | WUnOp.F64Abs -> "abs-f64"
-    | WUnOp.F64Neg -> "neg-f64"
-    | WUnOp.F64Sqrt -> "sqrt-f64"
-    | WUnOp.I32Extend8S -> "extend8-s"
-    | WUnOp.I32Extend16S -> "extend16-s"
-    | WUnOp.I32TruncF32S -> "trunc-f32-s"
-    | WUnOp.I32TruncF32U -> "trunc-f32-u"
-    | WUnOp.I32TruncF64S -> "trunc-f64-s"
-    | WUnOp.I32TruncF64U -> "trunc-f64-u"
-    | WUnOp.I64TruncF32S -> "trunc-f32-l-s"
-    | WUnOp.I64TruncF32U -> "trunc-f32-l-u"
-    | WUnOp.I64TruncF64S -> "trunc-f64-l-s"
-    | WUnOp.I64TruncF64U -> "trunc-f64-l-u"
-    | WUnOp.F32ConvertI32S -> "convert-i32-f32-s"
-    | WUnOp.F32ConvertI32U -> "convert-i32-f32-u"
-    | WUnOp.F32ConvertI64S -> "convert-i64-f32-s"
-    | WUnOp.F32ConvertI64U -> "convert-i64-f32-u"
-    | WUnOp.F32DemoteF64 -> "demote-f64"
-    | WUnOp.F64ConvertI32S -> "convert-i32-f64-s"
-    | WUnOp.F64ConvertI32U -> "convert-i32-f64-u"
-    | WUnOp.F64ConvertI64S -> "convert-i64-f64-s"
-    | WUnOp.F64ConvertI64U -> "convert-i64-f64-u"
-    | WUnOp.F64PromoteF32 -> "promote-f32"
-    | WUnOp.I32ReinterpretF32 -> "reinterpret-f32"
-    | WUnOp.I64ReinterpretF64 -> "reinterpret-f64"
-    | WUnOp.F32ReinterpretI32 -> "reinterpret-i32"
-    | WUnOp.F64ReinterpretI64 -> "reinterpret-i64"
+    | WUnaryOp.Neg -> "neg"
+    | WUnaryOp.Abs -> "abs"
+    | WUnaryOp.Sqrt -> "sqrt"
+    | WUnaryOp.Ceil -> "ceil"
+    | WUnaryOp.Floor -> "floor"
+    | WUnaryOp.Trunc -> "trunc"
+    | WUnaryOp.Nearest -> "nearest"
+    | WUnaryOp.Not -> "not"
+    | WUnaryOp.Clz -> "clz"
+    | WUnaryOp.Ctz -> "ctz"
+    | WUnaryOp.Popcnt -> "popcnt"
+    | WUnaryOp.Eqz -> "eqz"
+    | WUnaryOp.WrapI64 -> "wrap_i64"
+    | WUnaryOp.ExtendI32S -> "extend_i32_s"
+    | WUnaryOp.ExtendI32U -> "extend_i32_u"
+    | WUnaryOp.TruncF64S -> "trunc_f64_s"
+    | WUnaryOp.TruncF32S -> "trunc_f32_s"
+    | WUnaryOp.ConvertI32S -> "convert_i32_s"
+    | WUnaryOp.ConvertI64S -> "convert_i64_s"
+    | WUnaryOp.PromoteF32 -> "promote_f32"
+    | WUnaryOp.DemoteF64 -> "demote_f64"
+    | WUnaryOp.ReinterpretI32ToF32 -> "reinterpret_i32_to_f32"
+    | WUnaryOp.ReinterpretF32ToI32 -> "reinterpret_f32_to_i32"
+    | WUnaryOp.ReinterpretI64ToF64 -> "reinterpret_i64_to_f64"
+    | WUnaryOp.ReinterpretF64ToI64 -> "reinterpret_f64_to_i64"
 
-let wBinOpToString (op: WBinOp) : string =
+let wBinaryOpToString (op: WBinaryOp) : string =
     match op with
-    | WBinOp.I32Add -> "add-s"
-    | WBinOp.I32Sub -> "sub-s"
-    | WBinOp.I32Mul -> "mul-s"
-    | WBinOp.I32DivS -> "div-s-s"
-    | WBinOp.I32DivU -> "div-s-u"
-    | WBinOp.I32RemS -> "rem-s-s"
-    | WBinOp.I32RemU -> "rem-s-u"
-    | WBinOp.I32And -> "and-s"
-    | WBinOp.I32Or -> "or-s"
-    | WBinOp.I32Xor -> "xor-s"
-    | WBinOp.I32Shl -> "shl-s"
-    | WBinOp.I32ShrS -> "shr-s-s"
-    | WBinOp.I32ShrU -> "shr-s-u"
-    | WBinOp.I32RotL -> "rotl-s"
-    | WBinOp.I32RotR -> "rotr-s"
-    | WBinOp.I64Add -> "add-l"
-    | WBinOp.I64Sub -> "sub-l"
-    | WBinOp.I64Mul -> "mul-l"
-    | WBinOp.I64DivS -> "div-l-s"
-    | WBinOp.I64DivU -> "div-l-u"
-    | WBinOp.I64RemS -> "rem-l-s"
-    | WBinOp.I64RemU -> "rem-l-u"
-    | WBinOp.I64And -> "and-l"
-    | WBinOp.I64Or -> "or-l"
-    | WBinOp.I64Xor -> "xor-l"
-    | WBinOp.I64Shl -> "shl-l"
-    | WBinOp.I64ShrS -> "shr-l-s"
-    | WBinOp.I64ShrU -> "shr-l-u"
-    | WBinOp.I64RotL -> "rotl-l"
-    | WBinOp.I64RotU -> "rotr-l"
-    | WBinOp.F32Add -> "add-f32"
-    | WBinOp.F32Sub -> "sub-f32"
-    | WBinOp.F32Mul -> "mul-f32"
-    | WBinOp.F32Div -> "div-f32"
-    | WBinOp.F32Min -> "min-f32"
-    | WBinOp.F32Max -> "max-f32"
-    | WBinOp.F32Copysign -> "copysign-f32"
-    | WBinOp.F64Add -> "add-f64"
-    | WBinOp.F64Sub -> "sub-f64"
-    | WBinOp.F64Mul -> "mul-f64"
-    | WBinOp.F64Div -> "div-f64"
-    | WBinOp.F64Min -> "min-f64"
-    | WBinOp.F64Max -> "max-f64"
-    | WBinOp.F64Copysign -> "copysign-f64"
+    | WBinaryOp.Add -> "add"
+    | WBinaryOp.Sub -> "sub"
+    | WBinaryOp.Mul -> "mul"
+    | WBinaryOp.DivS -> "div_s"
+    | WBinaryOp.DivU -> "div_u"
+    | WBinaryOp.RemS -> "rem_s"
+    | WBinaryOp.RemU -> "rem_u"
+    | WBinaryOp.And -> "and"
+    | WBinaryOp.Or -> "or"
+    | WBinaryOp.Xor -> "xor"
+    | WBinaryOp.Shl -> "shl"
+    | WBinaryOp.ShrS -> "shr_s"
+    | WBinaryOp.ShrU -> "shr_u"
+    | WBinaryOp.Rotl -> "rotl"
+    | WBinaryOp.Rotr -> "rotr"
+    | WBinaryOp.Min -> "min"
+    | WBinaryOp.Max -> "max"
+    | WBinaryOp.CopySign -> "copysign"
 
-let wCompOpToString (op: WCompOp) : string =
+let wCompareOpToString (op: WCompareOp) : string =
     match op with
-    | WCompOp.I32Eq -> "eq-s"
-    | WCompOp.I32Ne -> "ne-s"
-    | WCompOp.I32LtS -> "lt-s-s"
-    | WCompOp.I32LtU -> "lt-s-u"
-    | WCompOp.I32LeS -> "le-s-s"
-    | WCompOp.I32LeU -> "le-s-u"
-    | WCompOp.I32GtS -> "gt-s-s"
-    | WCompOp.I32GtU -> "gt-s-u"
-    | WCompOp.I32GeS -> "ge-s-s"
-    | WCompOp.I32GeU -> "ge-s-u"
-    | WCompOp.I64Eq -> "eq-l"
-    | WCompOp.I64Ne -> "ne-l"
-    | WCompOp.I64LtS -> "lt-l-s"
-    | WCompOp.I64LtU -> "lt-l-u"
-    | WCompOp.I64LeS -> "le-l-s"
-    | WCompOp.I64LeU -> "le-l-u"
-    | WCompOp.I64GtS -> "gt-l-s"
-    | WCompOp.I64GtU -> "gt-l-u"
-    | WCompOp.I64GeS -> "ge-l-s"
-    | WCompOp.I64GeU -> "ge-l-u"
-    | WCompOp.F32Eq -> "eq-f32"
-    | WCompOp.F32Ne -> "ne-f32"
-    | WCompOp.F32Lt -> "lt-f32"
-    | WCompOp.F32Le -> "le-f32"
-    | WCompOp.F32Gt -> "gt-f32"
-    | WCompOp.F32Ge -> "ge-f32"
-    | WCompOp.F64Eq -> "eq-f64"
-    | WCompOp.F64Ne -> "ne-f64"
-    | WCompOp.F64Lt -> "lt-f64"
-    | WCompOp.F64Le -> "le-f64"
-    | WCompOp.F64Gt -> "gt-f64"
-    | WCompOp.F64Ge -> "ge-f64"
+    | WCompareOp.Eq -> "eq"
+    | WCompareOp.Ne -> "ne"
+    | WCompareOp.LtS -> "lt_s"
+    | WCompareOp.LtU -> "lt_u"
+    | WCompareOp.GtS -> "gt_s"
+    | WCompareOp.GtU -> "gt_u"
+    | WCompareOp.LeS -> "le_s"
+    | WCompareOp.LeU -> "le_u"
+    | WCompareOp.GeS -> "ge_s"
+    | WCompareOp.GeU -> "ge_u"
+    | WCompareOp.RefEq -> "ref_eq"
+
+let wMemKindToString (k: WMemKind) : string =
+    match k with
+    | WMemKind.Byte -> "byte"
+    | WMemKind.I32 -> "i32"
+    | WMemKind.I64 -> "i64"
+    | WMemKind.F32 -> "f32"
+    | WMemKind.F64 -> "f64"
 
 // ─────────────────────────────────────────────────────────────────
 // WExpr formatting
 // ─────────────────────────────────────────────────────────────────
 
-/// Format a WExpr as an S-expression with proper indentation.
+let private pad (indent: int) = String.replicate indent " "
+
+let private joinLines (lines: string list) = String.concat "\n" lines
+
 let rec dumpExpr (indent: int) (expr: WExpr) : string =
-    let indentStr = String.replicate indent " "
+    let p = pad indent
+    let d = dumpExpr (indent + 2)
 
     match expr with
-    | WExpr.Const(const_) ->
-        match const_ with
-        | WConst.I32 n -> sprintf "i32(%d)" n
-        | WConst.I64 n -> sprintf "i64(%dL)" n
-        | WConst.F32 f -> sprintf "f32(%f)" f
-        | WConst.F64 f -> sprintf "f64(%f)" f
-        | WConst.Null -> "null"
-        | WConst.Undefined -> "undefined"
+    | WExpr.Const c ->
+        match c with
+        | WConst.I32 n -> $"{p}(i32.const {n})"
+        | WConst.I64 n -> $"{p}(i64.const {n})"
+        | WConst.F32 n -> $"{p}(f32.const {n})"
+        | WConst.F64 n -> $"{p}(f64.const {n})"
+        | WConst.String s -> $"{p}(string.const {s})"
+        | WConst.Null ty -> $"{p}(ref.null {wTypeToString ty})"
+        | WConst.Unit -> $"{p}unit"
 
     | WExpr.LocalGet(name, ty) ->
-        sprintf "(local-get %s : %s)" name (wTypeToString ty)
+        $"{p}(local.get {name} : {wTypeToString ty})"
 
-    | WExpr.LocalSet(name, value) ->
-        sprintf "(local-set %s\n%s%s)" name indentStr (dumpExpr (indent + 2) value)
+    | WExpr.GlobalGet(name, ty) ->
+        $"{p}(global.get {name} : {wTypeToString ty})"
 
-    | WExpr.Assign(name, value) ->
-        sprintf "(set %s\n%s%s)" name indentStr (dumpExpr (indent + 2) value)
+    | WExpr.GlobalSet(name, value) ->
+        joinLines [
+            $"{p}(global.set {name}"
+            d value
+            $"{p})"
+        ]
 
     | WExpr.Let(name, value, body) ->
-        sprintf "(let %s\n%s%s\n%s%s)"
-            name indentStr (dumpExpr (indent + 2) value) indentStr (dumpExpr (indent + 2) body)
+        joinLines [
+            $"{p}(let {name}"
+            d value
+            d body
+            $"{p})"
+        ]
 
     | WExpr.LetMut(name, value, body) ->
-        sprintf "(let-mut %s\n%s%s\n%s%s)"
-            name indentStr (dumpExpr (indent + 2) value) indentStr (dumpExpr (indent + 2) body)
+        joinLines [
+            $"{p}(let-mut {name}"
+            d value
+            d body
+            $"{p})"
+        ]
 
-    | WExpr.Nop -> "nop"
+    | WExpr.Assign(name, value) ->
+        joinLines [
+            $"{p}(set {name}"
+            d value
+            $"{p})"
+        ]
 
-    | WExpr.Sequence exprs ->
-        let exprStrs = exprs |> List.map (fun e ->
-            sprintf "%s%s" indentStr (dumpExpr (indent + 2) e))
-        sprintf "(seq\n%s)" (String.concat "\n" exprStrs)
+    | WExpr.Call(func, args, ty) ->
+        let argLines = args |> List.map d
+        joinLines (
+            [ $"{p}(call {func} : {wTypeToString ty}" ]
+            @ argLines
+            @ [ $"{p})" ]
+        )
 
-    | WExpr.If(cond, thenExpr, elseExpr, ty) ->
-        sprintf "(if %s : %s\n%s%s\n%s%s\n%s%s)"
-            (dumpExpr 0 cond) (wTypeToString ty)
-            indentStr (dumpExpr (indent + 2) thenExpr)
-            indentStr (dumpExpr (indent + 2) thenExpr)
-            indentStr (dumpExpr (indent + 2) elseExpr)
+    | WExpr.CallIndirect(funcRef, args, ty) ->
+        let argLines = args |> List.map d
+        joinLines (
+            [ $"{p}(call_indirect : {wTypeToString ty}"
+              d funcRef ]
+            @ argLines
+            @ [ $"{p})" ]
+        )
 
-    | WExpr.Loop(label, body, ty) ->
-        sprintf "(loop %s : %s\n%s%s)" label (wTypeToString ty) indentStr (dumpExpr (indent + 2) body)
+    | WExpr.CallVirtual(obj, boxTypeIdx, vtableTypeIdx, methodIdx, funcTypeIdx, args, ty) ->
+        let argLines = args |> List.map d
+        joinLines (
+            [ $"{p}(call_virtual boxType={boxTypeIdx} vtableType={vtableTypeIdx} methodIdx={methodIdx} funcType={funcTypeIdx} : {wTypeToString ty}"
+              d obj ]
+            @ argLines
+            @ [ $"{p})" ]
+        )
 
-    | WExpr.Block(label, body, ty) ->
-        sprintf "(block %s : %s\n%s%s)" label (wTypeToString ty) indentStr (dumpExpr (indent + 2) body)
+    | WExpr.FuncRef funcName ->
+        $"{p}(ref.func {funcName})"
 
-    | WExpr.Break(label, Some value) ->
-        sprintf "(break %s %s)" label (dumpExpr 0 value)
+    | WExpr.StructNew(typeIdx, fields, ty) ->
+        let fs = fields |> List.map d
+        joinLines (
+            [ $"{p}(struct.new t{typeIdx} : {wTypeToString ty}" ]
+            @ fs
+            @ [ $"{p})" ]
+        )
 
-    | WExpr.Break(label, None) ->
-        sprintf "(break %s)" label
+    | WExpr.StructGet(obj, fieldIdx, ty) ->
+        joinLines [
+            $"{p}(struct.get {fieldIdx} : {wTypeToString ty}"
+            d obj
+            $"{p})"
+        ]
 
-    | WExpr.Continue(label, _) ->
-        sprintf "(continue %s)" label
+    | WExpr.StructSet(obj, fieldIdx, value) ->
+        joinLines [
+            $"{p}(struct.set {fieldIdx}"
+            d obj
+            d value
+            $"{p})"
+        ]
 
-    | WExpr.Call(name, args, ty) ->
-        let argStrs = args |> List.map (dumpExpr 0) |> String.concat " "
-        sprintf "(call %s %s : %s)" name argStrs (wTypeToString ty)
+    | WExpr.ArrayNew(typeIdx, size, init, ty) ->
+        joinLines [
+            $"{p}(array.new t{typeIdx} : {wTypeToString ty}"
+            d size
+            d init
+            $"{p})"
+        ]
 
-    | WExpr.CallIndirect(tableIdx, args, ty) ->
-        let argStrs = args |> List.map (dumpExpr 0) |> String.concat " "
-        sprintf "(call-indirect $t%d %s : %s)" tableIdx argStrs (wTypeToString ty)
-
-    | WExpr.Binary(op, left, right, ty) ->
-        sprintf "(%s %s %s : %s)" (wBinOpToString op) (dumpExpr 0 left) (dumpExpr 0 right) (wTypeToString ty)
-
-    | WExpr.Unary(op, value, ty) ->
-        sprintf "(%s %s : %s)" (wUnOpToString op) (dumpExpr 0 value) (wTypeToString ty)
-
-    | WExpr.Compare(op, left, right) ->
-        sprintf "(%s %s %s)" (wCompOpToString op) (dumpExpr 0 left) (dumpExpr 0 right)
-
-    | WExpr.ClosureApply(closure, args, fti, cti, ci, ty) ->
-        let argStrs = args |> List.map (dumpExpr 0) |> String.concat " "
-        sprintf "(closure-apply %s %s : fti=%d cti=%d ci=%d %s)"
-            (dumpExpr 0 closure) argStrs fti cti ci (wTypeToString ty)
+    | WExpr.ArrayNewFixed(typeIdx, elems, ty) ->
+        let es = elems |> List.map d
+        joinLines (
+            [ $"{p}(array.new_fixed t{typeIdx} : {wTypeToString ty}" ]
+            @ es
+            @ [ $"{p})" ]
+        )
 
     | WExpr.ArrayGet(arr, idx, ty) ->
-        sprintf "(array.get %s [%s] : %s)" (dumpExpr 0 arr) (dumpExpr 0 idx) (wTypeToString ty)
+        joinLines [
+            $"{p}(array.get : {wTypeToString ty}"
+            d arr
+            d idx
+            $"{p})"
+        ]
 
     | WExpr.ArraySet(arr, idx, value) ->
-        sprintf "(array.set %s [%s] %s)" (dumpExpr 0 arr) (dumpExpr 0 idx) (dumpExpr 0 value)
+        joinLines [
+            $"{p}(array.set"
+            d arr
+            d idx
+            d value
+            $"{p})"
+        ]
 
-    | WExpr.ArrayLen(arr) ->
-        sprintf "(array.len %s)" (dumpExpr 0 arr)
+    | WExpr.ArrayLen arr ->
+        joinLines [
+            $"{p}(array.len"
+            d arr
+            $"{p})"
+        ]
 
-    | WExpr.StructGet(obj, field, ty) ->
-        sprintf "(struct.get %s .%s : %s)" (dumpExpr 0 obj) field (wTypeToString ty)
+    | WExpr.ArrayCopy(dst, dstOff, src, srcOff, len) ->
+        joinLines [
+            $"{p}(array.copy"
+            d dst
+            d dstOff
+            d src
+            d srcOff
+            d len
+            $"{p})"
+        ]
 
-    | WExpr.StructSet(obj, field, value) ->
-        sprintf "(struct.set %s .%s %s)" (dumpExpr 0 obj) field (dumpExpr 0 value)
+    | WExpr.If(cond, thenExpr, elseExpr, ty) ->
+        joinLines [
+            $"{p}(if : {wTypeToString ty}"
+            d cond
+            d thenExpr
+            d elseExpr
+            $"{p})"
+        ]
 
-    | WExpr.Closure(ctypeIdx, captures, ty) ->
-        let captureStrs = captures |> List.map (dumpExpr 0) |> String.concat " "
-        sprintf "(closure t%d %s : %s)" ctypeIdx captureStrs (wTypeToString ty)
+    | WExpr.Loop(label, body, ty) ->
+        joinLines [
+            $"{p}(loop {label} : {wTypeToString ty}"
+            d body
+            $"{p})"
+        ]
 
-    | WExpr.Cast(obj, ty) ->
-        sprintf "(cast %s : %s)" (dumpExpr 0 obj) (wTypeToString ty)
+    | WExpr.Break(label, valueOpt) ->
+        match valueOpt with
+        | Some value ->
+            joinLines [
+                $"{p}(break {label}"
+                d value
+                $"{p})"
+            ]
+        | None ->
+            $"{p}(break {label})"
 
-    | WExpr.RefIsNull(obj) ->
-        sprintf "(ref.is-null %s)" (dumpExpr 0 obj)
+    | WExpr.Continue(label, args) ->
+        let as_ = args |> List.map d
+        joinLines (
+            [ $"{p}(continue {label}" ]
+            @ as_
+            @ [ $"{p})" ]
+        )
 
-    | _ ->
-        sprintf "[%s]" (expr.GetType().Name)
+    | WExpr.Block(label, body, ty) ->
+        joinLines [
+            $"{p}(block {label} : {wTypeToString ty}"
+            d body
+            $"{p})"
+        ]
 
+    | WExpr.Return valueOpt ->
+        match valueOpt with
+        | Some v ->
+            joinLines [
+                $"{p}(return"
+                d v
+                $"{p})"
+            ]
+        | None ->
+            $"{p}(return)"
 
-/// Format a function declaration.
+    | WExpr.Sequence exprs ->
+        let xs = exprs |> List.map d
+        joinLines (
+            [ $"{p}(seq" ]
+            @ xs
+            @ [ $"{p})" ]
+        )
+
+    | WExpr.Nop ->
+        $"{p}nop"
+
+    | WExpr.JoinPoint(label, parms, body, cont, ty) ->
+        let ps =
+            parms
+            |> List.map (fun (n, t) -> $"{n}:{wTypeToString t}")
+            |> String.concat ", "
+        joinLines [
+            $"{p}(join_point {label} ({ps}) : {wTypeToString ty}"
+            d body
+            d cont
+            $"{p})"
+        ]
+
+    | WExpr.JoinApply(label, args, ty) ->
+        let as_ = args |> List.map d
+        joinLines (
+            [ $"{p}(join_apply {label} : {wTypeToString ty}" ]
+            @ as_
+            @ [ $"{p})" ]
+        )
+
+    | WExpr.SwitchInt(scrutinee, cases, default_, ty) ->
+        let caseLines =
+            cases
+            |> List.collect (fun (k, e) ->
+                [ $"{p}  (case {k}"
+                  dumpExpr (indent + 4) e
+                  $"{p}  )" ])
+        joinLines (
+            [ $"{p}(switch_int : {wTypeToString ty}"
+              d scrutinee ]
+            @ caseLines
+            @ [ $"{p}  (default"
+                dumpExpr (indent + 4) default_
+                $"{p}  )"
+                $"{p})" ]
+        )
+
+    | WExpr.TagOf obj ->
+        joinLines [
+            $"{p}(tag_of"
+            d obj
+            $"{p})"
+        ]
+
+    | WExpr.Cast(obj, targetType) ->
+        joinLines [
+            $"{p}(cast -> {wTypeToString targetType}"
+            d obj
+            $"{p})"
+        ]
+
+    | WExpr.RefIsNull obj ->
+        joinLines [
+            $"{p}(ref.is_null"
+            d obj
+            $"{p})"
+        ]
+
+    | WExpr.RefTest(obj, targetType) ->
+        joinLines [
+            $"{p}(ref.test {wTypeToString targetType}"
+            d obj
+            $"{p})"
+        ]
+
+    | WExpr.Closure(funcName, captures, ty) ->
+        let cs = captures |> List.map d
+        joinLines (
+            [ $"{p}(closure {funcName} : {wTypeToString ty}" ]
+            @ cs
+            @ [ $"{p})" ]
+        )
+
+    | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, captureCount, ty) ->
+        let as_ = args |> List.map d
+        joinLines (
+            [ $"{p}(closure_apply fti={funcTypeIdx} cti={closureTypeIdx} captures={captureCount} : {wTypeToString ty}"
+              d closure ]
+            @ as_
+            @ [ $"{p})" ]
+        )
+
+    | WExpr.Unary(op, operand, ty) ->
+        joinLines [
+            $"{p}({wUnaryOpToString op} : {wTypeToString ty}"
+            d operand
+            $"{p})"
+        ]
+
+    | WExpr.Binary(op, left, right, ty) ->
+        joinLines [
+            $"{p}({wBinaryOpToString op} : {wTypeToString ty}"
+            d left
+            d right
+            $"{p})"
+        ]
+
+    | WExpr.Compare(op, left, right) ->
+        joinLines [
+            $"{p}({wCompareOpToString op}"
+            d left
+            d right
+            $"{p})"
+        ]
+
+    | WExpr.TailCall(func, args, ty) ->
+        let as_ = args |> List.map d
+        joinLines (
+            [ $"{p}(tail_call {func} : {wTypeToString ty}" ]
+            @ as_
+            @ [ $"{p})" ]
+        )
+
+    | WExpr.TailCallRef(funcRef, args, funcTypeIdx, closureTypeIdx, captureCount, ty) ->
+        let as_ = args |> List.map d
+        joinLines (
+            [ $"{p}(tail_call_ref fti={funcTypeIdx} cti={closureTypeIdx} captures={captureCount} : {wTypeToString ty}"
+              d funcRef ]
+            @ as_
+            @ [ $"{p})" ]
+        )
+
+    | WExpr.TryCatch(body, catchExpr, finallyExpr, ty) ->
+        let catchLines =
+            match catchExpr with
+            | Some (name, cexpr) ->
+                [ $"{p}  (catch {name}"
+                  dumpExpr (indent + 4) cexpr
+                  $"{p}  )" ]
+            | None -> []
+        let finallyLines =
+            match finallyExpr with
+            | Some f ->
+                [ $"{p}  (finally"
+                  dumpExpr (indent + 4) f
+                  $"{p}  )" ]
+            | None -> []
+        joinLines (
+            [ $"{p}(try : {wTypeToString ty}"
+              d body ]
+            @ catchLines
+            @ finallyLines
+            @ [ $"{p})" ]
+        )
+
+    | WExpr.Throw exn ->
+        joinLines [
+            $"{p}(throw"
+            d exn
+            $"{p})"
+        ]
+
+    | WExpr.MemLoad(kind, offset, addr) ->
+        joinLines [
+            $"{p}(mem.load {wMemKindToString kind} offset={offset}"
+            d addr
+            $"{p})"
+        ]
+
+    | WExpr.MemStore(kind, offset, addr, value) ->
+        joinLines [
+            $"{p}(mem.store {wMemKindToString kind} offset={offset}"
+            d addr
+            d value
+            $"{p})"
+        ]
+
+    | WExpr.MemorySize ->
+        $"{p}(memory.size)"
+
+    | WExpr.MemoryGrow pages ->
+        joinLines [
+            $"{p}(memory.grow"
+            d pages
+            $"{p})"
+        ]
+
 let dumpFuncDecl (func: WFuncDecl) : string =
-    let paramStrs = func.Params |> List.map (fun (name, ty) ->
-        sprintf "(param %s %s)" name (wTypeToString ty))
-    let paramList = String.concat "\n  " paramStrs
-    let resultStr = wTypeToString func.Result
-    let header = sprintf "(func %s\n  %s\n  (result %s)" func.Name paramList resultStr
-    let body = dumpExpr 4 func.Body
-    sprintf "%s\n  %s)" header body
+    let exportedSuffix = if func.Exported then " ;; exported" else ""
+    let header =
+        $"(func {func.Name} (result {wTypeToString func.Result}){exportedSuffix}"
+    let paramLines =
+        func.Params
+        |> List.map (fun (n, t) -> $"  (param {n} {wTypeToString t})")
+    let locals =
+        func.Locals
+        |> List.map (fun (n, t) -> $"  (local {n} {wTypeToString t})")
+    let body = dumpExpr 2 func.Body
+    joinLines ([ header ] @ paramLines @ locals @ [ body; ")" ])
 
-
-/// Format a complete module.
 let dumpModule (wmod: WModule) : string =
-    let funcStrs = wmod.Functions |> List.map dumpFuncDecl
-    String.concat "\n\n" funcStrs
+    wmod.Functions
+    |> List.map dumpFuncDecl
+    |> String.concat "\n\n"
 
-
-/// Write the IR dump to a file.
 let dumpToFile (outPath: string) (wmod: WModule) : unit =
     let content = dumpModule wmod
     File.WriteAllText(outPath, content)
