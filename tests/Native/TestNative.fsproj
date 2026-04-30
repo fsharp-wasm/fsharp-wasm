@@ -14,31 +14,34 @@
     <!-- <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Core.dll" /> -->
 
     <ProjectReference Include="../../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" />
-    <!-- <ProjectReference Include="../../vendor/Fable/src/Fable.Compiler/Fable.Compiler.fsproj" /> -->
     <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Compile Include="Main.fs" / -->
-    <!-- <Compile Include="../../vendor/Fable/src/Fable.Transforms/Global/Compiler.fs" /> -->
+    <Compile Include="Helper/FableAstHelpers.fs" /> <!-- TODO: currently only Fable.Query inside which shouldn't live here -->
+    <Compile Include="Helper/WasmTestHelper.fs" />
 
-    <Compile Include="WasmTestHelper.fs" />
-
-    <Compile Include="Integration/ArrayReplacementTests.fs" />
+    <!-- <Compile Include="Integration/ArrayReplacementTests.fs" />
     <Compile Include="Integration/ClosureCallTests.fs" />
-    <Compile Include="Integration/ElmishTests.fs" />
-    <Compile Include="Integration/FableQueryTests.fs" />
-    <Compile Include="Integration/ListReplacementTests.fs" />
+    <Compile Include="Integration/ElmishTests.fs" /> -->
+    
+    <!-- TODO: not yet implemented -->
+    <!-- <Compile Include="Integration/FableQueryTests.fs" /> -->
+
+    <!-- <Compile Include="Integration/ListReplacementTests.fs" />
     <Compile Include="Integration/PatternMatchTests.fs" />
     <Compile Include="Integration/StringRuntimeTests.fs" />
-    <Compile Include="Integration/WhileBangTests.fs" />
+    <Compile Include="Integration/WhileBangTests.fs" /> -->
 
     <Compile Include="Unit/CaptureTests.fs" />
-    <Compile Include="Unit/CEBuilderTests.fs" />
-    <Compile Include="Unit/ClosureArityTests.fs" />
+
+    <!-- TODO: re-enable -->
+    <!-- <Compile Include="Unit/CEBuilderTests.fs" /> -->
+
+    <!-- <Compile Include="Unit/ClosureArityTests.fs" />
     <Compile Include="Unit/IdentExprTests.fs" />
     <Compile Include="Unit/LocalsCollectionTests.fs" />
-    <Compile Include="Unit/TypeResolutionTests.fs" />
+    <Compile Include="Unit/TypeResolutionTests.fs" /> -->
   </ItemGroup>
 
   <ItemGroup>

@@ -10,12 +10,10 @@ open Fable.AST
 open Fable.AST.Wasm
 open WasmGc
 
-open Tests.WasmTestHelper
+open WasmGc.Transforms.TransformExpr
 
-let private mkIdent name ty : Fable.Expr =
-    Fable.Expr.IdentExpr {
-    Name = name; Type = ty
-    Range = None; IsMutable = false }
+open Tests.WasmTestHelper
+open Tests.WasmTestHelper.FableAst
 
 [<Tests>]
 let identExprTests = testList "IdentExpr" [
@@ -73,7 +71,7 @@ let identExprTests = testList "IdentExpr" [
         // Simulate: let builder$0040_3 = div
         let letExpr =
             Fable.Expr.Let(
-                { Name = "builder$0040_3"; Type = Fable.Type.Any; Range = None; IsMutable = false },
+                mkParam "builder$0040_3" Fable.Type.Any,
                 mkIdent "div" Fable.Type.Any,    // ← this is the problem
                 mkIdent "builder$0040_3" Fable.Type.Any)
         let result = transformExpr ctx letExpr

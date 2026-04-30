@@ -20,37 +20,41 @@ open Tests.WasmTestHelper
 let arrayReplacementTests = testList "Array replacements" [
 
     test "Array.get (indexing) → ArrayGet" {
-        let ctx = makeTestCtx()
-        let intType = Type.Number(NumberKind.Int32, NumberInfo.Empty)
-        let arrType = Type.Array(intType, ArrayKind.ResizeArray) // TODO: test other kinds too
+        // let ctx = makeTestCtx()
+        // let intType = Type.Number(NumberKind.Int32, NumberInfo.Empty)
+        // let arrType = Type.Array(intType, ArrayKind.ResizeArray) // TODO: test other kinds too
 
-        // arr.[0]
-        let expr = Expr.Operation(
-            OperationKind.ArrayGet(mkIntLit 0),
-            Tags.empty, intType, None)
+        // // arr.[0]
+        // let expr = Expr.Operation(
+        //     OperationKind.ArrayGet(mkIntLit 0),
+        //     Tags.empty, intType, None)
 
-        // We need to provide the array instance to the operation
-        // (In Fable 5, ArrayGet is often a curried apply or an Operation)
-        let appliedExpr = Expr.Operation(
-            OperationKind.ArrayGet(mkIntLit 0),
-            [], intType, None)
+        // // We need to provide the array instance to the operation
+        // // (In Fable 5, ArrayGet is often a curried apply or an Operation)
+        // let appliedExpr = Expr.Operation(
+        //     OperationKind.ArrayGet(mkIntLit 0),
+        //     [], intType, None)
 
-        // Note: For unit tests, we usually test the specific replacement logic
-        let result = ArrayReplacements.tryArrayGet ctx [mkIdent "arr" arrType; mkIntLit 0] intType
+        // // Note: For unit tests, we usually test the specific replacement logic
+        // let result = ArrayReplacements.tryArrayGet ctx [mkIdent "arr" arrType; mkIntLit 0] intType
 
-        match result with
-        | Some(WExpr.ArrayGet _) -> ()
-        | _ -> failtest "Array.get should transform to Wasm ArrayGet"
+        // match result with
+        // | Some(WExpr.ArrayGet _) -> ()
+        // | _ -> failtest "Array.get should transform to Wasm ArrayGet"
+
+        Expect.isTrue false "Not Implemented"
     }
 
     test "Array.length → ArrayLen" {
-        let ctx = makeTestCtx()
-        let arrType = Type.Array(Type.Number(NumberKind.Int32, NumberInfo.Empty), ArrayKind.ResizeArray)
+        // let ctx = makeTestCtx()
+        // let arrType = Type.Array(Type.Number(NumberKind.Int32, NumberInfo.Empty), ArrayKind.ResizeArray)
 
-        let result = ArrayReplacements.tryArrayLength ctx [mkIdent "arr" arrType]
-        match result with
-        | Some(WExpr.ArrayLen _) -> ()
-        | _ -> failtest "Array.length should transform to Wasm ArrayLen"
+        // let result = ArrayReplacements.tryArrayLength ctx [mkIdent "arr" arrType]
+        // match result with
+        // | Some(WExpr.ArrayLen _) -> ()
+        // | _ -> failtest "Array.length should transform to Wasm ArrayLen"
+
+        Expect.isTrue false "Not Implemented"
     }
 
     test "Array.map → indexed loop with result array" {
@@ -94,7 +98,7 @@ let arrayReplacementTests = testList "Array replacements" [
         let ctx = makeTestCtx()
         let result = ArrayReplacements.tryArrayInline
                         transformExpr ctx "zeroCreate"
-                        [Fable.Expr.Value(Fable.NumberConstant(10.0, NumberKind.Int32, Fable.NumberInfo.Empty), None)]
+                        [Fable.Expr.Value(Fable.NumberConstant(NumberValue.Int32 10, Fable.NumberInfo.Empty), None)]
                         [i32Const 10]
                         (Fable.Type.Array(Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty), Fable.ArrayKind.ResizeArray))
         Expect.isSome result "Array.zeroCreate should be handled"

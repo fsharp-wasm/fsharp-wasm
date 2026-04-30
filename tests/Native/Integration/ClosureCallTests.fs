@@ -10,7 +10,7 @@ open Fable.AST.Fable
 open Fable.AST.Wasm
 open WasmGc
 
-
+module Validator = WasmGc.PipelineValidator
 open WasmGc.Transforms.TransformExpr
 
 open Tests.WasmTestHelper
@@ -32,7 +32,7 @@ let closureCallTests = testList "Closure call lifecycle" [
             //   }
             ,
             Fable.Expr.Value(
-              Fable.NumberConstant(NumberKind.Int32 42, Fable.NumberInfo.Empty),
+              Fable.NumberConstant(NumberValue.Int32 42, Fable.NumberInfo.Empty),
               None),
             None)
         let result = transformExpr ctx lambda
@@ -54,9 +54,12 @@ let closureCallTests = testList "Closure call lifecycle" [
         let lambda = Fable.Expr.Lambda(
             xIdent,
             Fable.Expr.Operation(
-                Fable.OperationKind.Binary(Fable.BinaryOperator.BinaryPlus,
+                Fable.OperationKind.Binary(
+                    BinaryOperator.BinaryPlus,
                     Fable.Expr.IdentExpr xIdent,
-                    Fable.Expr.Value(Fable.NumberConstant(1.0, NumberKind.Int32, Fable.NumberInfo.Empty), None)),
+                    Fable.Expr.Value(Fable.NumberConstant(NumberValue.Int32 1, Fable.NumberInfo.Empty), None)
+                ),
+                [],
                 Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty), None),
             None)
         let result = transformExpr ctx lambda
@@ -71,23 +74,25 @@ let closureCallTests = testList "Closure call lifecycle" [
     }
 
     test "closure with capture: functype includes self only (capture is in struct)" {
-        // fun () -> capturedValue + 1
-        // The capture is stored in the closure struct, NOT as an extra functype param
-        let ctx = { makeTestCtx() with Locals = Map.ofList [("capturedValue", WType.I32)] }
-        let lambda = Fable.Expr.Lambda(
-            { Fable.Name = "_"; Fable.Type = Fable.Type.Unit; Fable.Range = None; Fable.IsMutable = false },
-            Fable.Expr.IdentExpr { Fable.Name = "capturedValue"; Fable.Type = Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false },
-            None)
-        let result = transformExpr ctx lambda
-        match result with
-        | WExpr.Closure(liftedName, captures, _) ->
-            Expect.exists captures (fun (n, _) -> n = "capturedValue") "capturedValue should be in captures"
-            // Lifted function params: only self (the capture is extracted from self inside the body)
-            match ctx.Functions |> Seq.tryFind (fun f -> f.Name = liftedName) with
-            | Some func ->
-                Expect.equal func.Params.Length 1 "Captured closure should have 1 param (self only) — capture comes from struct"
-            | None -> ()
-        | other -> failtestf "Expected Closure but got %A" other
+        // // fun () -> capturedValue + 1
+        // // The capture is stored in the closure struct, NOT as an extra functype param
+        // let ctx = { makeTestCtx() with Locals = Map.ofList [("capturedValue", WType.I32)] }
+        // let lambda = Fable.Expr.Lambda(
+        //     mkParam "_" Type.Unit,
+        //     mkIdent "capturedValue" (Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty)),
+        //     None)
+        // let result = transformExpr ctx lambda
+        // match result with
+        // | WExpr.Closure(liftedName, captures, _) ->
+        //     Expect.exists captures (fun (n, _) -> n = "capturedValue") "capturedValue should be in captures"
+        //     // Lifted function params: only self (the capture is extracted from self inside the body)
+        //     match ctx.Functions |> Seq.tryFind (fun f -> f.Name = liftedName) with
+        //     | Some func ->
+        //         Expect.equal func.Params.Length 1 "Captured closure should have 1 param (self only) — capture comes from struct"
+        //     | None -> ()
+        // | other -> failtestf "Expected Closure but got %A" other
+
+        Expect.equal 0 1 "Test not Implemented"
     }
 
     test "CurriedApply on local closure: arity matches functype" {
@@ -108,7 +113,7 @@ let closureCallTests = testList "Closure call lifecycle" [
         // fun _ -> () where _ : 'Msg = int
         // ClosureType_122 in the WAT — this is the initial no-op dispatch
         let ctx = makeTestCtx()
-        let msgArg = { Fable.Name = "_"; Fable.Type = Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty); Fable.Range = None; Fable.IsMutable = false }
+        let msgArg =  mkParam "_" (Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty))
         let lambda = Fable.Expr.Lambda(
             msgArg,
             Fable.Expr.Value(Fable.UnitConstant, None),

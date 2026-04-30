@@ -39,7 +39,7 @@ let private buildArityIndex (typeDefs: ResizeArray<WTypeDeclEntry>) : Map<int, i
 // Per-function checker
 // ─────────────────────────────────────────────────────────────────
 
-let private checkFunc
+let (* private *) checkFunc
         (funcName  : string)
         (arityIdx  : Map<int, int>)
         (errors    : ResizeArray<ValidationError>)

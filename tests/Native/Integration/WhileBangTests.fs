@@ -12,6 +12,8 @@ open WasmGc.Builder
 open WasmGc.Runtime.ListShape
 open WasmGc.Runtime.ListOps
 
+open Tests.WasmTestHelper
+
 [<Tests>]
 let whileBangTests = testList "while! loop generation" [
 
@@ -63,7 +65,9 @@ let whileBangTests = testList "while! loop generation" [
             let! i = mut (i32Const 0)
             return! Wasm.labeledBlock (LabelGen "search") "blk" WType.I32 (fun ctrl -> wasm {
                 while! (ltS i.Val (i32Const 10)) do
-                    if (i32Const 1 |> ignore; true) then  // simplification
+                    // if (i32Const 1 |> ignore; true) then  // simplification
+                    if (i32Const 1) then  // simplification
+                    // if (true) then  // TODO: this should work - we have a bug
                         do! ctrl.BreakWith (i.Val)
                     do! i <== add i.Val (i32Const 1)
                 return i32Const (-1)

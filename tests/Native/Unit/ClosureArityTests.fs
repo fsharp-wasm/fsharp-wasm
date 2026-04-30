@@ -9,6 +9,9 @@ open Fable.AST.Wasm
 open WasmGc.Builder
 open WasmGc.Runtime.Types
 
+open WasmGc.Pipeline
+module Validator = WasmGc.PipelineValidator
+
 open Tests.WasmTestHelper
 
 // The pattern that caused closure_4 crash:
