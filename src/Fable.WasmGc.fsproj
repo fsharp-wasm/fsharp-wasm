@@ -97,6 +97,7 @@
     <Compile Include="Pipeline/Validator.fs" />
     <Compile Include="Pipeline/ScopeAnalyzer.fs" />
     <Compile Include="Pipeline/Normalizer.fs" />
+    <Compile Include="Pipeline/Dumps.fs" />
     <Compile Include="Pipeline/Phases.fs" />
 
     <!-- New modularized Fable2Wasm components -->
