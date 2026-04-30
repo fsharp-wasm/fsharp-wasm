@@ -11,7 +11,7 @@
 module WasmGc.Pipeline.ScopeAnalyzer
 
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
