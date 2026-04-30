@@ -214,7 +214,8 @@ let validate
         (failOnErrors : bool)
         (typeDefs     : ResizeArray<WTypeDeclEntry>)
         (functions    : WFuncDecl list)
-        : unit =
+        // : ResizeArray<ValidationError> =
+        : List<ValidationError> =
     let errors   = ResizeArray<ValidationError>()
     let arityIdx = buildArityIndex typeDefs
     for f in functions do
@@ -236,6 +237,7 @@ let validate
         eprintfn ""
         if failOnErrors then
             failwithf "[Validator] %d error(s) — fix before emitting WASM" errors.Count
+    errors |> Seq.toList
 
 /// Quick-check using WExprQuery: find closure calls and unknown locals.
 let quickCheck (funcName: string) (knownLocals: Set<string>) (expr: WExpr) : string list =

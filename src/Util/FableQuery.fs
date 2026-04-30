@@ -1,4 +1,4 @@
-module FableQuery
+module WasmGc.Util.FableQuery
 
 open Fable.AST
 open Fable.AST.Fable

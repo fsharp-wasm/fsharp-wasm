@@ -37,10 +37,31 @@ let StringBuilderTypeIdx = 3
 ///      reads use array.get_s (sign-extend). Not all Wasm runtimes support i16 arrays yet.
 type StringMode = I32 | I16
 
+/// Scope classification for identifier resolution in Phase 3.
+type ScopeKind =
+    | Local
+    | FreeVar
+    | ModuleValue
+    | KnownFunc
+
+/// Scope entry metadata for one identifier.
+type ScopeEntry =
+    {
+        Kind: ScopeKind
+        WType: WType
+        Depth: int
+    }
+
+/// Per-function scope map: identifier name -> scope metadata.
+type ScopeMap = Map<string, ScopeEntry>
+
 type Ctx =
     {
         /// Currently known local variable types
         Locals: Map<string, WType>
+
+        /// Phase 1 scope analysis result: function name -> scope map.
+        ScopeMaps: Map<string, ScopeMap>
 
         /// Accumulated type definitions for the module
         TypeDefs: ResizeArray<WTypeDeclEntry>
@@ -197,6 +218,7 @@ type Ctx =
                        ], None) })
         {
             Locals = Map.empty
+            ScopeMaps = Map.empty
             TypeDefs = typeDefs
             Functions = functions
             CurrentFunc = None

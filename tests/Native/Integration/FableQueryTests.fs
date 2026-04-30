@@ -13,7 +13,8 @@ open Tests.WasmTestHelper.FableAst
 
 // Re-open the inline FableQuery from FableAstHelpers rather than FableQuery.fs
 // (both exist; this one is the test-scoped namespace version)
-open Tests.FableAstHelpers.FableQuery
+// open Tests.FableAstHelpers.FableQuery
+open WasmGc.Util.FableQuery
 
 [<Tests>]
 let fableQueryTests = testList "FableQuery patterns" [

@@ -15,32 +15,6 @@ open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
-// Scope entry and map types
-// ─────────────────────────────────────────────────────────────────
-
-/// Classify the scope origin of an identifier.
-type ScopeKind =
-    /// Bound locally (Let-binding or Lambda parameter) in the current function.
-    | Local
-    /// Bound outside current lambda — captured across boundary (becomes a free variable).
-    | FreeVar
-    /// Module-level zero-arg value or function — no parameters, can be direct call.
-    | ModuleValue
-    /// Known function (from ctx.KnownFuncs registry).
-    | KnownFunc
-
-/// Single scope entry: how an identifier is bound and what type it has.
-type ScopeEntry = {
-    Kind: ScopeKind
-    WType: WType
-    /// Lambda nesting depth where it's bound (0 = function top-level)
-    Depth: int
-}
-
-/// Map from identifier name → scope information.
-type ScopeMap = Map<string, ScopeEntry>
-
-// ─────────────────────────────────────────────────────────────────
 // Scope analysis core
 // ─────────────────────────────────────────────────────────────────
 
@@ -49,29 +23,25 @@ type ScopeMap = Map<string, ScopeEntry>
 /// Pass 1: Collect all Let/Lambda bindings with their depths.
 /// Result: Map<name, {Kind, WType, Depth}>.
 let analyzeScopeOfExpr (_ctx: Ctx) (expr: Expr) : ScopeMap =
-    let rec analyzeExpr (depth: int) (localBindings: ScopeMap) (expr: Expr) : ScopeMap =
-        match expr with
+    let rec analyzeExpr (depth: int) (localBindings: ScopeMap) (e: Expr) : ScopeMap =
+        match e with
         // ── Binding sites ──
-        | Let (ident, value, body) ->
-            // Analyze the value first (outer scope)
+        | Let(ident, value, body) ->
             let bindings = analyzeExpr depth localBindings value
 
-            // Add the bound name with current depth
             let bindings' =
                 bindings.Add(
                     ident.Name,
                     {
-                        Kind = Local
-                        WType = WType.I32 // placeholder; real type comes from phase 2
+                        Kind = ScopeKind.Local
+                        WType = WType.I32 // placeholder; refined by later phases
                         Depth = depth
                     }
                 )
 
-            // Analyze body with extended bindings
             analyzeExpr depth bindings' body
 
-        | LetRec (bindingList, body) ->
-            // All bound names are available at this depth
+        | LetRec(bindingList, body) ->
             let names = bindingList |> List.map (fun (id, _) -> id.Name)
 
             let bindings' =
@@ -81,35 +51,33 @@ let analyzeScopeOfExpr (_ctx: Ctx) (expr: Expr) : ScopeMap =
                         acc.Add(
                             name,
                             {
-                                Kind = Local
+                                Kind = ScopeKind.Local
                                 WType = WType.I32
                                 Depth = depth
                             }
                         ))
                     localBindings
 
-            // Analyze each binding value
             let bindings'' =
                 bindingList
-                |> List.fold (fun acc (_, e) -> analyzeExpr depth acc e) bindings'
+                |> List.fold (fun (acc: ScopeMap) (_, bexpr) -> analyzeExpr depth acc bexpr) bindings'
 
-            // Analyze body
             analyzeExpr depth bindings'' body
 
-        | Lambda (arg, body, _) ->
-            // Lambda parameter is bound at next depth
-            let param =
-                {
-                    Kind = Local
-                    WType = WType.I32
-                    Depth = depth + 1
-                }
+        | Lambda(arg, body, _) ->
+            let bindings' =
+                localBindings.Add(
+                    arg.Name,
+                    {
+                        Kind = ScopeKind.Local
+                        WType = WType.I32
+                        Depth = depth + 1
+                    }
+                )
 
-            let bindings' = localBindings.Add(arg.Name, param)
             analyzeExpr (depth + 1) bindings' body
 
-        | Delegate (args, body, _, _) ->
-            // All args are bound at next depth
+        | Delegate(args, body, _, _) ->
             let bindings' =
                 args
                 |> List.fold
@@ -117,7 +85,7 @@ let analyzeScopeOfExpr (_ctx: Ctx) (expr: Expr) : ScopeMap =
                         acc.Add(
                             arg.Name,
                             {
-                                Kind = Local
+                                Kind = ScopeKind.Local
                                 WType = WType.I32
                                 Depth = depth + 1
                             }
@@ -126,189 +94,207 @@ let analyzeScopeOfExpr (_ctx: Ctx) (expr: Expr) : ScopeMap =
 
             analyzeExpr (depth + 1) bindings' body
 
-        // ── Recursive cases ──
-        | Value (kind, _) ->
+        // ── Recursive structural traversal ──
+        | Value(kind, _) ->
             match kind with
-            | ValueKind.NewUnion (args, _, _, _)
-            | ValueKind.NewRecord (args, _, _)
-            | ValueKind.NewTuple (args, _)
-            | ValueKind.NewAnonymousRecord (args, _, _, _) -> args |> List.fold (analyzeExpr depth) localBindings
-            | ValueKind.NewArray (ArrayValues exprs, _, _) -> exprs |> List.fold (analyzeExpr depth) localBindings
-            | ValueKind.NewArray (ArrayAlloc e, _, _)
-            | ValueKind.NewArray (ArrayFrom e, _, _) -> analyzeExpr depth localBindings e
-            | ValueKind.NewOption (Some e, _, _) -> analyzeExpr depth localBindings e
-            | ValueKind.NewList (Some (head, tail), _) ->
+            | ValueKind.NewUnion(args, _, _, _)
+            | ValueKind.NewRecord(args, _, _)
+            | ValueKind.NewTuple(args, _)
+            | ValueKind.NewAnonymousRecord(args, _, _, _) ->
+                args |> List.fold (analyzeExpr depth) localBindings
+
+            | ValueKind.NewArray(ArrayValues exprs, _, _) ->
+                exprs |> List.fold (analyzeExpr depth) localBindings
+
+            | ValueKind.NewArray(ArrayAlloc sizeExpr, _, _)
+            | ValueKind.NewArray(ArrayFrom sizeExpr, _, _) ->
+                analyzeExpr depth localBindings sizeExpr
+
+            | ValueKind.NewOption(Some valueExpr, _, _) ->
+                analyzeExpr depth localBindings valueExpr
+
+            | ValueKind.NewList(Some(head, tail), _) ->
                 let b1 = analyzeExpr depth localBindings head
                 analyzeExpr depth b1 tail
-            | ValueKind.NewList (None, _) -> localBindings
-            | _ -> localBindings
 
-        | TypeCast (e, _) -> analyzeExpr depth localBindings e
+            | ValueKind.NewList(None, _) ->
+                localBindings
 
-        | Operation (kind, _, _, _) ->
+            | _ ->
+                localBindings
+
+        | TypeCast(inner, _) ->
+            analyzeExpr depth localBindings inner
+
+        | Operation(kind, _, _, _) ->
             match kind with
-            | OperationKind.Binary (_, l, r) ->
+            | OperationKind.Binary(_, l, r) ->
                 let b1 = analyzeExpr depth localBindings l
                 analyzeExpr depth b1 r
-            | OperationKind.Unary (_, op) -> analyzeExpr depth localBindings op
-            | OperationKind.Logical (_, l, r) ->
+            | OperationKind.Unary(_, opExpr) ->
+                analyzeExpr depth localBindings opExpr
+            | OperationKind.Logical(_, l, r) ->
                 let b1 = analyzeExpr depth localBindings l
                 analyzeExpr depth b1 r
-            | _ -> localBindings
+            | _ ->
+                localBindings
 
-        | Call (callee, info, _, _) ->
+        | Call(callee, info, _, _) ->
             let bindings = analyzeExpr depth localBindings callee
 
             let bindings' =
                 match info.ThisArg with
-                | Some e -> analyzeExpr depth bindings e
+                | Some thisArg -> analyzeExpr depth bindings thisArg
                 | None -> bindings
 
             info.Args |> List.fold (analyzeExpr depth) bindings'
 
-        | CurriedApply (callee, args, _, _) ->
+        | CurriedApply(callee, args, _, _) ->
             let bindings = analyzeExpr depth localBindings callee
             args |> List.fold (analyzeExpr depth) bindings
 
-        | IfThenElse (g, t, e, _) ->
-            let bindings = analyzeExpr depth localBindings g
-            let bindings' = analyzeExpr depth bindings t
-            analyzeExpr depth bindings' e
+        | IfThenElse(g, t, f, _) ->
+            let b1 = analyzeExpr depth localBindings g
+            let b2 = analyzeExpr depth b1 t
+            analyzeExpr depth b2 f
 
-        | Sequential exprs -> exprs |> List.fold (analyzeExpr depth) localBindings
+        | Sequential exprs ->
+            exprs |> List.fold (analyzeExpr depth) localBindings
 
-        | WhileLoop (g, b, _) ->
-            let bindings = analyzeExpr depth localBindings g
-            analyzeExpr depth bindings b
+        | WhileLoop(g, body, _) ->
+            let b1 = analyzeExpr depth localBindings g
+            analyzeExpr depth b1 body
 
-        | ForLoop (ident, s, e, body, _, _) ->
-            let bindings = analyzeExpr depth localBindings s
-            let bindings' = analyzeExpr depth bindings e
-            let param = { Kind = Local; WType = WType.I32; Depth = depth }
-            let bindings'' = bindings'.Add(ident.Name, param)
-            analyzeExpr depth bindings'' body
+        | ForLoop(ident, startExpr, endExpr, body, _, _) ->
+            let b1 = analyzeExpr depth localBindings startExpr
+            let b2 = analyzeExpr depth b1 endExpr
 
-        | Get (e, _, _, _) -> analyzeExpr depth localBindings e
+            let b3 =
+                b2.Add(
+                    ident.Name,
+                    {
+                        Kind = ScopeKind.Local
+                        WType = WType.I32
+                        Depth = depth
+                    }
+                )
 
-        | Set (e, _, _, v, _) ->
-            let bindings = analyzeExpr depth localBindings e
-            analyzeExpr depth bindings v
+            analyzeExpr depth b3 body
 
-        | Test (e, _, _) -> analyzeExpr depth localBindings e
+        | Get(target, _, _, _) ->
+            analyzeExpr depth localBindings target
 
-        | DecisionTree (e, targets) ->
-            let bindings = analyzeExpr depth localBindings e
+        | Set(target, _, _, valueExpr, _) ->
+            let b1 = analyzeExpr depth localBindings target
+            analyzeExpr depth b1 valueExpr
+
+        | Test(target, _, _) ->
+            analyzeExpr depth localBindings target
+
+        | DecisionTree(scrutinee, targets) ->
+            let b1 = analyzeExpr depth localBindings scrutinee
 
             targets
             |> List.fold
                 (fun (acc: ScopeMap) (idents, body) ->
-                    let bindings' =
+                    let acc' =
                         idents
                         |> List.fold
-                            (fun (acc': ScopeMap) id ->
-                                acc'.Add(
+                            (fun (sacc: ScopeMap) id ->
+                                sacc.Add(
                                     id.Name,
                                     {
-                                        Kind = Local
+                                        Kind = ScopeKind.Local
                                         WType = WType.I32
                                         Depth = depth
                                     }
                                 ))
                             acc
 
-                    analyzeExpr depth bindings' body)
-                bindings
+                    analyzeExpr depth acc' body)
+                b1
 
-        | DecisionTreeSuccess (_, vals, _) -> vals |> List.fold (analyzeExpr depth) localBindings
+        | DecisionTreeSuccess(_, vals, _) ->
+            vals |> List.fold (analyzeExpr depth) localBindings
 
-        | TryCatch (body, catch, fin, _) ->
-            let bindings = analyzeExpr depth localBindings body
+        | TryCatch(body, catch, finalizer, _) ->
+            let b1 = analyzeExpr depth localBindings body
 
-            let bindings' =
+            let b2 =
                 match catch with
-                | Some (catchId, e) ->
-                    let bindings'' =
-                        bindings.Add(
+                | Some(catchId, catchExpr) ->
+                    let withCatch =
+                        b1.Add(
                             catchId.Name,
                             {
-                                Kind = Local
+                                Kind = ScopeKind.Local
                                 WType = WType.I32
                                 Depth = depth
                             }
                         )
 
-                    analyzeExpr depth bindings'' e
-                | None -> bindings
+                    analyzeExpr depth withCatch catchExpr
+                | None ->
+                    b1
 
-            let bindings'' =
-                match fin with
-                | Some e -> analyzeExpr depth bindings' e
-                | None -> bindings'
-
-            bindings''
+            match finalizer with
+            | Some finExpr -> analyzeExpr depth b2 finExpr
+            | None -> b2
 
         | IdentExpr _ ->
-            // Leaf node - no new bindings
             localBindings
 
         | _ ->
-            // Catchall for other expression types
             localBindings
 
     analyzeExpr 0 Map.empty expr
 
 /// Classify an identifier and return its ScopeEntry.
 ///
-/// Logic (in order):
-/// 1. Check localBindings (Let/Lambda bounds in the current function)
-/// 2. Check ctx.KnownFuncs (module-level functions)
-/// 3. Unknown → treat as LocalGet (will be caught by validator if truly missing)
+/// Logic:
+/// 1) localBindings
+/// 2) known functions from ctx.KnownFuncs
+/// 3) fallback to Local/I32
 let classifyIdent (name: string) (localBindings: ScopeMap) (ctx: Ctx) : ScopeEntry =
     match localBindings.TryFind(name) with
     | Some entry -> entry
     | None ->
         match ctx.KnownFuncs.TryFind(name) with
-        | Some (fnParams, resultTy) when List.isEmpty fnParams ->
-            // Zero-arg known function → direct call
+        | Some(fnParams, resultTy) when List.isEmpty fnParams ->
             {
-                Kind = KnownFunc
+                Kind = ScopeKind.KnownFunc
                 WType = resultTy
                 Depth = 0
             }
-        | Some (_, resultTy) ->
-            // Multi-arg function → module value (curried)
+        | Some(_, resultTy) ->
             {
-                Kind = KnownFunc
+                Kind = ScopeKind.KnownFunc
                 WType = resultTy
                 Depth = 0
             }
         | None ->
-            // Unknown → assume local (validator will catch if missing at runtime)
             {
-                Kind = Local
+                Kind = ScopeKind.Local
                 WType = WType.I32
                 Depth = 0
             }
 
-/// Promote Local entries at deeper depths to FreeVar when crossing lambda boundary.
-/// Called after analyzing a lambda body to mark captured variables.
+/// Promote Local entries to FreeVar when captured across lambda boundary.
 let markFreeVars (lambdaDepth: int) (entries: ScopeMap) : ScopeMap =
     entries
     |> Map.map (fun _ entry ->
-        if entry.Depth < lambdaDepth && entry.Kind = Local then
-            { entry with Kind = FreeVar }
+        if entry.Depth < lambdaDepth && entry.Kind = ScopeKind.Local then
+            { entry with Kind = ScopeKind.FreeVar }
         else
             entry)
 
-/// Analyze all declarations in a module to build comprehensive scope information.
-/// Returns a Map<functionName, ScopeMap> for cross-function reference.
+/// Analyze all declarations in a module to build function scope maps.
 let analyzeModuleScope (ctx: Ctx) (decls: Declaration list) : Map<string, ScopeMap> =
     decls
     |> List.choose (fun decl ->
         match decl with
         | MemberDeclaration md ->
-            let funcName = md.Name
             let scope = analyzeScopeOfExpr ctx md.Body
-            Some(funcName, scope)
+            Some(md.Name, scope)
         | _ -> None)
     |> Map.ofList
