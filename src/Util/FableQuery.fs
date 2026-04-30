@@ -102,3 +102,134 @@ let (|BoolLit|_|) = function
 let (|UnitVal|_|) = function
     | Value(UnitConstant, _) -> Some()
     | _ -> None
+
+// ── Additional value patterns ──────────────────────────────────────
+
+let (|NullLit|_|) = function
+    | Value(NullConstant, _) -> Some()
+    | _ -> None
+
+let (|FloatLit|_|) = function
+    | Value(NumberConstant(n, (Float32 | Float64), _), _) -> Some(float n)
+    | _ -> None
+
+let (|CharLit|_|) = function
+    | Value(CharConstant c, _) -> Some c
+    | _ -> None
+
+// ── More type patterns ────────────────────────────────────────────
+
+let (|NamedType|_|) (name: string) = function
+    | Type.DeclaredType(entity, _) when entity.FullName = name -> Some()
+    | _ -> None
+
+let (|GenericType|_|) = function
+    | Type.DeclaredType(_, typeArgs) when not (List.isEmpty typeArgs) -> Some typeArgs
+    | _ -> None
+
+let (|FunctionType|_|) = function
+    | Type.Function(args, ret, _) -> Some(args, ret)
+    | _ -> None
+
+let (|MaybeTuple|_|) = function
+    | Type.Tuple(ts, _) when ts.Length = 2 -> Some(ts.[0], ts.[1])
+    | _ -> None
+
+// ── Declaration patterns ──────────────────────────────────────────
+
+let (|IsExported|_|) (decl: Declaration) =
+    match decl with
+    | ClassDeclaration c when c.Exported -> Some()
+    | InterfaceDeclaration i when i.Exported -> Some()
+    | _ -> None
+
+let (|IsAbstract|_|) (decl: Declaration) =
+    match decl with
+    | ClassDeclaration c when c.IsAbstract -> Some()
+    | _ -> None
+
+// ── Expression leaf patterns ──────────────────────────────────────
+
+let (|Null|_|) = function
+    | Value(NullConstant, _) -> Some()
+    | _ -> None
+
+let (|GetField|_|) = function
+    | Get(obj, FieldGet fi, _, _) -> Some(obj, fi)
+    | _ -> None
+
+let (|SetField|_|) = function
+    | Set(obj, FieldGet fi, _, value, _) -> Some(obj, fi, value)
+    | _ -> None
+
+let (|GetIndex|_|) = function
+    | Get(obj, IndexGet indexExpr, _, _) -> Some(obj, indexExpr)
+    | _ -> None
+
+let (|SetIndex|_|) = function
+    | Set(obj, IndexGet indexExpr, _, value, _) -> Some(obj, indexExpr, value)
+    | _ -> None
+
+// ── Control flow patterns ─────────────────────────────────────────
+
+let (|IfExpr|_|) = function
+    | IfThenElse(g, t, e, _) -> Some(g, t, e)
+    | _ -> None
+
+let (|WhileExpr|_|) = function
+    | WhileLoop(g, b, _) -> Some(g, b)
+    | _ -> None
+
+let (|ForExpr|_|) = function
+    | ForLoop(i, s, e, b, _, _) -> Some(i, s, e, b)
+    | _ -> None
+
+let (|TryExpr|_|) = function
+    | TryCatch(b, c, f, _) -> Some(b, c, f)
+    | _ -> None
+
+// ── Matcher patterns for common operations ─────────────────────────
+
+let (|ListCons|_|) = function
+    | Call(Import({ Selector = "cons" }, _, _), _, _, _) -> Some()
+    | _ -> None
+
+let (|ListEmpty|_|) = function
+    | Call(Import({ Selector = "empty" }, _, _), _, _, _) -> Some()
+    | _ -> None
+
+let (|ListMap|_|) = function
+    | Call(Import({ Selector = "map" }, _, _), callInfo, _, _) -> Some(callInfo.Args)
+    | Call(Get(li, _, _, _), _, _, _) when li.Type = Type.List(Type.Any) -> Some([])
+    | _ -> None
+
+let (|ArrayCreate|_|) = function
+    | Call(Import({ Selector = "zeroCreate" }, _, _), callInfo, _, _) -> Some(callInfo.Args)
+    | _ -> None
+
+// ── Number and string operations ───────────────────────────────────
+
+let (|StringConcat|_|) = function
+    | Call(Import({ Selector = "concat" }, _, _), callInfo, _, _) -> Some(callInfo.Args)
+    | _ -> None
+
+let (|StringLength|_|) = function
+    | Get(str_, FieldGet fi, _, _) when fi.Name = "Length" -> Some(str_)
+    | _ -> None
+
+let (|StringIndex|_|) = function
+    | Get(str_, IndexGet idx, _, _) -> Some(str_, idx)
+    | _ -> None
+
+// ── Complex pattern: nested lambda chains ─────────────────────────
+
+/// Matches N-arg lambda by deconstructing nested Lambdas.
+let (|NaryLambda|_|) (n: int) (expr: Expr) : (Ident list * Expr) option =
+    let rec collect acc count expr =
+        if count = 0 then
+            Some (List.rev acc, expr)
+        else
+            match expr with
+            | Lambda(arg, body, _) -> collect (arg :: acc) (count - 1) body
+            | _ -> None
+    collect [] n expr

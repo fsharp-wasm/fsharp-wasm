@@ -1,0 +1,17 @@
+<Solution>
+  <Project Path="src/Fable.WasmGc.fsproj">
+    <!-- <BuildType Solution="Release|*" Project="?" />
+    <Platform Solution="Release|*" Project="?" />
+    <Build Solution="Release|*" Project="false" /> -->
+  </Project>
+  <Project Path="tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj" />
+  <!--
+  <Project Path="tests/QuickTest/QuickTest.fsproj">
+    <BuildType Solution="Release|*" Project="?" />
+    <Platform Solution="Release|*" Project="?" />
+    <Build Solution="Release|*" Project="false" />
+  </Project>
+  -->
+
+  <Project Path="tests/Native/TestNative.fsproj" />
+</Solution>

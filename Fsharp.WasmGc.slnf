@@ -1,0 +1,10 @@
+{
+  "solution": {
+    "path": "FSharp.WasmGc.slnx",
+    "projects": [
+      "src/FSharp.WasmGc.fsproj",
+      "tests/Native.fsproj"
+    ]
+  }
+}
+

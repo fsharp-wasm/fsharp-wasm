@@ -70,7 +70,7 @@
     <Compile Include="Core/AST.fs" />
     <Compile Include="Core/Types.fs" />
 
-    <!-- <Compile Include="Util/FableQuery.fs" /> -->
+    <Compile Include="Util/FableQuery.fs" />
 
     <Compile Include="Builder/Builder.fs" />
     <Compile Include="Builder/Locals.fs" />
@@ -95,6 +95,9 @@
     <Compile Include="Transforms/FSharpCoreReplacements.fs" />
 
     <Compile Include="Pipeline/Validator.fs" />
+    <Compile Include="Pipeline/ScopeAnalyzer.fs" />
+    <Compile Include="Pipeline/Normalizer.fs" />
+    <Compile Include="Pipeline/Phases.fs" />
 
     <!-- New modularized Fable2Wasm components -->
     <Compile Include="Transforms/Fable2Wasm/TransformDecisionTree.fs" />
@@ -106,6 +109,10 @@
     <Compile Include="Transforms/Fable2Wasm/TransformDispatch.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformExpr.fs" />
     <Compile Include="Transforms/Fable2Wasm/Fable2Wasm.fs" />
+
+    <Compile Include="Util/FableAstDump.fs" />
+    <Compile Include="Util/IrDump.fs" />
+    <Compile Include="Util/WExprQuery.fs" />
 
     <Compile Include="Emit/Optimize.fs" />
     <Compile Include="Emit/Wat.fs" />
