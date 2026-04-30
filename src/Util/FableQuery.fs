@@ -1,5 +1,6 @@
 module FableQuery
 
+open Fable.AST
 open Fable.AST.Fable
 
 // ── Lambda shapes ─────────────────────────────────────────────────
@@ -26,7 +27,7 @@ let (|TernaryLambda|_|) = function
 
 let (|ListOf|_|) = function
     | Type.List t -> Some t
-    | Type.DeclaredType(_, [t]) -> Some t  // seq<T> coercion
+    | Type.DeclaredType(_, [t]) -> Some t // seq<T> coercion
     | _ -> None
 
 let (|ArrayOf|_|) = function
@@ -38,7 +39,7 @@ let (|ResizeArrayOf|_|) = function
     | _ -> None
 
 let (|OptionOf|_|) = function
-    | Type.Option t -> Some t
+    | Type.Option(t, _) -> Some t
     | _ -> None
 
 let (|TupleOf|_|) = function
@@ -64,7 +65,7 @@ let (|ImportCall|_|) = function
 
 /// ResizeArray.push call (Emit wrapping).
 let (|ResizeArrayPush|_|) = function
-    | Emit({ Macro = "void ($0)" }, _, _) -> None  // handled separately
+    | Emit({ Macro = "void ($0)" }, _, _) -> None // handled separately
     | Call(Get(arr, FieldGet fi, _, _), callInfo, _, _)
           when fi.Name = "push" ->
         match arr.Type with
@@ -87,8 +88,36 @@ let (|FoldArgs|_|) = function
 
 // ── Value shapes ──────────────────────────────────────────────────
 
+let private numberValueToInt = function
+    | NumberValue.Int8 n -> Some(int n)
+    | NumberValue.UInt8 n -> Some(int n)
+    | NumberValue.Int16 n -> Some(int n)
+    | NumberValue.UInt16 n -> Some(int n)
+    | NumberValue.Int32 n -> Some(int n)
+    | NumberValue.UInt32 n -> Some(int n)
+    | NumberValue.NativeInt n -> Some(int n)
+    | NumberValue.UNativeInt n -> Some(int n)
+    | _ -> None
+
+let private numberValueToFloat = function
+    | NumberValue.Float16 n -> Some(float n)
+    | NumberValue.Float32 n -> Some(float n)
+    | NumberValue.Float64 n -> Some(float n)
+    | NumberValue.Decimal n -> Some(float n)
+    | NumberValue.Int8 n -> Some(float n)
+    | NumberValue.UInt8 n -> Some(float n)
+    | NumberValue.Int16 n -> Some(float n)
+    | NumberValue.UInt16 n -> Some(float n)
+    | NumberValue.Int32 n -> Some(float n)
+    | NumberValue.UInt32 n -> Some(float n)
+    | NumberValue.Int64 n -> Some(float n)
+    | NumberValue.UInt64 n -> Some(float n)
+    | NumberValue.NativeInt n -> Some(float n)
+    | NumberValue.UNativeInt n -> Some(float n)
+    | _ -> None
+
 let (|IntLit|_|) = function
-    | Value(NumberConstant(n, Int32, _), _) -> Some(int n)
+    | Value(NumberConstant(n, _), _) -> numberValueToInt n
     | _ -> None
 
 let (|StrLit|_|) = function
@@ -106,11 +135,11 @@ let (|UnitVal|_|) = function
 // ── Additional value patterns ──────────────────────────────────────
 
 let (|NullLit|_|) = function
-    | Value(NullConstant, _) -> Some()
+    | Value(Null _, _) -> Some()
     | _ -> None
 
 let (|FloatLit|_|) = function
-    | Value(NumberConstant(n, (Float32 | Float64), _), _) -> Some(float n)
+    | Value(NumberConstant(n, _), _) -> numberValueToFloat n
     | _ -> None
 
 let (|CharLit|_|) = function
@@ -128,30 +157,37 @@ let (|GenericType|_|) = function
     | _ -> None
 
 let (|FunctionType|_|) = function
-    | Type.Function(args, ret, _) -> Some(args, ret)
+    | Type.LambdaType(arg, ret) -> Some([arg], ret)
+    | Type.DelegateType(args, ret) -> Some(args, ret)
     | _ -> None
 
 let (|MaybeTuple|_|) = function
-    | Type.Tuple(ts, _) when ts.Length = 2 -> Some(ts.[0], ts.[1])
+    | Type.Tuple([a; b], _) -> Some(a, b)
     | _ -> None
 
 // ── Declaration patterns ──────────────────────────────────────────
 
 let (|IsExported|_|) (decl: Declaration) =
+    let hasExportTag (tags: string list) =
+        tags |> List.exists (fun t -> t.Equals("export", System.StringComparison.OrdinalIgnoreCase))
+
     match decl with
-    | ClassDeclaration c when c.Exported -> Some()
-    | InterfaceDeclaration i when i.Exported -> Some()
+    | MemberDeclaration m when hasExportTag m.Tags -> Some()
+    | ClassDeclaration c when hasExportTag c.Tags -> Some()
     | _ -> None
 
 let (|IsAbstract|_|) (decl: Declaration) =
+    let hasAbstractTag (tags: string list) =
+        tags |> List.exists (fun t -> t.Equals("abstract", System.StringComparison.OrdinalIgnoreCase))
+
     match decl with
-    | ClassDeclaration c when c.IsAbstract -> Some()
+    | ClassDeclaration c when hasAbstractTag c.Tags -> Some()
     | _ -> None
 
 // ── Expression leaf patterns ──────────────────────────────────────
 
 let (|Null|_|) = function
-    | Value(NullConstant, _) -> Some()
+    | Value(Null _, _) -> Some()
     | _ -> None
 
 let (|GetField|_|) = function
@@ -159,15 +195,15 @@ let (|GetField|_|) = function
     | _ -> None
 
 let (|SetField|_|) = function
-    | Set(obj, FieldGet fi, _, value, _) -> Some(obj, fi, value)
+    | Set(obj, FieldSet fieldName, _, value, _) -> Some(obj, fieldName, value)
     | _ -> None
 
 let (|GetIndex|_|) = function
-    | Get(obj, IndexGet indexExpr, _, _) -> Some(obj, indexExpr)
+    | Get(obj, ExprGet indexExpr, _, _) -> Some(obj, indexExpr)
     | _ -> None
 
 let (|SetIndex|_|) = function
-    | Set(obj, IndexGet indexExpr, _, value, _) -> Some(obj, indexExpr, value)
+    | Set(obj, ExprSet indexExpr, _, value, _) -> Some(obj, indexExpr, value)
     | _ -> None
 
 // ── Control flow patterns ─────────────────────────────────────────
@@ -218,18 +254,19 @@ let (|StringLength|_|) = function
     | _ -> None
 
 let (|StringIndex|_|) = function
-    | Get(str_, IndexGet idx, _, _) -> Some(str_, idx)
+    | Get(str_, ExprGet idx, _, _) -> Some(str_, idx)
     | _ -> None
 
 // ── Complex pattern: nested lambda chains ─────────────────────────
 
 /// Matches N-arg lambda by deconstructing nested Lambdas.
 let (|NaryLambda|_|) (n: int) (expr: Expr) : (Ident list * Expr) option =
-    let rec collect acc count expr =
+    let rec collect acc count e =
         if count = 0 then
-            Some (List.rev acc, expr)
+            Some(List.rev acc, e)
         else
-            match expr with
+            match e with
             | Lambda(arg, body, _) -> collect (arg :: acc) (count - 1) body
             | _ -> None
+
     collect [] n expr

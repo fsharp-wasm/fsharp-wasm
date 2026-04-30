@@ -200,5 +200,5 @@ let normalizeModule (wmod: WModule) : WModule =
     let normalized =
         wmod.Functions
         |> List.map normalizeFuncDecl
-        |> ResizeArray
+        // |> ResizeArray // TODO: needed?
     { wmod with Functions = normalized }
