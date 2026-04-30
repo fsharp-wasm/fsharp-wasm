@@ -96,7 +96,7 @@ let phase4_Normalize (wmod: WModule) (opts: PipelineOptions) : WModule =
     if opts.DumpPhases.Contains(4) then
         let dumpPath = System.IO.Path.Combine(opts.DumpDir, "dump-phase4-normalized.sexp")
         // Could use a prettyprinter for normalized IR
-        printfn "[Phase 4] Normalized IR dump (not yet implemented)"
+        printfn "[Phase 4] Normalized IR dump (not yet implemented): %s" dumpPath
     normalized
 
 // ─────────────────────────────────────────────────────────────────
