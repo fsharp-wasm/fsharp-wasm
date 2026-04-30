@@ -7,7 +7,7 @@ open System
 open Expecto
 open Fable
 open Fable.AST
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 let mockEntity (fullName: string) =

@@ -4,7 +4,7 @@
 /// all the BCL string/char helpers.
 module WasmGc.Runtime.Locals
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────

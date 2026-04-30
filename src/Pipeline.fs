@@ -8,7 +8,7 @@ open System.Collections.Concurrent
 open Fable
 open Fable.AST
 open Fable.Transforms
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 module T = WasmGc.Runtime.Types
 module Lowering = WasmGc.Transforms.Fable2Wasm

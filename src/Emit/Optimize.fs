@@ -8,7 +8,7 @@
 /// All passes are pure WExpr → WExpr transformations, safe to compose.
 module WasmGc.Emit.Optimize
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
 // Tree-walk helpers

@@ -17,7 +17,7 @@
 ///     → vtable dispatch using struct.get + call_ref
 module WasmGc.Runtime.VTable
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────

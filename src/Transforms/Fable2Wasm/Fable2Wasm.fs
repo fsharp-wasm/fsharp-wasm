@@ -4,7 +4,7 @@ module WasmGc.Transforms.Fable2Wasm
 open Fable
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 open WasmGc.Runtime.Locals
 

@@ -2,7 +2,7 @@ module Tests.Integration.CurriedApplyTests
 
 open Expecto
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc
 open Tests.WasmTestHelper
 

@@ -7,7 +7,7 @@
 ///   Validator.validate true ctx.TypeDefs fixedFunctions
 module WasmGc.PipelineValidator
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 // let _ = printfn "Validator loaded from %s" dllPath

@@ -5,7 +5,7 @@ module WasmGc.Runtime.Types
 open Fable
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
 // Constants — pre-registered type indices (always the same)

@@ -22,7 +22,7 @@ open Microsoft.FSharp.Quotations.DerivedPatterns
 open System
 open System.Reflection
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
 

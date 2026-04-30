@@ -14,7 +14,7 @@
 ///       (fun acc elem -> add acc elem)
 module WasmGc.Runtime.ListOps
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
 

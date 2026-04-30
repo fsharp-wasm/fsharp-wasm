@@ -24,7 +24,7 @@ module WasmGc.Builder
 
 open System.Collections.Concurrent
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────

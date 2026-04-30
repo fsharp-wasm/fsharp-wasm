@@ -2,7 +2,7 @@ module WasmGc.Transforms.TransformClosures
 
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Runtime.FreeVars
 module Lc = WasmGc.Runtime.Locals

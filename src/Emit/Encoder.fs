@@ -3,7 +3,7 @@
 /// function section, export section, code section, etc.
 module WasmGc.Emit.Encoder
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
 // LEB128 encoding

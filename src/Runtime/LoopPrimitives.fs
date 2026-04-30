@@ -4,7 +4,7 @@
 /// helpers that can be consumed by both list and array operation modules.
 module WasmGc.Runtime.LoopPrimitives
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
 

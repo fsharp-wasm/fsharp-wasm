@@ -24,7 +24,7 @@ open System
 open System.Collections.Generic
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Pipeline.ScopeAnalyzer
 open WasmGc.Pipeline.Normalizer

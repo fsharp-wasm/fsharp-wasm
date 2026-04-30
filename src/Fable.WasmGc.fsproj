@@ -54,7 +54,7 @@
   <ItemGroup>
     <!--
       Source order (strict dependency order):
-        1. WasmGC AST types (Fable.AST.Wasm) — no deps on Fable.Transforms
+        1. WasmGC AST types (WasmGc.Core.AST) — no deps on Fable.Transforms
         2. Ctx / type mapping (depends on AST)
         3. CE Builder (depends on Types)
         4. Loop helpers, free-var analysis

@@ -3,7 +3,7 @@
 /// Structural equality lives in WasmGcEquality.fs.
 module WasmGc.Runtime.Runtime
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
 open WasmGc.Runtime.Locals

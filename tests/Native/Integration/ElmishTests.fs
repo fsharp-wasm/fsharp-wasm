@@ -8,7 +8,7 @@ open Expecto
 
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc
 open WasmGc.Runtime.Types
 open WasmGc.Transforms.TransformExpr

@@ -9,7 +9,7 @@
 module WasmGc.Emit.Wat
 
 open System.Text
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
 // WAT identifier helpers

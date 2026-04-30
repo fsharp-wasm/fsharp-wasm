@@ -2,7 +2,7 @@ module WasmGc.Transforms.TransformDispatch
 
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 open WasmGc.Builder
 open WasmGc.Runtime.Locals // TODO: should they be renamed to Builder

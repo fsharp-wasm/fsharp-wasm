@@ -7,7 +7,7 @@ open Expecto
 open Fable
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 open WasmGc.Transforms
 open WasmGc.Transforms.ArrayReplacements

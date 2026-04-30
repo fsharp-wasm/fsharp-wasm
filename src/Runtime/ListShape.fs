@@ -1,6 +1,6 @@
 module WasmGc.Runtime.ListShape
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
 

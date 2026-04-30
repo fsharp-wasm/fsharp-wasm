@@ -15,7 +15,7 @@
 /// exactly once — if Phase 3 outputs Let(x, ..., Let(x, ...)), locals would be double-counted.
 module WasmGc.Pipeline.Normalizer
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
 // Normalization helpers

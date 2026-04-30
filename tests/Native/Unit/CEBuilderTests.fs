@@ -5,7 +5,7 @@
 module Tests.Unit.CEBuilderTests
 
 open Expecto
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Builder
 
 [<Tests>]

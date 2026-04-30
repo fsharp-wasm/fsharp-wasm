@@ -3,7 +3,7 @@
 /// a WasmModule ready for binary encoding.
 module WasmGc.Emit.Emit
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────

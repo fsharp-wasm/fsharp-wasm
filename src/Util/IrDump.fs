@@ -17,7 +17,7 @@
 module WasmGc.Pipeline.Dumps.IrDump
 
 open System.IO
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
 // Type and operator formatting

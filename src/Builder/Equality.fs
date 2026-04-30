@@ -3,7 +3,7 @@
 /// Extracted from Runtime.fs to separate concerns.
 module WasmGc.Runtime.Equality
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
 open WasmGc.Runtime.Locals

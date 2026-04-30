@@ -5,7 +5,7 @@
 module Tests.Integration.StringRuntimeTests
 
 open Expecto
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc
 open WasmGc.Runtime.Locals
 open WasmGc.Runtime.Types

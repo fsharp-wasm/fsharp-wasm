@@ -7,7 +7,7 @@
 ///   - Explicit join points for efficient decision-tree compilation
 ///   - Explicit tail calls for loop optimization
 ///   - No generics — everything is mono-typed
-module rec Fable.AST.Wasm
+module rec WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
 // Layer 2: WasmIR — our primary optimization IR

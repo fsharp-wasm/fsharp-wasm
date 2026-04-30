@@ -1,7 +1,7 @@
 /// High-level array combinators for WasmGC code generation.
 module WasmGc.Runtime.ArrayOps
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
 open WasmGc.Runtime.LoopPrimitives

@@ -7,7 +7,7 @@ module Tests.Integration.ClosureCallTests
 open Expecto
 open Fable.AST
 open Fable.AST.Fable
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 open WasmGc
 
 module Validator = WasmGc.PipelineValidator

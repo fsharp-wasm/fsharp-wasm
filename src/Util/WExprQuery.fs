@@ -11,7 +11,7 @@
 /// - rewrite: bottom-up transformation (e.g., eliminate dead code)
 module WasmGc.Util.WExprQuery
 
-open Fable.AST.Wasm
+open WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
 // Basic traversal
