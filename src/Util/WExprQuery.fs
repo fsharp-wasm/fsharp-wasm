@@ -59,7 +59,8 @@ let children (expr: WExpr) : WExpr list =
     | WExpr.CallVirtual(box, _, _, _, _, args, _) ->
         box :: args
     | WExpr.Break(_, value) -> value |> Option.toList
-    | WExpr.Const _ | WExpr.LocalGet _ | WExpr.LocalSet _
+    | WExpr.Const _ | WExpr.LocalGet _ | WExpr.GlobalGet _
+    | WExpr.FuncRef _ | WExpr.MemorySize
     | WExpr.Continue _ | WExpr.Nop -> []
 
 // ─────────────────────────────────────────────────────────────────
