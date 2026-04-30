@@ -4,6 +4,7 @@
 /// Converts Fable.Type to WType with on-demand type registration.
 module WasmGc.Pipeline.TypeResolver
 
+open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
@@ -43,7 +44,7 @@ let getOrAddArrayType (ctx: Ctx) (elemT: WType) : int =
         let typeIdx = ctx.TypeDefs.Count
         ctx.TypeDefs.Add(
             { Name = $"Array_{typeIdx}"
-              Def = WTypeDef.Array(elemT) })
+              Def = WTypeDef.Array(elemT, false) })
         ctx.ArrayRegistry.[key] <- typeIdx
         typeIdx
 

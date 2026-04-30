@@ -8,7 +8,9 @@
 module WasmGc.Pipeline.Validator
 
 open WasmGc.Core.AST
+open WasmGc.Core.AST
 open WasmGc.Runtime.Types
+open WasmGc.Util.WExprQuery
 
 // let _ = printfn "Validator loaded from %s" dllPath
 // ─────────────────────────────────────────────────────────────────
@@ -21,6 +23,48 @@ type ValidationError = {
     NodeDesc : string
     Message  : string
 }
+
+// ─────────────────────────────────────────────────────────────────
+// WExprQuery-based analysis helpers
+// ─────────────────────────────────────────────────────────────────
+
+/// Find all ClosureApply and TailCallRef nodes in an expression.
+let findAllClosureCalls (expr: WExpr) : WExpr list =
+    collect (function
+        | WExpr.ClosureApply _ | WExpr.TailCallRef _ -> true
+        | _ -> false
+    ) expr
+
+/// Find all unknown local references (those not in a known set).
+let findUnknownLocals (knownNames: Set<string>) (expr: WExpr) : string list =
+    collect (function WExpr.LocalGet(name, _) -> true | _ -> false) expr
+    |> List.choose (function
+        | WExpr.LocalGet(name, _) when not (Set.contains name knownNames) -> Some name
+        | _ -> None
+    )
+    |> List.distinct
+
+/// Check if break/continue statements are unreachable (dead code after break).
+let findUnreachableCode (expr: WExpr) : (string * WExpr) list =
+    let results = ResizeArray()
+    let rec check expr =
+        match expr with
+        | WExpr.Sequence exprs ->
+            let rec checkSeq acc = function
+                | [] -> ()
+                | e :: rest ->
+                    match e with
+                    | WExpr.Break _ | WExpr.Continue _ | WExpr.Return _ ->
+                        if not rest.IsEmpty then
+                            results.Add(sprintf "unreachable-after-%s" (e.GetType().Name), e)
+                    | _ -> ()
+                    checkSeq (e :: acc) rest
+            checkSeq [] exprs
+            exprs |> List.iter check
+        | other ->
+            children other |> List.iter check
+    check expr
+    List.ofSeq results
 
 // ─────────────────────────────────────────────────────────────────
 // Functype arity index (built once per validate call)
@@ -192,3 +236,19 @@ let validate
         eprintfn ""
         if failOnErrors then
             failwithf "[Validator] %d error(s) — fix before emitting WASM" errors.Count
+
+/// Quick-check using WExprQuery: find closure calls and unknown locals.
+let quickCheck (funcName: string) (knownLocals: Set<string>) (expr: WExpr) : string list =
+    let issues = ResizeArray()
+    
+    // Check unknown locals referenced
+    let unknown = findUnknownLocals knownLocals expr
+    for name in unknown do
+        issues.Add(sprintf "[%s] Unknown local referenced: '%s'" funcName name)
+    
+    // Check for dead code after break/continue
+    let unreachable = findUnreachableCode expr
+    for (desc, _) in unreachable do
+        issues.Add(sprintf "[%s] %s" funcName desc)
+    
+    List.ofSeq issues

@@ -6,9 +6,11 @@
 ///   P2: contification, constructor propagation (future)
 ///
 /// All passes are pure WExpr → WExpr transformations, safe to compose.
+/// Uses WExprQuery for efficient tree analysis.
 module WasmGc.Emit.Optimize
 
 open WasmGc.Core.AST
+open WasmGc.Util.WExprQuery
 
 // ─────────────────────────────────────────────────────────────────
 // Tree-walk helpers
