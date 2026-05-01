@@ -7,8 +7,8 @@ module Tests.Unit.LocalsCollectionTests
 open Expecto
 open WasmGc.Core.AST
 open WasmGc.Builder
-open WasmGc.Runtime
-open WasmGc.Runtime.Locals
+
+module Locals = WasmGc.Runtime.Locals
 
 [<Tests>]
 let localsCollectionTests = testList "collectLocals" [
@@ -17,7 +17,7 @@ let localsCollectionTests = testList "collectLocals" [
         let expr = WExpr.If(i32Const 1,
             WExpr.Let("a", i32Const 1, localGet "a" WType.I32),
             WExpr.Nop, WType.I32)
-        let locs = collectLocals Set.empty expr
+        let locs = Locals.collectLocals Set.empty expr
         Expect.contains locs ("a", WType.I32) "a in then-branch must be collected"
     }
 
@@ -26,7 +26,7 @@ let localsCollectionTests = testList "collectLocals" [
             WExpr.Nop,
             WExpr.Let("b", i32Const 2, localGet "b" WType.I32),
             WType.I32)
-        let locs = collectLocals Set.empty expr
+        let locs = Locals.collectLocals Set.empty expr
         Expect.contains locs ("b", WType.I32) "b in else-branch must be collected"
     }
 
@@ -37,7 +37,7 @@ let localsCollectionTests = testList "collectLocals" [
               1, WExpr.Let("y", i32Const 20, WExpr.Nop) ],
             WExpr.Let("z", i32Const 30, WExpr.Nop),
             WType.Void)
-        let locs = collectLocals Set.empty expr
+        let locs = Locals.collectLocals Set.empty expr
         Expect.contains locs ("x", WType.I32) "x from case 0"
         Expect.contains locs ("y", WType.I32) "y from case 1"
         Expect.contains locs ("z", WType.I32) "z from default"
@@ -48,7 +48,7 @@ let localsCollectionTests = testList "collectLocals" [
             WExpr.Let("ok", i32Const 1, WExpr.Nop),
             Some("_exn", WExpr.Let("err", i32Const 0, WExpr.Nop)),
             None, WType.Void)
-        let locs = collectLocals Set.empty expr
+        let locs = Locals.collectLocals Set.empty expr
         Expect.contains locs ("ok", WType.I32) "ok in try body"
         Expect.contains locs ("err", WType.I32) "err in catch body"
     }
@@ -60,58 +60,57 @@ let localsCollectionTests = testList "collectLocals" [
                 WExpr.Let("deep", i32Const 99, WExpr.Nop)
             ]
         ]
-        let locs = collectLocals Set.empty expr
+        let locs = Locals.collectLocals Set.empty expr
         Expect.contains locs ("deep", WType.I32) "deep in nested Sequence"
     }
 
     test "resolveLocals deduplicates same name from both branches" {
-        // TODO: re-enable
-        // let expr = WExpr.If(i32Const 1,
-        //     WExpr.Let("x", i32Const 1, WExpr.Nop),
-        //     WExpr.Let("x", i32Const 2, WExpr.Nop),
-        //     WType.Void)
+        let expr = WExpr.If(i32Const 1,
+            WExpr.Let("x", i32Const 1, WExpr.Nop),
+            WExpr.Let("x", i32Const 2, WExpr.Nop),
+            WType.Void)
+        let func = Locals.makeFunc "_" [] (WType.Void) expr
         // let resolved = expr |> Locals.resolveLocals
         // let xEntries = resolved |> List.filter (fun (n, _) -> n = "x")
-        // Expect.equal xEntries.Length 1 "x should appear exactly once"
-
-        Expect.equal 0 1 "test not implemented"
+        let resolved = (func |> Locals.resolveLocals).Locals
+        let xEntries = resolved |> List.filter (fun (n, _) -> n = "x")
+        Expect.equal xEntries.Length 1 "x should appear exactly once"
     }
 
     test "resolveLocals excludes param names" {
-        // let expr = WExpr.Let("param1", i32Const 0, WExpr.Nop)
-        // let resolved = resolveLocals ["param1"] expr
-        // Expect.isEmpty resolved "param names must not appear in locals"
-        ()
+        let expr = WExpr.Let("param1", i32Const 0, WExpr.Nop)
+        let func = Locals.makeFunc "_" [("param1", WType.I32)] (WType.Void) expr
+        let resolved = (Locals.resolveLocals func).Locals
+        Expect.isEmpty resolved "param names must not appear in locals"
     }
 
     test "resolveLocals excludes internal $w temporaries from CE builder" {
-        // // freshName() generates $w1, $w2 etc. — these are Let-introduced
-        // // by the wasm {} CE. They SHOULD appear in locals (they need to be declared).
-        // let expr = WExpr.Let("$w42", i32Const 0, localGet "$w42" WType.I32)
-        // let resolved = resolveLocals [] expr
-        // // $w42 IS a real local — it's a CE temp, not a compiler artifact like $clo_apply_tmp
-        // Expect.exists resolved (fun (n, _) -> n = "$w42") "$w42 CE temp must be in locals"
-
-        ()
+        // TODO: freshName is deprecated
+        // freshName() generates $w1, $w2 etc. — these are Let-introduced
+        // by the wasm {} CE. They SHOULD appear in locals (they need to be declared).
+        let expr = WExpr.Let("$w42", i32Const 0, localGet "$w42" WType.I32)
+        let func = Locals.makeFunc "_" [] (WType.Void) expr
+        let resolved = (Locals.resolveLocals func).Locals
+        // $w42 IS a real local — it's a CE temp, not a compiler artifact like $clo_apply_tmp
+        Expect.exists resolved (fun (n, _) -> n = "$w42") "$w42 CE temp must be in locals"
     }
 
     test "resolveLocals excludes $clo_apply_tmp (compiler internal)" {
-        // let expr = WExpr.LetMut("$clo_apply_tmp", WExpr.Const(WConst.Null (WType.Ref(0, true))), WExpr.Nop)
-        // // $clo_apply_tmp is declared by ClosureApply emitter pattern, should not be re-declared
-        // // It's a param-like internal — check behavior here and document
-        // let resolved = resolveLocals [] expr
-        // // This test documents the behavior — adjust expectation to match actual intent
-
-        ()
+        let expr = WExpr.LetMut("$clo_apply_tmp", WExpr.Const(WConst.Null (WType.Ref(0, true))), WExpr.Nop)
+        let func = Locals.makeFunc "_" [] (WType.Void) expr
+        // $clo_apply_tmp is declared by ClosureApply emitter pattern, should not be re-declared
+        // It's a param-like internal — check behavior here and document
+        let resolved = (Locals.resolveLocals func).Locals
+        // This test documents the behavior — adjust expectation to match actual intent
+        Expect.isEmpty resolved "$clo_apply_tmp must not appear in locals"
     }
 
     test "Let with Ref type (not I32) correctly typed in locals" {
         let elemRefT = WType.Ref(42, false)
         let expr = WExpr.Let("elem", WExpr.Const(WConst.Null (WType.Ref(42, true))), WExpr.Nop)
-        let locs = collectLocals Set.empty expr
+        let locs = Locals.collectLocals Set.empty expr
         match List.tryFind (fun (n, _) -> n = "elem") locs with
         | Some(_, ty) -> Expect.equal ty (WType.Ref(42, true)) "elem should have Null ref type"
         | None -> failtest "elem not collected"
     }
-
 ]

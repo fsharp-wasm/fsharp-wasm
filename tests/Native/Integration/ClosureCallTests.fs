@@ -74,14 +74,15 @@ let closureCallTests = testList "Closure call lifecycle" [
     }
 
     test "closure with capture: functype includes self only (capture is in struct)" {
-        // // fun () -> capturedValue + 1
-        // // The capture is stored in the closure struct, NOT as an extra functype param
-        // let ctx = { makeTestCtx() with Locals = Map.ofList [("capturedValue", WType.I32)] }
-        // let lambda = Fable.Expr.Lambda(
-        //     mkParam "_" Type.Unit,
-        //     mkIdent "capturedValue" (Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty)),
-        //     None)
-        // let result = transformExpr ctx lambda
+        // fun () -> capturedValue + 1
+        // The capture is stored in the closure struct, NOT as an extra functype param
+        let ctx = { makeTestCtx() with Locals = Map.ofList [("capturedValue", WType.I32)] }
+        let lambda = Fable.Expr.Lambda(
+            mkParam "_" Type.Unit,
+            mkIdent "capturedValue" (Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty)),
+            None)
+        let result = transformExpr ctx lambda
+        failtestf "Not Implemented: got %A" result
         // match result with
         // | WExpr.Closure(liftedName, captures, _) ->
         //     Expect.exists captures (fun (n, _) -> n = "capturedValue") "capturedValue should be in captures"

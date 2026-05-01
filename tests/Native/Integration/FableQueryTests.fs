@@ -164,7 +164,7 @@ let fableQueryTests = testList "FableQuery patterns" [
         }
 
         test "does not match Array<int>" {
-            match Type.Array(Type.Number(Int32, NumberInfo.Empty), ArrayKind.Array) with
+            match Type.Array(Type.Number(Int32, NumberInfo.Empty), ArrayKind.ResizeArray) with
             | ListOf _ -> failtest "Should not match Array"
             | _ -> ()
         }
@@ -178,7 +178,7 @@ let fableQueryTests = testList "FableQuery patterns" [
 
     testList "ArrayOf" [
         test "matches Array<string>" {
-            match Type.Array(Type.String, ArrayKind.Array) with
+            match Type.Array(Type.String, ArrayKind.ResizeArray) with
             | ArrayOf elemT -> Expect.equal elemT Type.String "string element"
             | _ -> failtest "ArrayOf should match Array<string>"
         }

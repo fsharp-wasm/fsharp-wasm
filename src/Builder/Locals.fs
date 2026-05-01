@@ -64,11 +64,11 @@ let rec findAllReferencedLocals (expr: WExpr) : (string * WType) list =
     | WExpr.TailCall(_, args, _) ->
         args |> List.collect findAllReferencedLocals
     | WExpr.SwitchInt(scrutinee, cases, default_, _) ->
-        findAllReferencedLocals scrutinee 
+        findAllReferencedLocals scrutinee
         @ (cases |> List.collect (fun (_, body) -> findAllReferencedLocals body))
         @ findAllReferencedLocals default_
     | WExpr.ArrayCopy(dst, dstOff, src, srcOff, len) ->
-        findAllReferencedLocals dst @ findAllReferencedLocals dstOff 
+        findAllReferencedLocals dst @ findAllReferencedLocals dstOff
         @ findAllReferencedLocals src @ findAllReferencedLocals srcOff @ findAllReferencedLocals len
     | WExpr.ArrayNew(_, size, init, _) ->
         findAllReferencedLocals size @ findAllReferencedLocals init
@@ -256,11 +256,11 @@ let resolveLocals (func: WFuncDecl) : WFuncDecl =
         |> List.distinctBy fst
         |> List.filter (fun (_, ty) -> ty <> WType.Void)
     let declaredNames = declaredLocals |> List.map fst |> Set.ofList
-    
+
     // Second pass: find all referenced locals (LocalGet references)
     let referencedLocals = findAllReferencedLocals func.Body
-    
-    // Merge: keep declared locals, but also add any referenced locals that 
+
+    // Merge: keep declared locals, but also add any referenced locals that
     // are not parameters and not already declared (these are captured variables)
     let additionalLocals =
         referencedLocals
@@ -269,9 +269,11 @@ let resolveLocals (func: WFuncDecl) : WFuncDecl =
             not (Set.contains name declaredNames) &&
             // Only skip truly internal compiler temporaries, not user variables
             // not (name.StartsWith("$")))  // Skip special compiler temporaries
-            not (name = "$clo_apply_tmp" || name = "$switch_tmp" || name = "$fsharp_exn_carrier"))
+            not (name = "$clo_apply_tmp" ||
+                 name = "$switch_tmp"    ||
+                 name = "$fsharp_exn_carrier"))
         |> List.distinctBy fst
-    
+
     let allLocals = declaredLocals @ additionalLocals
     { func with Locals = allLocals }
 

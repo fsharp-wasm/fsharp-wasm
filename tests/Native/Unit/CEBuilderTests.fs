@@ -8,11 +8,14 @@ open Expecto
 open WasmGc.Core.AST
 open WasmGc.Builder
 
+module WExprQuery = WasmGc.Util.WExprQuery
+
 [<Tests>]
 let ceBuilderTests = testList "wasm {} CE builder" [
 
     test "let! x = i32 → Let node with LocalGet continuation" {
-        let result = wasm { let! x = i32Const 42 in return x }
+        let result = wasm { 
+            let! x: WExpr = (i32Const 42) in return x }
         match result with
         | WExpr.Let(name, WExpr.Const(WConst.I32 42), WExpr.LocalGet(name2, WType.I32))
             when name = name2 -> ()
@@ -78,8 +81,8 @@ let ceBuilderTests = testList "wasm {} CE builder" [
     test "let! x = void-typed expr → sequences it and continues with Nop" {
         let voidCall = WExpr.Call("$sideEffect", [], WType.Void)
         let result = wasm {
-            let! _ = voidCall
-            return i32Const 7
+            let! _: WExpr = voidCall
+            return (i32Const 7)
         }
         match result with
         | WExpr.Sequence [WExpr.Call("$sideEffect", [], WType.Void); WExpr.Const(WConst.I32 7)] -> ()

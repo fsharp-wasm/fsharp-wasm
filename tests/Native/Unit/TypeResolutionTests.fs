@@ -131,25 +131,23 @@ let typeResolutionTests = testList "mapTypeKnown" [
             | WType.Ref(_, true)           // nullable ref (list can be null = empty)
             | WType.Ref(_, false) -> ()  // non-null also acceptable
             | other -> failtestf "List<int> should be a Ref, got %A" other
-        
+
             // And it should be in ListRegistry
             let key = wTypeKey WType.I32
             Expect.isTrue (ctx.ListRegistry.ContainsKey(key)) "ListRegistry should contain I32 entry"
         }
 
-//    test "List<int> → Ref(ListBaseTypeIdx=2, nullable) and registers cons type" {
-//         // let ctx = makeTestCtx ()
-//         // let result = mapTypeKnown ctx (Type.List(Type.Number(NumberKind.Int32, NumberInfo.Empty)))
-//         // // Lists are ALWAYS Ref(ListBaseTypeIdx, true) — nullable because empty list = null
-//         // Expect.equal result (WType.Ref(ListBaseTypeIdx, true))
-//         //     "List<int> should be nullable Ref(ListBaseTypeIdx)"
-//         // // The cons struct should now be registered
-//         // let key = wTypeKey WType.I32
-//         // Expect.isTrue (ctx.ListRegistry.ContainsKey(key))
-//         //     "ListRegistry should have I32 cons type after mapping List<int>"
-
-//         Expect.isTrue false "Not Implemented"
-//     }
+        test "List<int> → Ref(ListBaseTypeIdx=2, nullable) and registers cons type" {
+            let ctx = makeTestCtx ()
+            let result = mapTypeKnown ctx (Type.List(Type.Number(NumberKind.Int32, NumberInfo.Empty)))
+            // Lists are ALWAYS Ref(ListBaseTypeIdx, true) — nullable because empty list = null
+            Expect.equal result (WType.Ref(ListBaseTypeIdx, true))
+                "List<int> should be nullable Ref(ListBaseTypeIdx)"
+            // The cons struct should now be registered
+            let key = wTypeKey WType.I32
+            Expect.isTrue (ctx.ListRegistry.ContainsKey(key))
+                "ListRegistry should have I32 cons type after mapping List<int>"
+        }
 
         test "List<int> twice → same type index (idempotent registration)" {
             let ctx = makeTestCtx()
@@ -177,45 +175,44 @@ let typeResolutionTests = testList "mapTypeKnown" [
 
     testList "Misc" [
 
-    test "unregistered DeclaredType → I32 fallback with warning" {
-        // This is the source of call_ref mismatches when types aren't registered yet
-        let ctx = makeTestCtx()
-        let unknownEntity = { FullName = "Some.Unknown.Type"; Path = SourcePath "" }
-        let result = mapTypeKnown ctx (Type.DeclaredType(unknownEntity, []))
-        // Should fall back to I32 (or produce a specific sentinel value)
-        Expect.equal result WType.I32 "unknown DeclaredType should fall back to I32"
-    }
+        test "unregistered DeclaredType → I32 fallback with warning" {
+            // This is the source of call_ref mismatches when types aren't registered yet
+            let ctx = makeTestCtx()
+            let unknownEntity = { FullName = "Some.Unknown.Type"; Path = SourcePath "" }
+            let result = mapTypeKnown ctx (Type.DeclaredType(unknownEntity, []))
+            // Should fall back to I32 (or produce a specific sentinel value)
+            Expect.equal result WType.I32 "unknown DeclaredType should fall back to I32"
+        }
 
 
-    test "Handle = int → I32 (not Void)" {
-        // Handle is `type Handle = int` — if this resolves to Void, JS bridge breaks
-        let ctx = makeTestCtx()
-        // Handle maps via type alias — should still be I32
-        // In practice: Fable resolves the alias, so Handle.Type = Int32
-        let handleType = Type.Number(NumberKind.Int32, NumberInfo.Empty)
-        Expect.equal (mapTypeKnown ctx handleType) WType.I32 "Handle must be I32, never Void"
-    }
+        test "Handle = int → I32 (not Void)" {
+            // Handle is `type Handle = int` — if this resolves to Void, JS bridge breaks
+            let ctx = makeTestCtx()
+            // Handle maps via type alias — should still be I32
+            // In practice: Fable resolves the alias, so Handle.Type = Int32
+            let handleType = Type.Number(NumberKind.Int32, NumberInfo.Empty)
+            Expect.equal (mapTypeKnown ctx handleType) WType.I32 "Handle must be I32, never Void"
+        }
 
-    test "Element = El of int DU → Ref, not I32, after registration" {
-        // Browser.Dom.Element is a single-case DU
-        // Before registration: I32 fallback
-        // After registration: Ref(idx, false)
-        let ctx = makeTestCtx()
-        // Register the type
-        let entity = { FullName = "Browser.Dom.Element"; Path = SourcePath "" }
-        let _ = mapTypeKnown ctx (Type.DeclaredType(entity, []))
-        // After registration attempt — check
-        // (actual behavior depends on whether we auto-register DUs)
-        ()
-    }
-
+        test "Element = El of int DU → Ref, not I32, after registration" {
+            // Browser.Dom.Element is a single-case DU
+            // Before registration: I32 fallback
+            // After registration: Ref(idx, false)
+            let ctx = makeTestCtx()
+            // Register the type
+            let entity = { FullName = "Browser.Dom.Element"; Path = SourcePath "" }
+            let _ = mapTypeKnown ctx (Type.DeclaredType(entity, []))
+            // After registration attempt — check
+            // (actual behavior depends on whether we auto-register DUs)
+            Expect.isTrue false "Not implemented"
+        }
     ]
 
     // ── Array types ─────────────────────────────────────────────────────────────
 
     testList "Array<T>" [
 
-    test "Array<int> → Ref(arrIdx, non-null) and registers array type" {
+        test "Array<int> → Ref(arrIdx, non-null) and registers array type" {
             let ctx = makeTestCtx()
             let result = mapTypeKnown ctx (Type.Array(Type.Number(NumberKind.Int32, NumberInfo.Empty), ArrayKind.ResizeArray))
             match result with
@@ -235,14 +232,13 @@ let typeResolutionTests = testList "mapTypeKnown" [
             Expect.isTrue (ctx.ArrayRegistry.ContainsKey(key)) "ArrayRegistry should contain I32 array"
         }
 
-
-    test "ResizeArray<int> → Ref(ravTypeIdx, non-null) struct" {
-        let ctx = makeTestCtx ()
-        let result = mapTypeKnown ctx (Type.Array(Type.Number(NumberKind.Int32, NumberInfo.Empty), ArrayKind.ResizeArray))
-        match result with
-        | WType.Ref(_, false) -> ()
-        | other -> failtestf "ResizeArray<int> should be non-null Ref, got %A" other
-    }
+        test "ResizeArray<int> → Ref(ravTypeIdx, non-null) struct" {
+            let ctx = makeTestCtx ()
+            let result = mapTypeKnown ctx (Type.Array(Type.Number(NumberKind.Int32, NumberInfo.Empty), ArrayKind.ResizeArray))
+            match result with
+            | WType.Ref(_, false) -> ()
+            | other -> failtestf "ResizeArray<int> should be non-null Ref, got %A" other
+        }
 
         test "Array<int> twice → same index" {
             let ctx = makeTestCtx()
@@ -256,23 +252,23 @@ let typeResolutionTests = testList "mapTypeKnown" [
 
     testList "Option<T>" [
 
-    test "Option<int> → nullable Ref" {
-        let ctx = makeTestCtx()
-        let result = mapTypeKnown ctx (Type.Option(Type.Number(NumberKind.Int32, NumberInfo.Empty), false))
-        match result with
-        | WType.Ref(_, true) -> ()  // nullable = option Some/None
-        | other -> failtestf "Option<int> should be nullable Ref, got %A" other
-    }
+        test "Option<int> → nullable Ref" {
+            let ctx = makeTestCtx()
+            let result = mapTypeKnown ctx (Type.Option(Type.Number(NumberKind.Int32, NumberInfo.Empty), false))
+            match result with
+            | WType.Ref(_, true) -> ()  // nullable = option Some/None
+            | other -> failtestf "Option<int> should be nullable Ref, got %A" other
+        }
 
-    test "Option<int> → Ref(optBoxIdx, nullable) — primitive inner needs box struct" {
-        // Primitive inner (I32) cannot be encoded as null ref directly → needs wrapper struct
-        let ctx = makeTestCtx ()
-        let result = mapTypeKnown ctx (Type.Option(Type.Number(NumberKind.Int32, NumberInfo.Empty), false))
-        match result with
-        | WType.Ref(_, true) -> ()   // nullable = Some(box) | None
-        | other -> failtestf "Option<int> should be nullable Ref, got %A" other
-        Expect.isTrue (ctx.OptionRegistry.ContainsKey("i32")) "OptionRegistry should have i32 box type"
-    }
+        test "Option<int> → Ref(optBoxIdx, nullable) — primitive inner needs box struct" {
+            // Primitive inner (I32) cannot be encoded as null ref directly → needs wrapper struct
+            let ctx = makeTestCtx ()
+            let result = mapTypeKnown ctx (Type.Option(Type.Number(NumberKind.Int32, NumberInfo.Empty), false))
+            match result with
+            | WType.Ref(_, true) -> ()   // nullable = Some(box) | None
+            | other -> failtestf "Option<int> should be nullable Ref, got %A" other
+            Expect.isTrue (ctx.OptionRegistry.ContainsKey("i32")) "OptionRegistry should have i32 box type"
+        }
 
         test "Option<string> → Ref(StringTypeIdx, nullable) — no wrapper needed —  direct encoding" {
             // Non-null ref inner → null = None, non-null = Some(value)
@@ -337,8 +333,8 @@ let typeResolutionTests = testList "mapTypeKnown" [
                     Expect.equal fields.Length 2 "Tuple<int,string> should have 2 fields"
                     Expect.equal fields.[0].Type WType.I32 "First field should be I32"
                     Expect.equal fields.[1].Type (WType.Ref(StringTypeIdx, false)) "Second field should be string"
-            | other -> failtestf "Tuple should be a Struct, got %A" other
-            // | other -> failtestf "Tuple should be non-null Ref, got %A" other
+                | other -> failtestf "Tuple should be a Struct, got %A" other
+            | other -> failtestf "Tuple should be non-null Ref, got %A" other
         }
 
         test "Same Tuple<int, string> twice → same index (idempotent)" {
@@ -363,50 +359,41 @@ let typeResolutionTests = testList "mapTypeKnown" [
 
         test "FSharpRef<int> → Ref(refCellIdx, non-null) box struct" {
             let ctx = makeTestCtx ()
-            // let entity = { FullName = "Microsoft.FSharp.Core.FSharpRef`1"; Path = EntityPath.PrecompiledLib "" "" }
-            // let result = mapTypeKnown ctx (Type.DeclaredType(entity, [Type.Number(NumberKind.Int32, NumberInfo.Empty)]))
-            // match result with
-            // | WType.Ref(idx, false) ->
-            //     let key = wTypeKey WType.I32
-            //     Expect.isTrue (ctx.RefRegistry.ContainsKey(key))
-            //         "RefRegistry should have the I32 ref cell type"
-            //     let entry = ctx.TypeDefs.[idx]
-            //     match entry.Def with
-            //     | WTypeDef.Struct([field], _) ->
-            //         Expect.equal field.Type WType.I32 "Ref cell should wrap I32"
-            //         Expect.isTrue field.Mutable "Ref cell field must be mutable"
-            //     | other -> failtestf "FSharpRef should be a single-field mutable struct, got %A" other
-            // | other -> failtestf "FSharpRef<int> should be non-null Ref, got %A" other
-            Expect.equal 0 1 "Not implemented"
+            let entity = { FullName = "Microsoft.FSharp.Core.FSharpRef`1"; Path = SourcePath "" }
+            let result = mapTypeKnown ctx (Type.DeclaredType(entity, [Type.Number(NumberKind.Int32, NumberInfo.Empty)]))
+            match result with
+            | WType.Ref(idx, false) ->
+                let key = wTypeKey WType.I32
+                Expect.isTrue (ctx.RefRegistry.ContainsKey(key))
+                    "RefRegistry should have the I32 ref cell type"
+                let entry = ctx.TypeDefs.[idx]
+                match entry.Def with
+                | WTypeDef.Struct([field], _) ->
+                    Expect.equal field.Type WType.I32 "Ref cell should wrap I32"
+                    Expect.isTrue field.Mutable "Ref cell field must be mutable"
+                | other -> failtestf "FSharpRef should be a single-field mutable struct, got %A" other
+            | other -> failtestf "FSharpRef<int> should be non-null Ref, got %A" other
         }
 
         test "StringBuilder → Ref(StringBuilderTypeIdx=3, non-null)" {
             let ctx = makeTestCtx ()
-            // let entity =  { 
-            //     FullName = "System.Text.StringBuilder"
-            //     Path = PrecompiledLib "" ""
-            // }
-            // let result = mapTypeKnown ctx (Type.DeclaredType(entity, []))
-            // Expect.equal result (WType.Ref(StringBuilderTypeIdx, false))
-            //     (sprintf "StringBuilder should always be Ref(%d, false)" StringBuilderTypeIdx)        
-            Expect.equal 0 1 "Not implemented"
+            let entity =  {
+                FullName = "System.Text.StringBuilder"
+                Path = SourcePath ""
+            }
+            let result = mapTypeKnown ctx (Type.DeclaredType(entity, []))
+            Expect.equal result (WType.Ref(StringBuilderTypeIdx, false))
+                (sprintf "StringBuilder should always be Ref(%d, false)" StringBuilderTypeIdx)
         }
 
-        // test "unregistered DeclaredType → I32 fallback" {
-        //     // This is the source of call_ref mismatches when types aren't registered yet.
-        //     // All unknown types fall back to I32 before registration.
-        //     let ctx = makeTestCtx ()
-        //     let entity = { FullName = "Some.Unknown.Type`1"; Path = EntityPath.PrecompiledLib "" "" }
-        //     let result = mapTypeKnown ctx (Type.DeclaredType(entity, []))
-        //     Expect.equal result WType.I32
-        //         "Unknown DeclaredType must fall back to I32 — not I32 causes call_ref arity bugs"
-        // }
-
         test "unregistered DeclaredType → I32 fallback" {
-            let ctx = makeTestCtx()
-            let unknown = { FullName = "Some.Unknown.RecordType"; Path = SourcePath "" }
-            let result = mapTypeKnown ctx (Type.DeclaredType(unknown, []))
-            Expect.equal result WType.I32 "unknown DeclaredType must fall back to I32"
+            // This is the source of call_ref mismatches when types aren't registered yet.
+            // All unknown types fall back to I32 before registration.
+            let ctx = makeTestCtx ()
+            let entity = { FullName = "Some.Unknown.Type`1"; Path = SourcePath "" }
+            let result = mapTypeKnown ctx (Type.DeclaredType(entity, []))
+            Expect.equal result WType.I32
+                "Unknown DeclaredType must fall back to I32 — not I32 causes call_ref arity bugs"
         }
 
         test "Handle = int → I32 (never Void — JS bridge sends real integer)" {
@@ -491,7 +478,7 @@ let typeResolutionTests = testList "mapTypeKnown" [
         test "TypeDef[StringTypeIdx=1] is Array(I32, mutable)" {
             let ctx = makeTestCtx()
             match ctx.TypeDefs.[StringTypeIdx].Def with
-            | WTypeDef.Array(WType.I32, true) 
+            | WTypeDef.Array(WType.I32, true)
             | WTypeDef.Array(WType.I16, true) -> ()  // I16 mode also ok
             | other -> failtestf "WasmStr should be mutable I32 or I16 array, got %A" other
         }
@@ -508,13 +495,13 @@ let typeResolutionTests = testList "mapTypeKnown" [
             match ctx.TypeDefs.[StringBuilderTypeIdx].Def with
             | WTypeDef.Struct(fields, None) ->
                 Expect.equal fields.Length 3 "StringBuilder has data + length + capacity"
-            // data: mut ref $WasmStr
+                // data: mut ref $WasmStr
                 Expect.equal fields.[0].Type (WType.Ref(StringTypeIdx, false)) "data field is string ref"
                 Expect.isTrue fields.[0].Mutable "data field must be mutable"
-            // length: mut i32
+                // length: mut i32
                 Expect.equal fields.[1].Type WType.I32 "length field is I32"
                 Expect.isTrue fields.[1].Mutable "length field must be mutable"
-            // capacity: mut i32
+                // capacity: mut i32
                 Expect.equal fields.[2].Type WType.I32 "capacity field is I32"
                 Expect.isTrue fields.[2].Mutable "capacity field must be mutable"
             | other -> failtestf "StringBuilder should be 3-field struct, got %A" other
