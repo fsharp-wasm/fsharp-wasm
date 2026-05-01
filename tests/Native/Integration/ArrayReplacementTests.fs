@@ -58,20 +58,20 @@ let arrayReplacementTests = testList "Array replacements" [
     }
 
     test "Array.map → indexed loop with result array" {
-        ()
+        Expect.isTrue false "Not Implemented"
     }
 
     test "Array.filter → two-pass count+fill" {
         // Must produce: pass1 loop (count) + arrayNew + pass2 loop (fill)
-        ()
+        Expect.isTrue false "Not Implemented"
     }
 
     test "Array.exists → short-circuit with Block" {
-        ()
+        Expect.isTrue false "Not Implemented"
     }
 
     test "Array.forAll → short-circuit with Block" {
-        ()
+        Expect.isTrue false "Not Implemented"
     }
 
     test "Array.copy → arrayCopy instruction" {

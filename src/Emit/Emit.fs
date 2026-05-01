@@ -70,6 +70,41 @@ let wtypeToBlockType (ty: WType) : BlockType =
     | _ -> BlockType.Empty
 
 // ─────────────────────────────────────────────────────────────────
+// Shared Emission Helpers
+// ─────────────────────────────────────────────────────────────────
+
+/// Extracts the heap type index from a reference type.
+let getRefTypeIdx (expr: WExpr) : int =
+    match exprResultType expr with
+    | WType.Ref(idx, _) -> idx
+    | _ -> 0
+
+/// Emits the complex self-parameter calling convention for closures.
+/// Used by both standard calls and tail calls.
+let emitClosureDispatch (ctx: EmitCtx) closureInstrs argsInstrs closureTypeIdx funcTypeIdx isTailCall =
+    let tmpIdx = ctx.GetLocalIdx("$clo_apply_tmp")
+    
+    let castInstr =
+        if closureTypeIdx > 0 then
+            let rt = { Nullable = false; HeapType = HeapType.TypeIdx closureTypeIdx }
+            [Instr.RefCast rt]
+        else []
+        
+    let callInstr = 
+        if isTailCall then Instr.ReturnCallRef funcTypeIdx 
+        else Instr.CallRef funcTypeIdx
+
+    closureInstrs
+    @ castInstr                              // Cast to ClosureBase
+    @ [Instr.LocalTee tmpIdx; Instr.Drop]    // Save to temp local
+    @ [Instr.LocalGet tmpIdx]                // Push $self (first arg)
+    @ argsInstrs                             // Push explicit args
+    @ [Instr.LocalGet tmpIdx]                // Push $self again for struct.get
+    @ castInstr                              // Cast again
+    @ [Instr.StructGet(closureTypeIdx, 0)]   // Extract code ptr
+    @ [callInstr]                            // Execute call
+
+// ─────────────────────────────────────────────────────────────────
 // Expression emission
 // ─────────────────────────────────────────────────────────────────
 
@@ -160,24 +195,19 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
             // Fallback: regular call + return if function not yet indexed
             argInstrs @ [Instr.Call 0; Instr.Return] // unreachable fallback
 
-    | WExpr.TailCallRef(closure, args, funcTypeIdx, closureTypeIdx, _captureCount, _) ->
-        // Same self-parameter pattern as ClosureApply but using return_call_ref.
+    // ── Tail calls & Closures ─────────────────────────────
+    | WExpr.TailCallRef(closure, args, funcTypeIdx, closureTypeIdx, _, _) ->
         let closureInstrs = emitExpr ctx closure
         let argsInstrs = args |> List.collect (emitExpr ctx)
-        let tmpIdx = ctx.GetLocalIdx("$clo_apply_tmp")
-        let castInstr =
-            if closureTypeIdx > 0 then
-                let rt = { Nullable = false; HeapType = HeapType.TypeIdx closureTypeIdx }
-                [Instr.RefCast rt]
-            else []
-        closureInstrs
-        @ castInstr
-        @ [Instr.LocalTee tmpIdx; Instr.Drop]
-        @ [Instr.LocalGet tmpIdx]                // push $self (first arg)
-        @ argsInstrs
-        @ [Instr.LocalGet tmpIdx]
-        @ castInstr
-        @ [Instr.StructGet(closureTypeIdx, 0); Instr.ReturnCallRef funcTypeIdx]
+        emitClosureDispatch ctx closureInstrs argsInstrs closureTypeIdx funcTypeIdx true
+
+    | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, _, _) ->
+        let closureInstrs = emitExpr ctx closure
+        let argsInstrs = 
+            args 
+            |> List.filter (fun a -> exprWType a <> WType.Void)
+            |> List.collect (emitExpr ctx)
+        emitClosureDispatch ctx closureInstrs argsInstrs closureTypeIdx funcTypeIdx false
 
     | WExpr.CallVirtual(box, boxTypeIdx, vtableTypeIdx, methodIdx, funcTypeIdx, args, _) ->
         // Vtable dispatch — correct call_ref stack order: [self, args..., funcref]
@@ -200,22 +230,10 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         fieldInstrs @ [Instr.StructNew typeIdx]
 
     | WExpr.StructGet(obj, fieldIdx, _) ->
-        let objInstrs = emitExpr ctx obj
-        // Resolve struct type index from the obj's WType.Ref
-        let typeIdx =
-            match exprResultType obj with
-            | WType.Ref(idx, _) -> idx
-            | _ -> 0
-        objInstrs @ [Instr.StructGet(typeIdx, fieldIdx)]
+        emitExpr ctx obj @ [Instr.StructGet(getRefTypeIdx obj, fieldIdx)]
 
     | WExpr.StructSet(obj, fieldIdx, value) ->
-        let objInstrs = emitExpr ctx obj
-        let valueInstrs = emitExpr ctx value
-        let typeIdx =
-            match exprResultType obj with
-            | WType.Ref(idx, _) -> idx
-            | _ -> 0
-        objInstrs @ valueInstrs @ [Instr.StructSet(typeIdx, fieldIdx)]
+        emitExpr ctx obj @ emitExpr ctx value @ [Instr.StructSet(getRefTypeIdx obj, fieldIdx)]
 
     // ── Array operations ──────────────────────────────────
     | WExpr.ArrayNew(typeIdx, size, init, _) ->
@@ -228,27 +246,15 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         elemInstrs @ [Instr.ArrayNewFixed(typeIdx, List.length elems)]
 
     | WExpr.ArrayGet(arr, idx, _) ->
-        let arrInstrs = emitExpr ctx arr
-        let idxInstrs = emitExpr ctx idx
-        let typeIdx =
-            match exprResultType arr with
-            | WType.Ref(ti, _) -> ti
-            | _ -> 0
+        let typeIdx = getRefTypeIdx arr
         let getInstr =
             match Map.tryFind typeIdx ctx.ArrayElemTypes with
             | Some WType.I16 -> Instr.ArrayGetS typeIdx
             | _              -> Instr.ArrayGet typeIdx
-        arrInstrs @ idxInstrs @ [getInstr]
+        emitExpr ctx arr @ emitExpr ctx idx @ [getInstr]
 
     | WExpr.ArraySet(arr, idx, value) ->
-        let arrInstrs = emitExpr ctx arr
-        let idxInstrs = emitExpr ctx idx
-        let valueInstrs = emitExpr ctx value
-        let typeIdx =
-            match exprResultType arr with
-            | WType.Ref(ti, _) -> ti
-            | _ -> 0
-        arrInstrs @ idxInstrs @ valueInstrs @ [Instr.ArraySet typeIdx]
+        emitExpr ctx arr @ emitExpr ctx idx @ emitExpr ctx value @ [Instr.ArraySet(getRefTypeIdx arr)]
 
     | WExpr.ArrayLen(arr) ->
         let arrInstrs = emitExpr ctx arr
@@ -412,39 +418,6 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
     | WExpr.FuncRef funcName ->
         let funcIdx = ctx.GetFuncIdx(funcName)
         [Instr.RefFunc funcIdx]
-
-    | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, _captureCount, _) ->
-        // Self-parameter calling convention (Sprint 25b):
-        //   1. Eval closure → cast to ClosureBase → save in $clo_apply_tmp (type ref $AnyFn)
-        //   2. Push $clo_apply_tmp as $self (first arg, type ref $AnyFn — functype requires this)
-        //   3. Push remaining args
-        //   4. Push $clo_apply_tmp → re-cast to ClosureBase → struct.get 0 → code ptr
-        //   5. call_ref $funcTypeIdx (where funcTypeIdx = (ref $AnyFn, arg1...) → R)
-        //
-        // Two ref.casts of the same value cost negligible overhead and are valid because
-        // $clo_apply_tmp (type ref $AnyFn) holds a value that is actually ref $ClosureBase_X.
-        let closureInstrs = emitExpr ctx closure
-        // let argsInstrs = args |> List.collect (emitExpr ctx)
-        // Filter void-typed args — they produce no stack value; must not be pushed.
-        let argsInstrs =
-            args
-            |> List.filter (fun a -> exprWType a <> WType.Void)
-            |> List.collect (emitExpr ctx)
-
-        let tmpIdx = ctx.GetLocalIdx("$clo_apply_tmp")
-        let castInstr =
-            if closureTypeIdx > 0 then
-                let rt = { Nullable = false; HeapType = HeapType.TypeIdx closureTypeIdx }
-                [Instr.RefCast rt]
-            else []
-        closureInstrs
-        @ castInstr                              // cast to ClosureBase (for struct.get later)
-        @ [Instr.LocalTee tmpIdx; Instr.Drop]    // save (stored as ref $AnyFn in local)
-        @ [Instr.LocalGet tmpIdx]                // push $self (first arg: ref $AnyFn)
-        @ argsInstrs                             // push other args
-        @ [Instr.LocalGet tmpIdx]                // push for struct.get
-        @ castInstr                              // cast to ClosureBase again
-        @ [Instr.StructGet(closureTypeIdx, 0); Instr.CallRef funcTypeIdx]
 
     // ── Numeric operations ────────────────────────────────
     | WExpr.Unary(op, operand, ty) ->
@@ -845,10 +818,13 @@ let emitModule (wmod: WModule) : WasmModule =
         )
 
     // 3c. Build global index map
+    // Ensure the exception carrier global exists, or create a dummy if missing
     let globalIndex =
-        wmod.Globals
-        |> List.mapi (fun i g -> g.Name, i)
-        |> Map.ofList
+        let baseMap = wmod.Globals |> List.mapi (fun i g -> g.Name, i) |> Map.ofList
+        if not (Map.containsKey "$fsharp_exn_carrier" baseMap) then
+            // If the frontend forgot it, we assign it the next available global index to avoid crashes
+            Map.add "$fsharp_exn_carrier" (wmod.Globals.Length) baseMap
+        else baseMap
 
     // 3d. Register tag types and compute tag indices.
     // Imported tags come first (counted from imports), then local tags.
@@ -890,11 +866,21 @@ let emitModule (wmod: WModule) : WasmModule =
         wmod.Functions
         |> List.map (fun f ->
             let paramNames = f.Params |> List.map fst |> Set.ofList
-            // Build local index map: params first, then declared locals
+            
+            // INJECT COMPILER TEMPORARIES HERE
+            let injectedLocals = [
+                ("$clo_apply_tmp", WType.AnyRef)
+                ("$switch_tmp", WType.I32)
+            ]
+            
+            // Filter out temporaries if the frontend actually *did* provide them, to avoid duplicates
+            let userLocals = f.Locals |> List.filter (fun (n, _) -> n <> "$clo_apply_tmp" && n <> "$switch_tmp")
+            let combinedLocals = userLocals @ injectedLocals
+
             let paramLocals = f.Params |> List.mapi (fun i (name, _) -> name, i)
             let paramCount = List.length f.Params
             let extraLocals =
-                f.Locals
+                combinedLocals
                 |> List.filter (fun (name, _) -> not (Set.contains name paramNames))
                 |> List.mapi (fun i (name, ty) -> (name, paramCount + i), ty)
 
