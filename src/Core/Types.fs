@@ -493,65 +493,66 @@ let mapResultTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
 /// Lightweight helper — get the WType of a WExpr without going through the emitter.
 let rec exprWType (expr: WExpr) : WType =
     match expr with
-    | WExpr.Const(WConst.I32 _) -> WType.I32
-    | WExpr.Const(WConst.I64 _) -> WType.I64
-    | WExpr.Const(WConst.F32 _) -> WType.F32
-    | WExpr.Const(WConst.F64 _) -> WType.F64
-    | WExpr.Const(WConst.Unit) -> WType.Void
-    | WExpr.Const(WConst.String _) -> WType.Ref(StringTypeIdx, false)
-    | WExpr.Const(WConst.Null t) -> t
-    | WExpr.LocalGet(_, t) -> t
-    | WExpr.GlobalGet(_, t) -> t
-    | WExpr.GlobalSet _ -> WType.Void
-    | WExpr.Let(_, _, body) | WExpr.LetMut(_, _, body) -> exprWType body
-    | WExpr.Assign _ -> WType.Void
-    | WExpr.Call(_, _, t) -> t
-    | WExpr.CallIndirect(_, _, t) -> t
-    | WExpr.StructNew(_, _, t) -> t
-    | WExpr.StructGet(_, _, t) -> t
-    | WExpr.StructSet _ -> WType.Void
-    | WExpr.ArrayNew(_, _, _, t) -> t
-    | WExpr.ArrayNewFixed(_, _, t) -> t
-    | WExpr.ArrayGet(_, _, t) -> t
-    | WExpr.ArraySet _ -> WType.Void
-    | WExpr.ArrayLen _ -> WType.I32
-    | WExpr.ArrayCopy _ -> WType.Void
-    | WExpr.If(_, _, _, t) -> t
-    | WExpr.Loop(_, _, t) -> t
-    | WExpr.Block(_, _, t) -> t
-    | WExpr.Break _ | WExpr.Continue _ | WExpr.Return _ -> WType.Void
-    | WExpr.Sequence exprs ->
-        match exprs with
-        | [] -> WType.Void
-        | _ -> exprWType (List.last exprs)
-    | WExpr.Nop -> WType.Void
-    | WExpr.JoinPoint(_, _, _, _, t) -> t
-    | WExpr.JoinApply(_, _, t) -> t
-    | WExpr.SwitchInt(_, _, _, t) -> t
-    | WExpr.TagOf _ -> WType.I32
-    | WExpr.Cast(_, t) -> t
-    | WExpr.Closure(_, _, t) -> t
-    | WExpr.ClosureApply(_, _, _, _, _, t) -> t
-    | WExpr.TailCall(_, _, t) -> t
-    | WExpr.TailCallRef(_, _, _, _, _, t) -> t
-    | WExpr.Unary(_, _, t) -> t
-    | WExpr.Binary(_, _, _, t) -> t
-    | WExpr.Compare _ -> WType.I32
-    | WExpr.TryCatch(_, _, _, t) -> t
-    | WExpr.Throw _ -> WType.Void
-    | WExpr.CallVirtual(_, _, _, _, _, _, t) -> t
-    | WExpr.FuncRef _ -> WType.Ref(AnyFnTypeIdx, false)  // funcref is a Ref to AnyFn
-    | WExpr.RefIsNull _ -> WType.I32
-    | WExpr.RefTest _ -> WType.I32
-    // Linear memory
-    | WExpr.MemLoad(WMemKind.Byte, _, _)
-    | WExpr.MemLoad(WMemKind.I32, _, _)  -> WType.I32
-    | WExpr.MemLoad(WMemKind.I64, _, _)  -> WType.I64
-    | WExpr.MemLoad(WMemKind.F32, _, _)  -> WType.F32
-    | WExpr.MemLoad(WMemKind.F64, _, _)  -> WType.F64
-    | WExpr.MemStore _   -> WType.Void
-    | WExpr.MemorySize   -> WType.I32
-    | WExpr.MemoryGrow _ -> WType.I32
+    | WExpr.Const(WConst.I32 _)               -> WType.I32
+    | WExpr.Const(WConst.I64 _)               -> WType.I64
+    | WExpr.Const(WConst.F32 _)               -> WType.F32
+    | WExpr.Const(WConst.F64 _)               -> WType.F64
+    | WExpr.Const(WConst.String _)            -> WType.Ref(StringTypeIdx, false)
+    | WExpr.Const(WConst.Null ty)             -> ty
+    | WExpr.Const(WConst.Unit)                -> WType.Void
+    | WExpr.LocalGet(_, ty)                   -> ty
+    | WExpr.GlobalGet(_, ty)                  -> ty
+    | WExpr.Let(_, _, body)                   -> exprWType body
+    | WExpr.LetMut(_, _, body)                -> exprWType body
+    | WExpr.Assign _                          -> WType.Void
+    | WExpr.GlobalSet _                       -> WType.Void
+    | WExpr.Call(_, _, ty)                    -> ty
+    | WExpr.CallIndirect(_, _, ty)            -> ty
+    | WExpr.CallVirtual(_, _, _, _, _, _, ty) -> ty
+    | WExpr.FuncRef _                         -> WType.Ref(AnyFnTypeIdx, false)
+    | WExpr.StructNew(_, _, ty)               -> ty
+    | WExpr.StructGet(_, _, ty)               -> ty
+    | WExpr.StructSet _                       -> WType.Void
+    | WExpr.ArrayNew(_, _, _, ty)             -> ty
+    | WExpr.ArrayNewFixed(_, _, ty)           -> ty
+    | WExpr.ArrayGet(_, _, ty)                -> ty
+    | WExpr.ArraySet _                        -> WType.Void
+    | WExpr.ArrayLen _                        -> WType.I32
+    | WExpr.ArrayCopy _                       -> WType.Void
+    | WExpr.If(_, _, _, ty)                   -> ty
+    | WExpr.Loop(_, _, ty)                    -> ty
+    | WExpr.Block(_, _, ty)                   -> ty
+    | WExpr.Break _                           -> WType.Void
+    | WExpr.Continue _                        -> WType.Void
+    | WExpr.Return _                          -> WType.Void
+    | WExpr.Sequence []                       -> WType.Void
+    | WExpr.Sequence xs                       -> exprWType (List.last xs)
+    | WExpr.Nop                               -> WType.Void
+    | WExpr.JoinPoint(_, _, _, _, ty)         -> ty
+    | WExpr.JoinApply(_, _, ty)               -> ty
+    | WExpr.SwitchInt(_, _, _, ty)            -> ty
+    | WExpr.TagOf _                           -> WType.I32
+    | WExpr.Cast(_, ty)                       -> ty
+    | WExpr.RefIsNull _                       -> WType.I32
+    | WExpr.RefTest _                         -> WType.I32
+    | WExpr.Closure(_, _, ty)                 -> ty
+    | WExpr.ClosureApply(_, _, _, _, _, ty)   -> ty
+    | WExpr.Unary(_, _, ty)                   -> ty
+    | WExpr.Binary(_, _, _, ty)               -> ty
+    | WExpr.Compare _                         -> WType.I32
+    | WExpr.TailCall(_, _, ty)                -> ty
+    | WExpr.TailCallRef(_, _, _, _, _, ty)    -> ty
+    | WExpr.CallRef(_, _, _, ty)              -> ty
+    | WExpr.ReturnCallRef(_, _, _, ty)        -> ty
+    | WExpr.TryCatch(_, _, _, ty)             -> ty
+    | WExpr.Throw _                           -> WType.Void
+    | WExpr.MemLoad(WMemKind.I64, _, _)       -> WType.I64
+    | WExpr.MemLoad(WMemKind.F32, _, _)       -> WType.F32
+    | WExpr.MemLoad(WMemKind.F64, _, _)       -> WType.F64
+    | WExpr.MemLoad _                         -> WType.I32
+    | WExpr.MemStore _                        -> WType.Void
+    | WExpr.MemorySize                        -> WType.I32
+    | WExpr.MemoryGrow _                      -> WType.I32
 
 /// Function type alias used to pass `transformExpr` into replacement modules.
 /// Breaking the mutual recursion via higher-order parameter.

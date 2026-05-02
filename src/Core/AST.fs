@@ -168,14 +168,14 @@ type WExpr =
     /// ref.test (ref $T) — type test; result is i32 (1 = is subtype, 0 = not)
     | RefTest of obj: WExpr * targetType: WType
 
-    // ── Closures (before closure conversion) ──────────────
-    | Closure of funcName: string * captures: WExpr list * WType
-    | ClosureApply of closure: WExpr * args: WExpr list * funcTypeIdx: int * closureTypeIdx: int * captureCount: int * WType
-
     // ── Numeric operations ────────────────────────────────
     | Unary of WUnaryOp * operand: WExpr * WType
     | Binary of WBinaryOp * left: WExpr * right: WExpr * WType
     | Compare of WCompareOp * left: WExpr * right: WExpr
+
+    // ── Closures (before closure conversion) ──────────────
+    | Closure of funcName: string * captures: WExpr list * WType
+    | ClosureApply of closure: WExpr * args: WExpr list * funcTypeIdx: int * closureTypeIdx: int * captureCount: int * WType
 
     // ── Tail calls (for stack-safe recursion / mutual recursion) ─────────
     /// return_call funcName args — exits current frame and jumps to callee.
@@ -184,6 +184,25 @@ type WExpr =
     | TailCall of func: string * args: WExpr list * WType
     /// return_call_ref typeIdx — indirect tail call via closure code pointer.
     | TailCallRef of funcRef: WExpr * args: WExpr list * funcTypeIdx: int * closureTypeIdx: int * captureCount: int * WType
+
+    // ── LIR closure dispatch (produced by Lower.fs, consumed by Emit.fs) ──
+    //
+    // CallRef and ReturnCallRef are the lowered form of ClosureApply/TailCallRef.
+    // They are explicit about the calling convention:
+    //   args.(0) = self (ref $AnyFn)     ← bound by Lower as Let($lo_clo_N, ...)
+    //   args.(1..) = user arguments      ← non-void only
+    //   codePtr = StructGet(self, 0)     ← extracted by Lower
+    //
+    // The emitter does:  args... codePtr call_ref funcTypeIdx
+    // No local.tee, no $clo_apply_tmp, no emitter state.
+
+    /// Lowered call_ref — self is args.(0), codePtr is the func ref expression.
+    /// Produced by Lower.lowerClosureApply.
+    | CallRef of funcTypeIdx: int * args: WExpr list * codePtr: WExpr * WType
+
+    /// Lowered return_call_ref — same layout as CallRef but tail-calls.
+    /// Produced by Lower.lowerTailCallRef.
+    | ReturnCallRef of funcTypeIdx: int * args: WExpr list * codePtr: WExpr * WType
 
     // ── Error handling ────────────────────────────────────
     | TryCatch of body: WExpr * catch: (string * WExpr) option * finally_: WExpr option * WType

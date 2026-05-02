@@ -11,6 +11,7 @@
 module WasmGc.Util.WExprQuery
 
 open WasmGc.Core.AST
+open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // Basic traversal

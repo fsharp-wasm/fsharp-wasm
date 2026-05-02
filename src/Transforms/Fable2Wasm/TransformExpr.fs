@@ -20,6 +20,8 @@ open TransformOperation
 open TransformTest
 open TransformDecisionTree
 
+open WasmGc.Pipeline.Scope
+
 open Helpers
 
 /// Inline grow-and-set for ResizeArray.push.
@@ -74,39 +76,36 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
 
     // ── Identifier references ─────────────────────────────
     | IdentExpr ident ->
-        // Use mapTypeKnown so local variables holding records get proper ref types
-        let ty =
-            match Map.tryFind ident.Name ctx.Locals with
-            | Some knownTy -> knownTy
-            | None -> mapTypeKnown ctx ident.Type
-
-        match Map.tryFind ident.Name ctx.Locals with
-        // Genuine local variable — emit LocalGet.s
-        | Some _ -> WExpr.LocalGet(ident.Name, ty)
-        | None ->
-            // Not a local. Check if it's a known (module-level) function.
-            let actualName =
-                ctx.FuncNameAlias
-                |> Map.tryFind ident.Name
-                |> Option.defaultValue ident.Name
-
-            match Map.tryFind actualName ctx.KnownFuncs with
-            | Some([], retTy) when retTy <> WType.Void ->
-                // Zero-argument function (module-level value / builder instance).
-                // Emit as a direct call: `div ()` → WExpr.Call("div", [], retTy).
-                WExpr.Call(actualName, [], retTy)
-            | Some([], WType.Void) ->
-                // Zero-arg void function used as a value — shouldn't happen, but guard.
-                WExpr.Call(actualName, [], WType.Void)
-            | Some _ ->
-                // Non-zero-arg function referenced as a value — this is a partial application
-                // or a higher-order reference. Build a closure for it.
-                // (This case rarely hits here; most partial apps go through CurriedApply.)
-                WExpr.LocalGet(ident.Name, ty)  // let existing buildClosure path handle it
-            | None ->
-                // Unknown identifier — fall back to LocalGet (emits a warning via validator).
-                WExpr.LocalGet(ident.Name, ty)
-            // | _ -> WExpr.LocalGet(ident.Name, ty)
+        let res = Scope.resolve ctx ctx.CurrentFunc ident.Name
+        match res with
+        | Scope.Resolution.Local(name, ty)          -> WExpr.LocalGet(name, ty)
+        | Scope.Resolution.CapturedVar(name, ty)    -> WExpr.LocalGet(name, ty)
+        | Scope.Resolution.ModuleValue(qn, retTy)   -> WExpr.Call(qn, [], retTy)
+        | Scope.Resolution.KnownFunc(qn, ps, retTy) ->
+            // First-class function reference — wrap in a zero-capture closure
+            // so it can be passed as a value to HOFs.
+            // The closure struct has only a code field (no captures).
+            let selfTy      = WType.Ref(AnyFnTypeIdx, false)
+            let funcTypeIdx = ctx.GetOrAddFuncType(selfTy :: ps, retTy)
+            let codeFieldTy = WType.Ref(funcTypeIdx, false)
+            let baseIdx     =
+                match ctx.ClosureBaseTypeMap.TryGetValue(funcTypeIdx) with
+                | true, idx -> idx
+                | _ ->
+                    let idx = ctx.TypeDefs.Count
+                    ctx.TypeDefs.Add { Name = sprintf "ClosureBase_%d" idx
+                                       Def  = WTypeDef.Struct([{ Name="code"; Type=codeFieldTy; Mutable=false }], Some AnyFnTypeIdx) }
+                    ctx.ClosureBaseTypeMap.[funcTypeIdx] <- idx
+                    idx
+            let typeIdx = ctx.TypeDefs.Count
+            ctx.TypeDefs.Add { Name = sprintf "FuncRefClosure_%d" typeIdx
+                               Def  = WTypeDef.Struct([{ Name="code"; Type=codeFieldTy; Mutable=false }], Some baseIdx) }
+            ctx.ClosureRegistry.[qn] <- (typeIdx, funcTypeIdx, 0)
+            WExpr.Closure(qn, [], WType.Ref(typeIdx, false))
+        | Scope.Resolution.ExternFunc(key, retTy)   -> WExpr.Call(key, [], retTy)
+        | Scope.Resolution.Unknown name             ->
+            eprintfn "  [TransformExpr] WARNING: unresolved ident '%s'" name
+            WExpr.LocalGet(name, WType.I32)
 
     // ── Let bindings ──
     | Let(ident, value, body) ->

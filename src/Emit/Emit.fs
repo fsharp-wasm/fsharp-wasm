@@ -158,17 +158,6 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let funcRefInstrs = emitExpr ctx funcRef
         argInstrs @ funcRefInstrs @ [Instr.Unreachable]
 
-    | WExpr.CallRef(funcTypeIdx, args, codePtr, _) ->
-        // args already contains self as first element (from Lower.fs)
-        let argsInstrs = args |> List.collect (emitExpr ctx)
-        let ptrInstrs  = emitExpr ctx codePtr
-        argsInstrs @ ptrInstrs @ [Instr.CallRef funcTypeIdx]
-
-    | WExpr.ReturnCallRef(funcTypeIdx, args, codePtr, _) ->
-        let argsInstrs = args |> List.collect (emitExpr ctx)
-        let ptrInstrs  = emitExpr ctx codePtr
-        argsInstrs @ ptrInstrs @ [Instr.ReturnCallRef funcTypeIdx]
-
     // ── Tail calls ────────────────────────────────────────
     | WExpr.TailCall(func, args, _) ->
         // return_call: reuse current frame, tail-jump to the named function.
@@ -187,8 +176,24 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let argsInstrs = args |> List.collect (emitExpr ctx)
         emitClosureDispatch ctx closureInstrs argsInstrs closureTypeIdx funcTypeIdx true
 
+    | WExpr.CallRef(funcTypeIdx, args, codePtr, _) ->
+        // LIR node from Lower.fs.
+        // args.(0) = $self (ref $AnyFn) — already bound as Let($lo_clo_N, ...) by Lower
+        // args.(1..) = user arguments
+        // codePtr = StructGet($lo_clo_N, 0) — code pointer
+        // Stack order: args... codePtr call_ref funcTypeIdx
+        let argsInstrs = args |> List.collect (emitExpr ctx)
+        let ptrInstrs  = emitExpr ctx codePtr
+        argsInstrs @ ptrInstrs @ [Instr.CallRef funcTypeIdx]
+
+    | WExpr.ReturnCallRef(funcTypeIdx, args, codePtr, _) ->
+        let argsInstrs = args |> List.collect (emitExpr ctx)
+        let ptrInstrs  = emitExpr ctx codePtr
+        argsInstrs @ ptrInstrs @ [Instr.ReturnCallRef funcTypeIdx]
+
     | WExpr.ClosureApply _ | WExpr.TailCallRef _ ->
-        failwith "Emit: ClosureApply/TailCallRef reached emitter — Lower.fs must run before Emit"
+        failwith "Emit: ClosureApply/TailCallRef reached the emitter. \
+                  Ensure Lower.lowerModule ran before Emit.emitModule."
 
     | WExpr.CallVirtual(box, boxTypeIdx, vtableTypeIdx, methodIdx, funcTypeIdx, args, _) ->
         // Vtable dispatch — correct call_ref stack order: [self, args..., funcref]
@@ -331,23 +336,28 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         args |> List.collect (emitExpr ctx)
 
     // ── Pattern matching ──────────────────────────────────
-    | WExpr.SwitchInt(scrutinee, cases, default_, ty) ->
-        // Lower to nested if/else for now (br_table optimization later)
-        let scrInstrs = emitExpr ctx scrutinee
-        let bt = wtypeToBlockType ty
-        let rec buildChain remaining =
-            match remaining with
-            | [] -> emitExpr ctx default_
-            | (value, body) :: rest ->
-                let bodyInstrs = emitExpr ctx body
-                let restInstrs = buildChain rest
-                // if (scrutinee == value) then body else rest
-                [Instr.LocalGet(ctx.GetLocalIdx "$switch_tmp")]
-                @ [Instr.I32Const value; Instr.I32Eq]
-                @ [Instr.If(bt, bodyInstrs, restInstrs)]
-        // Store scrutinee in a temp local, then chain comparisons
-        scrInstrs @ [Instr.LocalSet(ctx.GetLocalIdx "$switch_tmp")]
-        @ buildChain cases
+    | WExpr.SwitchInt(scrutinee, cases, default_, retTy) ->
+        // After Lower.fs: scrutinee is always a LocalGet (no injection needed).
+        // The emitter just evaluates it once and builds the br_table.
+        let scrutInstrs = emitExpr ctx scrutinee
+        // Build label blocks: block_N { block_N-1 { ... block_0 { br_table } } }
+        // Each case i jumps to block i (br i), default jumps past all blocks.
+        let caseCount   = cases.Length
+        let defaultCode = emitExpr ctx default_
+        let caseCodes   = cases |> List.map (fun (_, body) -> emitExpr ctx body)
+        let retBlockTy  = wtypeToBlockType retTy
+        // br_table [0; 1; 2; ...; caseCount-1] caseCount  (default = last)
+        let labelNums   = cases |> List.mapi (fun i _ -> i) |> List.rev  // innermost label = 0
+        let brTable     = Instr.BrTable(labelNums @ [caseCount])         // default = past all
+        // Nest: outermost wraps all; innermost holds the scrutinee + br_table
+        let innerBlock  = scrutInstrs @ [brTable]
+        // Stack case blocks from inside out; each case breaks out to its block level
+        let caseBlocks =
+            caseCodes
+            |> List.mapi (fun i code ->
+                fun inner -> [Instr.Block(retBlockTy, inner @ code)])
+            |> List.fold (fun acc wrapper -> wrapper acc) innerBlock
+        [Instr.Block(retBlockTy, caseBlocks @ defaultCode)]
 
     | WExpr.TagOf(obj) ->
         let objInstrs = emitExpr ctx obj
