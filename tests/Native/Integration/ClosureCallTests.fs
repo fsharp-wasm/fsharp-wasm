@@ -74,26 +74,41 @@ let closureCallTests = testList "Closure call lifecycle" [
     }
 
     test "closure with capture: functype includes self only (capture is in struct)" {
-        // fun () -> capturedValue + 1
-        // The capture is stored in the closure struct, NOT as an extra functype param
-        let ctx = { makeTestCtx() with Locals = Map.ofList [("capturedValue", WType.I32)] }
-        let lambda = Fable.Expr.Lambda(
-            mkParam "_" Type.Unit,
-            mkIdent "capturedValue" (Fable.Type.Number(NumberKind.Int32, Fable.NumberInfo.Empty)),
-            None)
-        let result = transformExpr ctx lambda
-        failtestf "Not Implemented: got %A" result
-        // match result with
-        // | WExpr.Closure(liftedName, captures, _) ->
-        //     Expect.exists captures (fun (n, _) -> n = "capturedValue") "capturedValue should be in captures"
-        //     // Lifted function params: only self (the capture is extracted from self inside the body)
-        //     match ctx.Functions |> Seq.tryFind (fun f -> f.Name = liftedName) with
-        //     | Some func ->
-        //         Expect.equal func.Params.Length 1 "Captured closure should have 1 param (self only) — capture comes from struct"
-        //     | None -> ()
-        // | other -> failtestf "Expected Closure but got %A" other
-
-        Expect.equal 0 1 "Test not Implemented"
+        // Build: let capturedValue = 42 in fun () -> capturedValue
+        let ctx    = makeTestCtx()
+        let capVal = mkParam "capturedValue" (Fable.Type.Number(Int32, NumberInfo.Empty))
+        let ctx'   = ctx.WithLocal("capturedValue", WType.I32)
+        
+        // Lambda with no args, body references capturedValue
+        let body   = Fable.Expr.IdentExpr capVal
+        let lambda = Fable.Expr.Lambda(mkParam "_unit" Fable.Type.Unit, body, None)
+        
+        let result = transformExpr ctx' lambda
+        
+        match result with
+        | WExpr.Closure(funcName, captureExprs, closureTy) ->
+            // Captures are in the struct initialiser (captureExprs list)
+            Expect.isNonEmpty captureExprs "closure must capture capturedValue"
+            Expect.equal captureExprs.Length 1 "exactly one capture"
+            match captureExprs.[0] with
+            | WExpr.LocalGet("capturedValue", WType.I32) -> ()
+            | other -> failtestf "capture should be LocalGet(capturedValue), got %A" other
+            
+            // Verify the functype is (ref $AnyFn) → i32 — self only, no extra capture arg
+            let fti =
+                match closureTy with
+                | WType.Ref(closureTypeIdx, false) ->
+                    match ctx'.TypeDefs.[closureTypeIdx].Def with
+                    | WTypeDef.Struct({ Type = WType.Ref(fti, false) } :: _, _) -> fti
+                    | _ -> failtest "closure struct should have code field first"
+                | _ -> failtest "closure should have Ref type"
+            match ctx'.TypeDefs.[fti].Def with
+            | WTypeDef.Func([WType.Ref(0, false)], _) ->
+                ()  // correct: only self-param, captures are in struct
+            | WTypeDef.Func(ps, _) ->
+                failtestf "functype should have only self param, got %d params" ps.Length
+            | other -> failtestf "expected Func def, got %A" other
+        | other -> failtestf "expected Closure, got %A" other
     }
 
     test "CurriedApply on local closure: arity matches functype" {

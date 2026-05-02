@@ -1,20 +1,19 @@
-/// Pre-emit AST validator for WasmGC.
+/// Pre-emit structural validator — Phase 6.
 ///
-/// Catches arity mismatches, void-arg stack underflows, and other structural
-/// problems in the WExpr tree BEFORE they become cryptic WebAssembly traps.
+/// Catches bugs BEFORE they become cryptic Wasm traps:
+///   - call_ref arity mismatches (ClosureApply / TailCallRef / CallVirtual)
+///   - void-typed arguments that produce no stack value (void-arg stack underflows)
+///   - LocalGet references to names not in params or locals
+///   - CallRef/ReturnCallRef with wrong arg count (LIR nodes from Lower.fs)
 ///
-/// Insert into buildWModule after fixClosureApply:
-///   Validator.validate true ctx.TypeDefs fixedFunctions
+/// Run after Phase 5 (Locals resolved), before Phase 7 (Optimize).
 module WasmGc.Pipeline.Validator
 
 open WasmGc.Core.AST
-open WasmGc.Core.AST
-open WasmGc.Runtime.Types
-open WasmGc.Util.WExprQuery
+open WasmGc.Util.WExprQuery   // collect, exists
 
-// let _ = printfn "Validator loaded from %s" dllPath
 // ─────────────────────────────────────────────────────────────────
-// Error type
+// Types
 // ─────────────────────────────────────────────────────────────────
 
 [<Struct>]
@@ -25,232 +24,118 @@ type ValidationError = {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// WExprQuery-based analysis helpers
+// Arity index
 // ─────────────────────────────────────────────────────────────────
 
-/// Find all ClosureApply and TailCallRef nodes in an expression.
-let findAllClosureCalls (expr: WExpr) : WExpr list =
-    collect (function
-        | WExpr.ClosureApply _ | WExpr.TailCallRef _ -> true
-        | _ -> false
-    ) expr
-
-/// Find all unknown local references (those not in a known set).
-let findUnknownLocals (knownNames: Set<string>) (expr: WExpr) : string list =
-    collect (function WExpr.LocalGet(name, _) -> true | _ -> false) expr
-    |> List.choose (function
-        | WExpr.LocalGet(name, _) when not (Set.contains name knownNames) -> Some name
-        | _ -> None
-    )
-    |> List.distinct
-
-/// Check if break/continue statements are unreachable (dead code after break).
-let findUnreachableCode (expr: WExpr) : (string * WExpr) list =
-    let results = ResizeArray()
-    let rec check expr =
-        match expr with
-        | WExpr.Sequence exprs ->
-            let rec checkSeq acc = function
-                | [] -> ()
-                | e :: rest ->
-                    match e with
-                    | WExpr.Break _ | WExpr.Continue _ | WExpr.Return _ ->
-                        if not rest.IsEmpty then
-                            results.Add(sprintf "unreachable-after-%s" (e.GetType().Name), e)
-                    | _ -> ()
-                    checkSeq (e :: acc) rest
-            checkSeq [] exprs
-            exprs |> List.iter check
-        | other ->
-            children other |> List.iter check
-    check expr
-    List.ofSeq results
-
-// ─────────────────────────────────────────────────────────────────
-// Functype arity index (built once per validate call)
-// ─────────────────────────────────────────────────────────────────
-
-let private buildArityIndex (typeDefs: ResizeArray<WTypeDeclEntry>) : Map<int, int> =
+/// Build funcTypeIdx → paramCount map from the module's type table.
+let private arityIndex (typeDefs: ResizeArray<WTypeDeclEntry>) : Map<int, int> =
     typeDefs
     |> Seq.mapi (fun i entry -> i, entry)
     |> Seq.choose (fun (i, entry) ->
-        match entry.Def with
-        | WTypeDef.Func(parms, _) -> Some(i, List.length parms)
-        | _ -> None)
+        match e.Def with WTypeDef.Func(params, _) -> Some(i, params.Length) | _ -> None)
     |> Map.ofSeq
 
 // ─────────────────────────────────────────────────────────────────
 // Per-function checker
 // ─────────────────────────────────────────────────────────────────
 
-let (* private *) checkFunc
-        (funcName  : string)
-        (arityIdx  : Map<int, int>)
-        (errors    : ResizeArray<ValidationError>)
-        (expr      : WExpr)
-        : unit =
+let private checkFunc
+        (name    : string)
+        (arity   : Map<int, int>)
+        (known   : Set<string>)       // params + locals
+        (body    : WExpr)
+        : ValidationError list =
 
-    let add desc msg =
-        errors.Add { FuncName = funcName; NodeDesc = desc; Message = msg }
+    let errors = ResizeArray()
+    let err desc msg = errors.Add { FuncName = name; NodeDesc = desc; Message = msg }
 
-    let nonVoidCount args =
-        args |> List.filter (fun a -> exprWType a <> WType.Void) |> List.length
+    let nonVoid args = args |> List.filter (fun a -> exprWType a <> WType.Void) |> List.length
 
-    let rec check expr =
+    let arityCheck desc fti selfCount args =
+        match Map.tryFind fti arity with
+        | None ->
+            err desc (sprintf "funcTypeIdx %d not in type table" fti)
+        | Some expected ->
+            let actual = selfCount + nonVoid args
+            if actual <> expected then
+                err desc (sprintf "call_ref needs %d params, %d on stack (self=%d + %d non-void args)"
+                              expected actual selfCount (nonVoid args))
+        let voids = args |> List.filter (fun a -> exprWType a = WType.Void) |> List.length
+        if voids > 0 then
+            err desc (sprintf "%d void arg(s) — no stack value produced → underflow" voids)
 
-        match expr with
+    // Unknown local references
+    collect (function WExpr.LocalGet _ -> true | _ -> false) body
+    |> List.choose (function WExpr.LocalGet(n, _) when not (Set.contains n known) -> Some n | _ -> None)
+    |> List.distinct
+    |> List.iter (fun n -> err "LocalGet" (sprintf "unknown local '%s' — not in params or .Locals" n))
 
-        // ── Primary check: call_ref arity ────────────────────────
-        | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, _, _) ->
+    // Walk and check call nodes
+    let rec walk = function
+        | WExpr.ClosureApply(clo, args, fti, _, _, _) ->
+            arityCheck (sprintf "ClosureApply(fti=%d)" fti) fti 1 args  // +1 self
+            walk clo; List.iter walk args
 
-            // Any void arg produces no stack value → immediate underflow
-            let voids = args |> List.filter (fun a -> exprWType a = WType.Void)
-            if not voids.IsEmpty then
-                add (sprintf "ClosureApply fti=%d cti=%d" funcTypeIdx closureTypeIdx)
-                    (sprintf "%d void-typed arg(s) will produce no stack value → call_ref underflow" voids.Length)
+        | WExpr.TailCallRef(clo, args, fti, _, _, _) ->
+            arityCheck (sprintf "TailCallRef(fti=%d)" fti) fti 1 args
+            walk clo; List.iter walk args
 
-            // Arity check: functype params must be (self :: non-void-args)
-            match Map.tryFind funcTypeIdx arityIdx with
-            | Some expected ->
-                let actual = 1 + nonVoidCount args  // +1 for self
-                if actual <> expected then
-                    add (sprintf "ClosureApply fti=%d cti=%d" funcTypeIdx closureTypeIdx)
-                        (sprintf "call_ref needs %d args (incl $self), %d on stack (%d args + self)" expected actual (actual - 1))
-            | None ->
-                add (sprintf "ClosureApply fti=%d" funcTypeIdx)
-                    (sprintf "funcTypeIdx %d not registered — type table incomplete" funcTypeIdx)
+        | WExpr.CallRef(fti, args, ptr, _) ->
+            // LIR node: self is already first element of args (from Lower.fs)
+            arityCheck (sprintf "CallRef(fti=%d)" fti) fti 0 args
+            List.iter walk args; walk ptr
 
-            check closure
-            args |> List.iter check
+        | WExpr.ReturnCallRef(fti, args, ptr, _) ->
+            arityCheck (sprintf "ReturnCallRef(fti=%d)" fti) fti 0 args
+            List.iter walk args; walk ptr
 
-        | WExpr.TailCallRef(closure, args, funcTypeIdx, closureTypeIdx, _, _) ->
+        | WExpr.CallVirtual(box, _, _, _, fti, args, _) ->
+            arityCheck (sprintf "CallVirtual(fti=%d)" fti) fti 1 args   // +1 self (box)
+            walk box; List.iter walk args
 
-            let voids = args |> List.filter (fun a -> exprWType a = WType.Void)
-            if not voids.IsEmpty then
-                add (sprintf "TailCallRef fti=%d cti=%d" funcTypeIdx closureTypeIdx)
-                    (sprintf "%d void arg(s) → return_call_ref underflow" voids.Length)
+        | WExpr.Closure(n, _, WType.Ref(0, _)) ->
+            err (sprintf "Closure('%s')" n) "has AnyFnTypeIdx(0) — fixClosureApply may not have run"
 
-            match Map.tryFind funcTypeIdx arityIdx with
-            | Some expected ->
-                let actual = 1 + nonVoidCount args
-                if actual <> expected then
-                    add (sprintf "TailCallRef fti=%d cti=%d" funcTypeIdx closureTypeIdx)
-                        (sprintf "return_call_ref needs %d, %d on stack" expected actual)
-            | None -> ()
+        // Descend
+        | expr -> children expr |> List.iter walk
 
-            check closure
-            args |> List.iter check
-
-        // ── Secondary checks ──────────────────────────────────────
-
-        // Closures passed as values should have a non-AnyFn type registered
-        | WExpr.Closure(name, caps, ty) ->
-            match ty with
-            | WType.Ref(0, _) ->
-                add (sprintf "Closure '%s'" name)
-                    "Closure has AnyFnTypeIdx (0) as type — fixClosureApply may not have run"
-            | _ -> ()
-            caps |> List.iter check
-
-        // CallRef-via-CallVirtual: args should match vtable slot arity
-        | WExpr.CallVirtual(box, _, _, _, funcTypeIdx, args, _) ->
-            match Map.tryFind funcTypeIdx arityIdx with
-            | Some expected ->
-                // CallVirtual passes self (eqref) + args; self is the box, not in args list
-                let actual = 1 + nonVoidCount args
-                if actual <> expected then
-                    add (sprintf "CallVirtual fti=%d" funcTypeIdx)
-                        (sprintf "vtable call_ref needs %d, %d on stack" expected actual)
-            | None -> ()
-            check box
-            args |> List.iter check
-
-        // ── Recursive descent ─────────────────────────────────────
-        | WExpr.Let(_, v, b) | WExpr.LetMut(_, v, b)  -> check v; check b
-        | WExpr.If(c, t, e, _)                         -> check c; check t; check e
-        | WExpr.Sequence xs                             -> xs |> List.iter check
-        | WExpr.Block(_, body, _)
-        | WExpr.Loop(_, body, _)                        -> check body
-        | WExpr.Call(_, args, _)                        -> args |> List.iter check
-        | WExpr.TailCall(_, args, _)                    -> args |> List.iter check
-        | WExpr.Assign(_, v)                            -> check v
-        | WExpr.ArrayGet(a, i, _)                       -> check a; check i
-        | WExpr.ArraySet(a, i, v)                       -> check a; check i; check v
-        | WExpr.ArrayNew(_, s, init, _)                 -> check s; check init
-        | WExpr.ArrayNewFixed(_, elems, _)              -> elems |> List.iter check
-        | WExpr.ArrayLen e                              -> check e
-        | WExpr.ArrayCopy(d, do_, s, so, n)            -> check d; check do_; check s; check so; check n
-        | WExpr.StructNew(_, fs, _)                     -> fs |> List.iter check
-        | WExpr.StructGet(o, _, _)                      -> check o
-        | WExpr.StructSet(o, _, v)                      -> check o; check v
-        | WExpr.Cast(e, _) | WExpr.RefIsNull e
-        | WExpr.RefTest(e, _) | WExpr.TagOf e          -> check e
-        | WExpr.Unary(_, e, _)                          -> check e
-        | WExpr.Binary(_, a, b, _)
-        | WExpr.Compare(_, a, b)                        -> check a; check b
-        | WExpr.Break(_, Some v)                        -> check v
-        | WExpr.Throw e                                 -> check e
-        | WExpr.MemLoad(_, _, addr)                     -> check addr
-        | WExpr.MemStore(_, _, addr, v)                 -> check addr; check v
-        | WExpr.MemoryGrow pages                        -> check pages
-        | WExpr.JoinPoint(_, _, b, c, _)                -> check b; check c
-        | WExpr.SwitchInt(s, cases, d, _)              ->
-            check s; cases |> List.iter (snd >> check); check d
-        | WExpr.TryCatch(b, catch, fin, _)             ->
-            check b
-            catch |> Option.iter (snd >> check)
-            fin   |> Option.iter check
-        | _ -> ()
-
-    check expr
+    walk body
+    List.ofSeq errors
 
 // ─────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────
 
 /// Validate all functions in the module.
-/// failOnErrors=true → raise after printing; false → warn-only (for CI gates).
+/// strict=true → raise after printing; false → warn-only (for CI gates).
 let validate
-        (failOnErrors : bool)
-        (typeDefs     : ResizeArray<WTypeDeclEntry>)
-        (functions    : WFuncDecl list)
-        // : ResizeArray<ValidationError> =
-        : List<ValidationError> =
-    let errors   = ResizeArray<ValidationError>()
-    let arityIdx = buildArityIndex typeDefs
-    for f in functions do
-        checkFunc f.Name arityIdx errors f.Body
-    if errors.Count > 0 then
-        let tag = if failOnErrors then "✗ ERROR" else "⚠ WARN"
+        (strict   : bool)
+        (typeDefs : ResizeArray<WTypeDeclEntry>)
+        (funcs    : WFuncDecl list)
+        : ValidationError list =
+
+    let arity = arityIndex typeDefs
+    let errors =
+        funcs |> List.collect (fun f ->
+            let known =
+                (f.Params |> List.map fst) @ (f.Locals |> List.map fst) |> Set.ofList
+            checkFunc f.Name arity known f.Body)
+
+    if not errors.IsEmpty then
         eprintfn ""
-        eprintfn "[Validator] %s — %d issue(s) found before emit:" tag errors.Count
+        eprintfn "[Validator] %s — %d issue(s):" (if strict then "✗ ERRORS" else "⚠ WARNINGS") errors.Length
         eprintfn "%s" (String.replicate 72 "─")
         // Group by function for readability
         errors
-        |> Seq.groupBy (fun e -> e.FuncName)
-        |> Seq.iter (fun (fn, errs) ->
-            eprintfn "  func %s" fn
-            for e in errs do
+        |> List.groupBy (fun e -> e.FuncName)
+        |> List.iter (fun (fn, errs) ->
+            eprintfn "  %s" fn
+            errs |> List.iter (fun e ->
                 eprintfn "    [%s]" e.NodeDesc
-                eprintfn "    → %s" e.Message)
+                eprintfn "    → %s" e.Message))
         eprintfn "%s" (String.replicate 72 "─")
         eprintfn ""
-        if failOnErrors then
-            failwithf "[Validator] %d error(s) — fix before emitting WASM" errors.Count
-    errors |> Seq.toList
+        if strict then
+            failwithf "[Validator] %d error(s) — aborting before emit" errors.Length
+    errors
 
-/// Quick-check using WExprQuery: find closure calls and unknown locals.
-let quickCheck (funcName: string) (knownLocals: Set<string>) (expr: WExpr) : string list =
-    let issues = ResizeArray()
-    
-    // Check unknown locals referenced
-    let unknown = findUnknownLocals knownLocals expr
-    for name in unknown do
-        issues.Add(sprintf "[%s] Unknown local referenced: '%s'" funcName name)
-    
-    // Check for dead code after break/continue
-    let unreachable = findUnreachableCode expr
-    for (desc, _) in unreachable do
-        issues.Add(sprintf "[%s] %s" funcName desc)
-    
-    List.ofSeq issues

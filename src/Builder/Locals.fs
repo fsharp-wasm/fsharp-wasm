@@ -1,35 +1,27 @@
-/// Local variable collection and WFuncDecl construction utilities.
-/// Extracted from Runtime.fs — the infrastructure every helper needs.
-/// Kept lean so emitters (Emit, Wat) can open this without pulling in
-/// all the BCL string/char helpers.
+/// Local variable collection and WFuncDecl construction.
+/// Key invariant: emitter-internal temporaries ($clo_apply_tmp, $switch_tmp)
+/// must NEVER appear here — they are either eliminated by Lower.fs or
+/// injected by Emit.fs as true stack operations (local.tee with no .Locals entry).
 module WasmGc.Runtime.Locals
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
-// Compiler-internal temporaries — must NEVER appear in .Locals
+// Emitter-internal temporaries — excluded from .Locals
 // ─────────────────────────────────────────────────────────────────
+// After Lower.fs runs, ClosureApply → Let($lo_clo_N,...) so $clo_apply_tmp
+// is gone from HIR code paths.  The legacy path in Emit.fs still injects
+// $clo_apply_tmp/$switch_tmp as locals for functions not yet lowered;
+// we keep the exclusion filter here as a safety net.
 
-/// Names injected by the EMITTER at code-generation time.
-/// These are stack temporaries that the emitter inserts unconditionally;
-/// they must not appear in the wasm `(local ...)` declarations because
-/// the emitter does NOT use local.get/local.set for them — it uses
-/// local.tee inline on the value stack.
-///
-/// Invariant: resolveLocals MUST strip these from every Locals list.
-let private emitterInternalTemps =
-    Set.ofList [
-        "$clo_apply_tmp"       // local.tee target for call_ref self-arg
-        "$switch_tmp"          // br_table target for SwitchInt
-        "$fsharp_exn_carrier"  // exception tag global, not a local
-    ]
+let private internalTemps =
+    Set.ofList ["$clo_apply_tmp"; "$switch_tmp"; "$fsharp_exn_carrier"]
 
-let private isEmitterInternal (name: string) =
-    Set.contains name emitterInternalTemps
+let private isInternal (name: string) = Set.contains name internalTemps
 
 // ─────────────────────────────────────────────────────────────────
-// Local variable collection
+// findAllReferencedLocals - Local variable collection
 // ─────────────────────────────────────────────────────────────────
 
 /// Find all LocalGet names and their types referenced in an expression.
@@ -37,72 +29,50 @@ let private isEmitterInternal (name: string) =
 /// they might be parameters or captured variables that need to be in Locals.
 let rec findAllReferencedLocals (expr: WExpr) : (string * WType) list =
     match expr with
-    | WExpr.LocalGet(name, ty) -> [(name, ty)]
-    | WExpr.Let(_, value, body) | WExpr.LetMut(_, value, body) ->
-        findAllReferencedLocals value @ findAllReferencedLocals body
-    | WExpr.If(c, t, e, _) ->
-        findAllReferencedLocals c @ findAllReferencedLocals t @ findAllReferencedLocals e
-    | WExpr.Sequence exprs ->
-        exprs |> List.collect findAllReferencedLocals
-    | WExpr.Loop(_, body, _) | WExpr.Block(_, body, _) ->
-        findAllReferencedLocals body
-    | WExpr.Call(_, args, _) | WExpr.CallIndirect(_, args, _) ->
-        args |> List.collect findAllReferencedLocals
-    | WExpr.Binary(_, l, r, _) ->
-        findAllReferencedLocals l @ findAllReferencedLocals r
-    | WExpr.Unary(_, op, _) ->
-        findAllReferencedLocals op
-    | WExpr.Compare(_, l, r) ->
-        findAllReferencedLocals l @ findAllReferencedLocals r
-    | WExpr.Assign(_, v) | WExpr.GlobalSet(_, v) ->
-        findAllReferencedLocals v
-    | WExpr.JoinPoint(_, _, body, cont, _) ->
-        findAllReferencedLocals body @ findAllReferencedLocals cont
-    | WExpr.JoinApply(_, args, _) ->
-        args |> List.collect findAllReferencedLocals
-    | WExpr.TryCatch(body, catch, fin, _) ->
-        let catchRefs = match catch with Some(_, e) -> findAllReferencedLocals e | None -> []
-        let finRefs   = match fin with Some e -> findAllReferencedLocals e | None -> []
-        findAllReferencedLocals body @ catchRefs @ finRefs
-    | WExpr.StructNew(_, fields, _) | WExpr.ArrayNewFixed(_, fields, _) ->
-        fields |> List.collect findAllReferencedLocals
-    | WExpr.StructGet(obj, _, _) ->
-        findAllReferencedLocals obj
-    | WExpr.StructSet(obj, _, v) ->
-        findAllReferencedLocals obj @ findAllReferencedLocals v
-    | WExpr.ArrayGet(arr, idx, _) ->
-        findAllReferencedLocals arr @ findAllReferencedLocals idx
-    | WExpr.ArraySet(arr, idx, v) ->
-        findAllReferencedLocals arr @ findAllReferencedLocals idx @ findAllReferencedLocals v
-    | WExpr.Cast(obj, _) | WExpr.RefIsNull obj | WExpr.RefTest(obj, _)
-    | WExpr.TagOf obj | WExpr.ArrayLen obj ->
-        findAllReferencedLocals obj
-    | WExpr.Closure(_, captures, _) ->
-        captures |> List.collect findAllReferencedLocals
-    | WExpr.ClosureApply(closure, args, _, _, _, _)
-    | WExpr.TailCallRef(closure, args, _, _, _, _) ->
-        findAllReferencedLocals closure @ (args |> List.collect findAllReferencedLocals)
-    | WExpr.CallVirtual(box, _, _, _, _, args, _) ->
-        findAllReferencedLocals box @ (args |> List.collect findAllReferencedLocals)
-    | WExpr.TailCall(_, args, _) ->
-        args |> List.collect findAllReferencedLocals
-    | WExpr.SwitchInt(scrutinee, cases, default_, _) ->
-        findAllReferencedLocals scrutinee
-        @ (cases |> List.collect (fun (_, body) -> findAllReferencedLocals body))
-        @ findAllReferencedLocals default_
-    | WExpr.ArrayCopy(dst, dstOff, src, srcOff, len) ->
-        findAllReferencedLocals dst  @ findAllReferencedLocals dstOff
-        @ findAllReferencedLocals src @ findAllReferencedLocals srcOff
-        @ findAllReferencedLocals len
-    | WExpr.ArrayNew(_, size, init, _) ->
-        findAllReferencedLocals size @ findAllReferencedLocals init
-    | WExpr.MemLoad(_, _, addr) ->
-        findAllReferencedLocals addr
-    | WExpr.MemStore(_, _, addr, value) ->
-        findAllReferencedLocals addr @ findAllReferencedLocals value
-    | WExpr.MemoryGrow pages ->
-        findAllReferencedLocals pages
-    | _ -> []
+    | WExpr.LocalGet(n, ty)                          -> [(n, ty)]
+    | WExpr.Let(_, v, b) | WExpr.LetMut(_, v, b)    -> findAllReferencedLocals v @ findAllReferencedLocals b
+    | WExpr.If(c, t, e, _)                           -> findAllReferencedLocals c @ findAllReferencedLocals t @ findAllReferencedLocals e
+    | WExpr.Sequence xs                              -> List.collect findAllReferencedLocals xs
+    | WExpr.Loop(_, b, _) | WExpr.Block(_, b, _)    -> findAllReferencedLocals b
+    | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _)
+    | WExpr.CallIndirect(_, args, _)                 -> List.collect findAllReferencedLocals args
+    | WExpr.Binary(_, l, r, _) | WExpr.Compare(_, l, r) -> findAllReferencedLocals l @ findAllReferencedLocals r
+    | WExpr.Unary(_, x, _)                           -> findAllReferencedLocals x
+    | WExpr.Assign(_, v) | WExpr.GlobalSet(_, v)     -> findAllReferencedLocals v
+    | WExpr.JoinPoint(_, _, b, c, _)                 -> findAllReferencedLocals b @ findAllReferencedLocals c
+    | WExpr.JoinApply(_, args, _)                    -> List.collect findAllReferencedLocals args
+    | WExpr.TryCatch(b, catch, fin, _) ->
+        findAllReferencedLocals b
+        @ (match catch with Some(_, e) -> findAllReferencedLocals e | None -> [])
+        @ (match fin   with Some e     -> findAllReferencedLocals e | None -> [])
+    | WExpr.StructNew(_, fs, _) | WExpr.ArrayNewFixed(_, fs, _) -> List.collect findAllReferencedLocals fs
+    | WExpr.StructGet(o, _, _)                       -> findAllReferencedLocals o
+    | WExpr.StructSet(o, _, v)                       -> findAllReferencedLocals o @ findAllReferencedLocals v
+    | WExpr.ArrayGet(a, i, _)                        -> findAllReferencedLocals a @ findAllReferencedLocals i
+    | WExpr.ArraySet(a, i, v)                        -> findAllReferencedLocals a @ findAllReferencedLocals i @ findAllReferencedLocals v
+    | WExpr.Cast(x, _) | WExpr.RefIsNull x | WExpr.RefTest(x, _) | WExpr.TagOf x | WExpr.ArrayLen x -> findAllReferencedLocals x
+    | WExpr.Closure(_, caps, _)                      -> List.collect findAllReferencedLocals caps
+    | WExpr.ClosureApply(clo, args, _, _, _, _)
+    | WExpr.TailCallRef(clo, args, _, _, _, _)       -> findAllReferencedLocals clo @ List.collect findAllReferencedLocals args
+    // LIR nodes (after Lower.fs)
+    | WExpr.CallRef(_, args, ptr, _)
+    | WExpr.ReturnCallRef(_, args, ptr, _)           -> List.collect findAllReferencedLocals args @ findAllReferencedLocals ptr
+    | WExpr.CallVirtual(box, _, _, _, _, args, _)    -> findAllReferencedLocals box @ List.collect findAllReferencedLocals args
+    | WExpr.TailCall(_, args, _)                     -> List.collect findAllReferencedLocals args
+    | WExpr.SwitchInt(s, cases, def, _) ->
+        findAllReferencedLocals s
+        @ List.collect (snd >> findAllReferencedLocals) cases
+        @ findAllReferencedLocals def
+    | WExpr.ArrayCopy(d, do_, s, so, n)              -> List.collect findAllReferencedLocals [d; do_; s; so; n]
+    | WExpr.ArrayNew(_, s, init, _)                  -> findAllReferencedLocals s @ findAllReferencedLocals init
+    | WExpr.MemLoad(_, _, a)                         -> findAllReferencedLocals a
+    | WExpr.MemStore(_, _, a, v)                     -> findAllReferencedLocals a @ findAllReferencedLocals v
+    | WExpr.MemoryGrow p                             -> findAllReferencedLocals p
+    | _                                              -> []
+
+// ─────────────────────────────────────────────────────────────────
+// collectLocals
+// ─────────────────────────────────────────────────────────────────
 
 /// Collect all Let/LetMut-bound locals (the WASM locals declaration list).
 /// Collect all locals used within a WExpr (for the WASM code section).
@@ -111,200 +81,116 @@ let rec findAllReferencedLocals (expr: WExpr) : (string * WType) list =
 let rec collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType) list =
     match expr with
     | WExpr.Let(name, value, body) | WExpr.LetMut(name, value, body) ->
-        let valueTy = exprWType value
+        let isExcluded = Set.contains name paramNames || isInternal name
         let local =
-            if Set.contains name paramNames || isEmitterInternal name then []
+            if isExcluded then []
             else
-                // If the value has Void type (e.g., WExpr.Nop from unhandled calls),
-                // infer the local type from how it's used (LocalGet) in the body.
+                let valueTy = exprWType value
                 let ty =
                     if valueTy <> WType.Void then valueTy
                     else
-                        // Find/Infer from first LocalGet(name, _) usage in body to get the actual type
-                        let rec findType (e: WExpr) =
-                            match e with
-                            | WExpr.LocalGet(n, ty) when n = name && ty <> WType.Void -> Some ty
-                            | WExpr.Let(_, v, b) | WExpr.LetMut(_, v, b) ->
-                                match findType v with Some ty -> Some ty | None -> findType b
-                            | WExpr.If(c, thenE, elseE, _) ->
-                                match findType c with
-                                | Some ty -> Some ty
-                                | None ->
-                                    match findType thenE with
-                                    | Some ty -> Some ty
-                                    | None -> findType elseE
-                            | WExpr.Sequence exprs -> exprs |> List.tryPick findType
-                            | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _) ->
-                                args |> List.tryPick findType
-                            | WExpr.StructGet(obj, _, _) | WExpr.ArrayLen obj
-                            | WExpr.Cast(obj, _)
-                            | WExpr.RefIsNull obj
-                            | WExpr.RefTest(obj, _)
-                            | WExpr.TagOf obj
-                            | WExpr.Loop(_, obj, _)
-                            | WExpr.Block(_, obj, _) -> findType obj
-                            | WExpr.Unary(_, obj, _) -> findType obj
-                            | WExpr.Binary(_, l, r, _) | WExpr.Compare(_, l, r) ->
-                                match findType l with Some ty -> Some ty | None -> findType r
-                            | WExpr.JoinPoint(_, _, b, cont, _) ->
-                                match findType b with Some ty -> Some ty | None -> findType cont
-                            | WExpr.JoinApply(_, args, _) -> args |> List.tryPick findType
-                            | WExpr.StructNew(_, fields, _) -> fields |> List.tryPick findType
-                            | WExpr.ArrayNewFixed(_, elems, _) -> elems |> List.tryPick findType
-                            | WExpr.ArrayGet(arr, idx, _) ->
-                                match findType arr with Some ty -> Some ty | None -> findType idx
+                        // Infer from first matching LocalGet in body
+                        let rec find = function
+                            | WExpr.LocalGet(n, t) when n = name && t <> WType.Void -> Some t
+                            | WExpr.Let(_, v, b) | WExpr.LetMut(_, v, b) -> match find v with Some t -> Some t | None -> find b
+                            | WExpr.If(c, t, el, _) -> find c |> Option.orElse (find t) |> Option.orElse (find el)
+                            | WExpr.Sequence xs -> List.tryPick find xs
+                            | WExpr.Loop(_, b, _) | WExpr.Block(_, b, _) -> find b
+                            | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _) -> List.tryPick find args
+                            | WExpr.Binary(_, l, r, _) | WExpr.Compare(_, l, r) -> find l |> Option.orElse (find r)
+                            | WExpr.Unary(_, x, _) -> find x
+                            | WExpr.StructGet(o, _, _) | WExpr.ArrayLen o | WExpr.Cast(o, _)
+                            | WExpr.RefIsNull o | WExpr.RefTest(o, _) | WExpr.TagOf o -> find o
+                            | WExpr.JoinPoint(_, _, b, c, _) -> find b |> Option.orElse (find c)
+                            | WExpr.JoinApply(_, args, _) -> List.tryPick find args
+                            | WExpr.StructNew(_, fs, _) | WExpr.ArrayNewFixed(_, fs, _) -> List.tryPick find fs
+                            | WExpr.ArrayGet(a, i, _) -> find a |> Option.orElse (find i)
+                            | WExpr.CallRef(_, args, ptr, _) | WExpr.ReturnCallRef(_, args, ptr, _) ->
+                                List.tryPick find args |> Option.orElse (find ptr)
                             | _ -> None
-                        match findType body with
-                        | Some t -> t
-                        | None   -> WType.I32  // last resort: assume I32
-                if ty = WType.Void then []
-                else [(name, ty)]
+                        match find body with Some t -> t | None -> WType.I32
+                if ty = WType.Void then [] else [(name, ty)]
         local @ collectLocals paramNames value @ collectLocals paramNames body
 
-    | WExpr.If(c, t, e, _) ->
-        collectLocals paramNames c @ collectLocals paramNames t @ collectLocals paramNames e
-    | WExpr.Sequence exprs ->
-        exprs |> List.collect (collectLocals paramNames)
-    | WExpr.Loop(_, body, _)
-    | WExpr.Block(_, body, _) ->
-        collectLocals paramNames body
-    | WExpr.Call(_, args, _) ->
-        args |> List.collect (collectLocals paramNames)
-    | WExpr.CallIndirect(func, args, _) ->
-        collectLocals paramNames func @ (args |> List.collect (collectLocals paramNames))
-    | WExpr.Binary(_, l, r, _) ->
-        collectLocals paramNames l @ collectLocals paramNames r
-    | WExpr.Unary(_, op, _) ->
-        collectLocals paramNames op
-    | WExpr.Compare(_, l, r) ->
-        collectLocals paramNames l @ collectLocals paramNames r
-    | WExpr.Assign(_, v)
-    | WExpr.GlobalSet(_, v) ->
-        collectLocals paramNames v
-    | WExpr.JoinPoint(_, _, body, cont, _) ->
-        collectLocals paramNames body @ collectLocals paramNames cont
-    | WExpr.JoinApply(_, args, _) ->
-        args |> List.collect (collectLocals paramNames)
-    | WExpr.TryCatch(body, catch, fin, _) ->
-        // The catch ident is declared via WExpr.Let(ident, GlobalGet($fsharp_exn_carrier), ...)
-        // inside the handler expression itself — collectLocals on `expr` will find it.
-        let catchLocals = match catch with Some(_, e) -> collectLocals paramNames e | None -> []
-        let finLocals   = match fin with Some e -> collectLocals paramNames e | None -> []
-        collectLocals paramNames body @ catchLocals @ finLocals
-    | WExpr.StructNew(_, fields, _) ->
-        fields |> List.collect (collectLocals paramNames)
-    | WExpr.StructGet(obj, _, _) -> collectLocals paramNames obj
-    | WExpr.StructSet(obj, _, v) ->
-        collectLocals paramNames obj @ collectLocals paramNames v
-    | WExpr.ArrayNewFixed(_, elems, _) ->
-        elems |> List.collect (collectLocals paramNames)
-    | WExpr.ArrayGet(arr, idx, _) ->
-        collectLocals paramNames arr @ collectLocals paramNames idx
-    | WExpr.ArraySet(arr, idx, v) ->
-        collectLocals paramNames arr @ collectLocals paramNames idx @ collectLocals paramNames v
-    | WExpr.ArrayLen arr  -> collectLocals paramNames arr
-    | WExpr.ArrayCopy(dst, dstOff, src, srcOff, len) ->
-        collectLocals paramNames dst
-        @ collectLocals paramNames dstOff
-        @ collectLocals paramNames src
-        @ collectLocals paramNames srcOff
-        @ collectLocals paramNames len
-    | WExpr.ArrayNew(_, size, init, _) ->
-        collectLocals paramNames size @ collectLocals paramNames init
-    | WExpr.RefIsNull obj
-    | WExpr.RefTest(obj, _)
-    | WExpr.Cast(obj, _) ->
-        collectLocals paramNames obj
-    | WExpr.Closure(_, captures, _) ->
-        captures |> List.collect (collectLocals paramNames)
-    | WExpr.ClosureApply(closure, args, _, _, _, _) ->
-        // OLD LOGIC Always register $clo_apply_tmp (emitter uses local.tee unconditionally)
-        // let tmpLocal = ["$clo_apply_tmp", WType.Ref(AnyFnTypeIdx, false)]
-        // tmpLocal @ // .... TODO: 
-
-        // NOTE: $clo_apply_tmp is NOT added here — it's an emitter-internal temp
-        // injected by the WAT/binary emitter as a local.tee target; it must not
-        // appear in the WASM locals list.        
-        collectLocals paramNames closure
-        @ (args |> List.collect (collectLocals paramNames))
-    | WExpr.TailCall(_, args, _) ->
-        args |> List.collect (collectLocals paramNames)
-    | WExpr.TailCallRef(closure, args, _, _, _, _) ->
-        // Same as ClosureApply — $clo_apply_tmp is emitter-internal
-        // TODO: also OLD LOGIC has to move
-        collectLocals paramNames closure
-        @ (args |> List.collect (collectLocals paramNames))
+    | WExpr.If(c, t, e, _)           -> collectLocals paramNames c @ collectLocals paramNames t @ collectLocals paramNames e
+    | WExpr.Sequence xs               -> List.collect (collectLocals paramNames) xs
+    | WExpr.Loop(_, b, _) | WExpr.Block(_, b, _) -> collectLocals paramNames b
+    | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _)
+    | WExpr.CallIndirect(_, args, _)  -> List.collect (collectLocals paramNames) args
+    | WExpr.Binary(_, l, r, _)        -> collectLocals paramNames l @ collectLocals paramNames r
+    | WExpr.Unary(_, x, _)            -> collectLocals paramNames x
+    | WExpr.Compare(_, l, r)          -> collectLocals paramNames l @ collectLocals paramNames r
+    | WExpr.Assign(_, v) | WExpr.GlobalSet(_, v) -> collectLocals paramNames v
+    | WExpr.JoinPoint(_, _, b, c, _)  -> collectLocals paramNames b @ collectLocals paramNames c
+    | WExpr.JoinApply(_, args, _)     -> List.collect (collectLocals paramNames) args
+    | WExpr.TryCatch(b, catch, fin, _) ->
+        collectLocals paramNames b
+        @ (match catch with Some(_, e) -> collectLocals paramNames e | None -> [])
+        @ (match fin   with Some e     -> collectLocals paramNames e | None -> [])
+    | WExpr.StructNew(_, fs, _) | WExpr.ArrayNewFixed(_, fs, _) -> List.collect (collectLocals paramNames) fs
+    | WExpr.StructGet(o, _, _)        -> collectLocals paramNames o
+    | WExpr.StructSet(o, _, v)        -> collectLocals paramNames o @ collectLocals paramNames v
+    | WExpr.ArrayGet(a, i, _)         -> collectLocals paramNames a @ collectLocals paramNames i
+    | WExpr.ArraySet(a, i, v)         -> collectLocals paramNames a @ collectLocals paramNames i @ collectLocals paramNames v
+    | WExpr.ArrayLen x | WExpr.Cast(x, _) | WExpr.RefIsNull x
+    | WExpr.RefTest(x, _) | WExpr.TagOf x -> collectLocals paramNames x
+    | WExpr.ArrayCopy(d, do_, s, so, n) -> List.collect (collectLocals paramNames) [d; do_; s; so; n]
+    | WExpr.ArrayNew(_, s, init, _)   -> collectLocals paramNames s @ collectLocals paramNames init
+    | WExpr.Closure(_, caps, _)       -> List.collect (collectLocals paramNames) caps
+    // HIR closure nodes (pre-lowering) — no $clo_apply_tmp injection here
+    | WExpr.ClosureApply(clo, args, _, _, _, _)
+    | WExpr.TailCallRef(clo, args, _, _, _, _) ->
+        collectLocals paramNames clo @ List.collect (collectLocals paramNames) args
+    // LIR closure nodes (post-lowering) — $lo_* names collected via Let above
+    | WExpr.CallRef(_, args, ptr, _)
+    | WExpr.ReturnCallRef(_, args, ptr, _) ->
+        List.collect (collectLocals paramNames) args @ collectLocals paramNames ptr
     | WExpr.CallVirtual(box, _, _, _, _, args, _) ->
-        // box is evaluated twice in the emitter (always a LocalGet in practice)
-        collectLocals paramNames box
-        @ (args |> List.collect (collectLocals paramNames))
-    | WExpr.SwitchInt(scrutinee, cases, default_, _) ->
-        // TODO: OLD LOGIC below has to move 
-        // // Must add $switch_tmp local that the emitter uses unconditionally
-        // let switchTmpLocal = ["$switch_tmp", WType.I32]
-        // switchTmpLocal
-        // @ 
+        collectLocals paramNames box @ List.collect (collectLocals paramNames) args
+    | WExpr.SwitchInt(s, cases, def, _) ->
+        // No $switch_tmp injection — after Lower, scrutinee is already Let-bound
+        collectLocals paramNames s
+        @ List.collect (snd >> collectLocals paramNames) cases
+        @ collectLocals paramNames def
+    | WExpr.MemLoad(_, _, a)          -> collectLocals paramNames a
+    | WExpr.MemStore(_, _, a, v)      -> collectLocals paramNames a @ collectLocals paramNames v
+    | WExpr.MemoryGrow p              -> collectLocals paramNames p
+    | _                               -> []
 
-        // NOTE: $switch_tmp is NOT added here — emitter-internal
-        collectLocals paramNames scrutinee
-        @ (cases |> List.collect (fun (_, body) -> collectLocals paramNames body))
-        @ collectLocals paramNames default_
-    | WExpr.TagOf obj       -> collectLocals paramNames obj
-    // Linear memory — no new locals; just recurse into sub-expressions
-    | WExpr.MemLoad(_, _, addr) -> collectLocals paramNames addr
-    | WExpr.MemStore(_, _, addr, value) ->
-        collectLocals paramNames addr @ collectLocals paramNames value
-    | WExpr.MemoryGrow pages -> collectLocals paramNames pages
-    | WExpr.MemorySize -> []
-    | _ -> []
+// ─────────────────────────────────────────────────────────────────
+// resolveLocals / makeFunc
+// ─────────────────────────────────────────────────────────────────
 
-/// Fill in the Locals field of a WFuncDecl by scanning the body.
-/// Strips emitter-internal temporaries ($clo_apply_tmp, $switch_tmp) — those
-/// are injected by the emitter and must NOT appear in the wasm locals list.
-/// Collects both explicit Let/LetMut bindings and any referenced LocalGet variables
-/// that aren't parameters. This ensures closure captures are properly included.
 let resolveLocals (func: WFuncDecl) : WFuncDecl =
     let paramNames = func.Params |> List.map fst |> Set.ofList
 
-    // Pass 1: Let/LetMut-declared locals
-    // First pass: collect declared locals (Let/LetMut bindings)
-    let declaredLocals =
+    let declared =
         collectLocals paramNames func.Body
         |> List.distinctBy fst
-        |> List.filter (fun (name, ty) ->
-            ty <> WType.Void && not (isEmitterInternal name))
+        |> List.filter (fun (name, ty) -> ty <> WType.Void && not (isInternal name))
 
-    let declaredNames = declaredLocals |> List.map fst |> Set.ofList
+    let declaredSet = declared |> List.map fst |> Set.ofList
 
-    // Pass 2: LocalGet references not covered by params or declared locals
-    // (captures that are referenced but weren't let-bound in THIS function body)
-    // Second pass: find all referenced locals (LocalGet references)
-    let additionalLocals =
+    let additional =
         findAllReferencedLocals func.Body
-        |> List.filter (fun (name, _) ->
-            not (Set.contains name paramNames)   &&
-            not (Set.contains name declaredNames) &&
-            not (isEmitterInternal name))
+        |> List.filter (fun (name, ty) ->
+            ty <> WType.Void
+            && not (Set.contains name paramNames)
+            && not (Set.contains name declaredSet)
+            && not (isInternal name))
         |> List.distinctBy fst
-        |> List.filter (fun (_, ty) -> ty <> WType.Void)
 
-    { func with Locals = declaredLocals @ additionalLocals }
+    { func with Locals = declared @ additional }
 
 /// Build a WFuncDecl with automatic local collection.
 /// Eliminates the collectLocals boilerplate that appears on every helper.
-let makeFunc
-        (name    : string)
-        (parms   : (string * WType) list)
-        (result  : WType)
-        (body    : WExpr)
-        : WFuncDecl =
-    let paramNames = parms |> List.map fst |> Set.ofList
+let makeFunc (name: string) (parms: (string * WType) list) (result: WType) (body: WExpr) : WFuncDecl =
+    let pset = parms |> List.map fst |> Set.ofList
     { Name     = name
       Params   = parms
       Result   = result
-      Locals   =
-          collectLocals paramNames body
-          |> List.distinctBy fst
-          |> List.filter (fun (name, ty) -> ty <> WType.Void && not (isEmitterInternal name))
+      Locals   = collectLocals pset body
+                 |> List.distinctBy fst
+                 |> List.filter (fun (n, ty) -> ty <> WType.Void && not (isInternal n))
       Body     = body
       Exported = false }

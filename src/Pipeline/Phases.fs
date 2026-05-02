@@ -1,46 +1,47 @@
-/// Pipeline phase orchestration — TEIL 1 full implementation.
+/// Pipeline phase orchestration.
 ///
-/// 8 phases with hard input/output type contracts:
+///   Phase 0   Input + optional FableAstDump
+///   Phase 1   ScopeAnalyzer  → ScopeMap per function
+///   Phase 2   TypeResolver   (on-demand via mapTypeKnown, no separate step)
+///   Phase 3   Fable → raw WExpr
+///   Phase 4   Normalizer     → flat, Nop-free WExpr
+///   Phase 4b  Lower          → ClosureApply/SwitchInt → Let+CallRef/BrTable (LIR)
+///   Phase 5   Locals         → WFuncDecl.Locals collected from clean LIR
+///   Phase 6   Validator      → structural checks, no emit-time surprises
+///   Phase 7   Optimize       → DCE/const-fold, re-runs Phase 5
+///   Phase 8   Emit           → WAT + .wasm (owned by caller)
 ///
-///   Phase 0  Input verification + FableAstDump
-///   Phase 1  ScopeAnalyzer   → ScopeMap per function
-///   Phase 2  TypeResolver    (integrated into Ctx; called on-demand per type)
-///   Phase 3  Fable → WExpr   (Fable2Wasm + TransformExpr, using ScopeMap)
-///   Phase 4  Normalizer      → clean, flat WExpr (prerequisite for Phase 5)
-///   Phase 5  Locals          → WFuncDecl with resolved locals
-///   Phase 6  Validator       → structural correctness before emit
-///   Phase 7  Optimize        → constant-fold, DCE (existing, minimal)
-///   Phase 8  Emit            → WAT text + .wasm binary
-///
-/// Key invariant: Phase 5 (collectLocals) runs AFTER Phase 4 (Normalizer).
-/// Violation of this order causes double-counted locals and "unknown local" traps.
+/// Ordering invariants:
+///   4 before 4b  — Normalizer removes noise before Lower introduces new Lets
+///   4b before 5  — collectLocals must see $lo_* bindings from Lower
+///   5 before 6   — Validator needs resolved .Locals for unknown-ref checks
+///   7 re-runs 5  — join-point inlining adds Lets not visible before optimization
 module WasmGc.Pipeline.Phases
 
 open System
 open System.IO
-
-// open System.Collections.Generic
 
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Pipeline.ScopeAnalyzer
 open WasmGc.Pipeline.Normalizer
+open WasmGc.Pipeline.Lower
 
-module Dump    = WasmGc.Pipeline.Dumps
+zmodule Dump    = WasmGc.Pipeline.Dumps
 module L       = WasmGc.Runtime.Locals
 module Valid   = WasmGc.Pipeline.Validator
 module Opt     = WasmGc.Emit.Optimize
 
 // ─────────────────────────────────────────────────────────────────
-// Pipeline configuration
+// Pipeline configuration / Options
 // ─────────────────────────────────────────────────────────────────
 
 /// Options controlling debug output and strictness for one compilation run.
 [<Struct>]
 type PipelineOptions = {
-    /// Phase numbers whose debug dump should be written.
-    /// 0 = Fable AST, 3 = raw WExpr IR, 8 = WAT (always written by emitter).
+    /// Phase numbers to write dumps for.
+    /// 0=Fable, 3=raw WExpr, 4=normalized, 42=lowered LIR, 5=with locals, 8=WAT
     DumpPhases    : Set<int>
     /// Root directory for debug dump files.
     DumpDir       : string
@@ -58,15 +59,15 @@ let defaultOptions : PipelineOptions = {
 }
 
 /// Construct options from a comma-separated phase list string (e.g. "0,3,8").
-let optionsFromDumpFlag (dumpFlag: string) (dumpDir: string) : PipelineOptions =
+let optionsFromDumpFlag (flag: string) (dir: string) : PipelineOptions =
     let phases =
-        if String.IsNullOrWhiteSpace dumpFlag then Set.empty
+        if String.IsNullOrWhiteSpace flag then Set.empty
         else
-            dumpFlag.Split(',')
+            flag.Split(',')
             |> Array.choose (fun s ->
-                match System.Int32.TryParse(s.Trim()) with
+                match Int32.TryParse(s.Trim()) with
                 | true, n -> Some n
-                | _ -> None)
+                | _       -> None)
             |> Set.ofArray
 
     { defaultOptions with
@@ -74,7 +75,7 @@ let optionsFromDumpFlag (dumpFlag: string) (dumpDir: string) : PipelineOptions =
         DumpDir = dumpDir }
 
 // ─────────────────────────────────────────────────────────────────
-// Timing helper
+// Helpers
 // ─────────────────────────────────────────────────────────────────
 
 let private timed (opts: PipelineOptions) (label: string) (f: unit -> 'a) : 'a =
@@ -102,14 +103,12 @@ let private dumpIf (opts: PipelineOptions) (phase: int) (action: string -> unit)
 // Phase 0 — Input verification + optional Fable AST dump
 // ─────────────────────────────────────────────────────────────────
 
-/// Verify and optionally dump the incoming Fable declarations.
-/// Returns the same list unchanged — this phase is purely observational.
-let phase0_Input (opts: PipelineOptions) (decls: Declaration list) : Declaration list =
-    timed opts "Phase0-Input" (fun () ->
+let phase0_Input (opts: PipelineOptions) (decls: Declaration list) =
+    timed opts "Phase0" (fun () ->
         dumpIf opts 0 (fun dir ->
-            let path = Path.Combine(dir, "dump-phase0-fable.fs")
-            WasmGc.Util.FableAstDump.dumpToFile path decls
-            eprintfn "  [Phase 0] Fable AST → %s" path)
+            let p = Path.Combine(dir, "dump-phase0-fable.fs")
+            WasmGc.Util.FableAstDump.dumpToFile p decls
+            eprintfn "  [Phase 0] %s" p)
         decls)
 
 // ─────────────────────────────────────────────────────────────────
@@ -128,10 +127,10 @@ let phase1_ScopeAnalysis
         (decls: Declaration list)
         : Map<string, ScopeMap> =
     timed opts "Phase1-Scope" (fun () ->
-        let scopeMaps = analyzeModuleScope ctx decls
+        let maps = analyzeModuleScope ctx decls
         if opts.Timings || opts.DumpPhases.Contains 1 then
-            eprintfn "  [Phase 1] %d functions analyzed" scopeMaps.Count
-        scopeMaps)
+            eprintfn "  [Phase 1] %d functions analyzed" maps.Count
+        maps)
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 2 — Type Resolution
@@ -146,7 +145,7 @@ let phase1_ScopeAnalysis
 // type-registration helpers (getOrAddArrayType etc.) for use in Phase 3.
 
 // ─────────────────────────────────────────────────────────────────
-// Phase 3 — Fable → WExpr Transform
+// Phase 3 — Fable → (raw) WExpr Transform
 // ─────────────────────────────────────────────────────────────────
 
 /// Transform Fable declarations to WModule using scope information from Phase 1.
@@ -167,22 +166,20 @@ let phase3_Transform
         // Pass scopeMaps into the transform context so TransformExpr can use
         // classifyIdent for IdentExpr resolution instead of Map.tryFind ctx.Locals.
         // ScopeMaps are stored in ctx.ScopeMaps (added to Ctx in Types.fs).
-        let ctxWithScopes = { ctx with ScopeMaps = scopeMaps }
+        // `{ ctx with ScopeMaps = scopeMaps }`
 
         // Call the existing lowering pipeline. buildWModule already calls
         // processFileIntoCtx internally; here we build the raw module from
         // whatever has been accumulated in ctx.
-        let rawModule = WasmGc.Transforms.Fable2Wasm.buildWModule ctxWithScopes
-
+        let raw = WasmGc.Transforms.Fable2Wasm.buildWModule { ctx with ScopeMaps = scopeMaps }
         dumpIf opts 3 (fun dir ->
-            let path = Path.Combine(dir, "dump-phase3-raw-ir.sexp")
-            WasmGc.Util.IrDump.dumpToFile path rawModule
-            eprintfn "  [Phase 3] Raw WExpr IR → %s" path)
-
-        rawModule)
+            let p = Path.Combine(dir, "dump-phase3-raw-ir.sexp")
+            WasmGc.Util.IrDump.dumpToFile p raw
+            eprintfn "  [Phase 3] %s" p)
+        raw)
 
 // ─────────────────────────────────────────────────────────────────
-// Phase 4 — Normalization
+// Phase 4 — Normalize
 // ─────────────────────────────────────────────────────────────────
 
 /// Normalize the WExpr tree before locals collection.
@@ -198,12 +195,28 @@ let phase3_Transform
 ///   - Nop nodes interrupting sequence structure → missed let-bindings in branches
 let phase4_Normalize (opts: PipelineOptions) (wmod: WModule) : WModule =
     timed opts "Phase4-Normalize" (fun () ->
-        let normalized = normalizeModule wmod
+        let norm = normalizeModule wmod
         dumpIf opts 4 (fun dir ->
-            let path = Path.Combine(dir, "dump-phase4-normalized.sexp")
-            WasmGc.Util.IrDump.dumpToFile path normalized
-            eprintfn "  [Phase 4] Normalized IR → %s" path)
-        normalized)
+            let p = Path.Combine(dir, "dump-phase4-normalized.sexp")
+            WasmGc.Util.IrDump.dumpToFile p norm
+            eprintfn "  [Phase 4] Normalized IR → %s" p)
+        norm)
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 4b — Lower (HIR → LIR)
+// ─────────────────────────────────────────────────────────────────
+
+/// Convert high-level ClosureApply / TailCallRef / SwitchInt into
+/// primitive Let + CallRef / ReturnCallRef / BrTable nodes.
+/// After this phase Emit.fs needs zero temporary injection logic.
+let phase4b_Lower (opts: PipelineOptions) (wmod: WModule) =
+    timed opts "Phase4b" (fun () ->
+        let low = lowerModule wmod
+        dumpIf opts 42 (fun dir ->
+            let p = Path.Combine(dir, "dump-phase4b-lir.sexp")
+            WasmGc.Util.IrDump.dumpToFile p low
+            eprintfn "  [Phase 4b] %s" p)
+        low)
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 5 — Locals Collection - Resolve locals
@@ -214,13 +227,14 @@ let phase4_Normalize (opts: PipelineOptions) (wmod: WModule) : WModule =
 /// Runs on the NORMALIZED WExpr from Phase 4.  Running on raw Phase 3 output
 /// risks missing branch-local names (DecisionTree targets) or double-counting
 /// duplicate Lets that Normalizer would have collapsed.
+///
+/// Must run AFTER Phase 4b so $lo_* bindings introduced by Lower are visible.
 let phase5_ResolveLocals (opts: PipelineOptions) (wmod: WModule) : WModule =
     timed opts "Phase5-Locals" (fun () ->
-        { wmod with
-            Functions = wmod.Functions |> List.map L.resolveLocals })
+        { wmod with Functions = List.map L.resolveLocals wmod.Functions })
 
 // ─────────────────────────────────────────────────────────────────
-// Phase 6 — Validation
+// Phase 6 — Validate
 // ─────────────────────────────────────────────────────────────────
 
 /// Validate the normalized+locals-resolved module before optimization/emission.
@@ -233,78 +247,29 @@ let phase5_ResolveLocals (opts: PipelineOptions) (wmod: WModule) : WModule =
 ///
 /// With StrictValidation=true (default), logs errors and returns Error.
 /// With StrictValidation=false, logs warnings and returns Ok (for incremental dev).
-let phase6_Validate
-        // (ctx: Ctx)
-        (opts: PipelineOptions)
-        (wmod: WModule)
-        : Result<WModule, Valid.ValidationError list> =
+let phase6_Validate (opts: PipelineOptions) (wmod: WModule) =
     timed opts "Phase6-Validate" (fun () ->
-        // let errors = Valid.validate false wmod.Types wmod.Functions
-        // let errors = Valid.validate false (wmod.Types |> List.toSeq) wmod.Functions
-        let types: ResizeArray<WTypeDeclEntry> = new ResizeArray<WTypeDeclEntry>(wmod.Types) // |> Seq.cast<WTypeDeclEntry>
-        let errors = Valid.validate false types wmod.Functions
-
-        if errors.IsEmpty then
-            Ok wmod
+        let typeDefs = ResizeArray<WTypeDeclEntry>(wmod.Types)
+        let errors   = Valid.validate false typeDefs wmod.Functions
+        if errors.IsEmpty then Ok wmod
         else
-            let errorMsgs = errors |> List.map (fun e -> sprintf "[%s] %s: %s" e.FuncName e.NodeDesc e.Message)
-            errorMsgs |> List.iter (eprintfn "  Validation error: %s")
-            if opts.StrictValidation then
-                Error errors
+            errors |> List.iter (fun e ->
+                eprintfn "  ✗ [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
+            if opts.StrictValidation
+            then Error errors
             else
-                eprintfn "  [Phase 6] %d validation error(s) — continuing (StrictValidation=false)" errors.Length
+                eprintfn "  [Phase 6] %d error(s) — continuing" errors.Length
                 Ok wmod)
 
-// TODO: integrate this
-// let phase6_Validate_QuickChecksOnly
-//         (ctx: Ctx)
-//         (opts: PipelineOptions)
-//         (wmod: WModule)
-//         : Result<WModule, Valid.ValidationError list> =
-//     timed opts "Phase6-Validate" (fun () ->
-//         // Collect actionable issues through quick checks.
-//         let quickErrors =
-//             wmod.Functions
-//             |> List.collect (fun f ->
-//                 let knownNames =
-//                     (f.Params |> List.map fst) @ (f.Locals |> List.map fst)
-//                     |> Set.ofList
-
-//                 Valid.quickCheck f.Name knownNames f.Body
-//                 |> List.map (fun msg ->
-//                     {
-//                         FuncName = f.Name
-//                         NodeDesc = "quick-check"
-//                         Message = msg
-//                     }))
-
-//         if List.isEmpty quickErrors then
-//             Ok wmod
-//         else
-//             quickErrors
-//             |> List.iter (fun e ->
-//                 eprintfn "  Validation error: [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
-
-//             if opts.StrictValidation then
-//                 Error quickErrors
-//             else
-//                 eprintfn "  [Phase 6] %d validation warning(s) — continuing (StrictValidation=false)" quickErrors.Length
-//                 Ok wmod)
-
 // ─────────────────────────────────────────────────────────────────
-// Phase 7 — Optimization
+// Phase 7 — Optimize
 // ─────────────────────────────────────────────────────────────────
 
-/// Apply constant folding and trivial dead-code elimination.
-/// Currently minimal; join-point inlining may introduce new Let bindings,
-/// so Phase 5 (resolveLocals) is re-run after optimization.
-let phase7_Optimize (opts: PipelineOptions) (wmod: WModule) : WModule =
-    timed opts "Phase7-Optimize" (fun () ->
-        let optimized = Opt.optimizeModule wmod
-        // Re-run locals after optimization: join-point inlining may have
-        // introduced new Let bindings (e.g. db_2 = arg) not visible before.
-        { optimized with
-            Functions = optimized.Functions |> List.map L.resolveLocals })
+let phase7_Optimize (opts: PipelineOptions) (wmod: WModule) =
+    timed opts "Phase7" (fun () ->
+        let opt = Opt.optimizeModule wmod
+        // Re-resolve locals: join-point inlining may have introduced new Lets
+        { opt with Functions = List.map L.resolveLocals opt.Functions })
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 8 — Emission (WAT + binary)
@@ -315,7 +280,7 @@ let phase7_Optimize (opts: PipelineOptions) (wmod: WModule) : WModule =
 // This module only carries type information forward.
 
 // ─────────────────────────────────────────────────────────────────
-// Full pipeline — orchestrates Phase 0–7
+// Full pipeline
 // ─────────────────────────────────────────────────────────────────
 
 /// Run phases 0–7 on a pre-populated Ctx.
@@ -334,46 +299,40 @@ let runPipeline
         : Result<WModule, Valid.ValidationError list> =
 
     // Phase 0 — verify + optional Fable AST dump
-    let decls' = phase0_Input opts decls
+    let decls     = phase0_Input opts decls
 
     // Phase 1 — scope analysis
-    let scopeMaps = phase1_ScopeAnalysis ctx opts decls'
+    let scopes    = phase1_ScopeAnalysis ctx opts decls
 
     // Phase 3 — Fable → raw WExpr
     // (Phase 2 runs on-demand inside mapTypeKnown / resolveType)
-    let rawModule = phase3_Transform ctx scopeMaps opts decls'
+    let raw       = phase3_Transform ctx scopes opts decls
 
     // Phase 4 — normalize WExpr (MUST precede Phase 5)
-    let normalizedModule = phase4_Normalize opts rawModule
+    let norm      = phase4_Normalize opts raw
+
+    let lir       = phase4b_Lower opts norm        // ← new
 
     // Phase 5 — resolve locals on normalized tree
-    let localizedModule = phase5_ResolveLocals opts normalizedModule
+    let withLoc   = phase5_ResolveLocals opts lir  // ← after Lower
 
     // Phase 6 — validate
-    match phase6_Validate opts localizedModule with
-    | Error errs -> Error errs
-    | Ok validModule ->
-    // TODO: 
-    // match phase6_Validate_QuickChecksOnly ctx opts localizedModule with
-    // | Error errs -> Error errs
-    // | Ok validModule ->
-
+    match phase6_Validate opts withLoc with
+    | Error e -> Error e
     // Phase 7 — optimize (re-resolves locals after inlining)
-    let finalModule = phase7_Optimize opts validModule
+    | Ok valid -> Ok (phase7_Optimize opts valid)
 
-    Ok finalModule
+    // TODO: phase 7 integrated above
+    // Phase 7 — optimize (re-resolves locals after inlining)
+    // let finalModule = phase7_Optimize opts validModule
+    // Ok finalModule
 
 /// Convenience: run pipeline and raise on validation failure (CI / strict mode).
-let runPipelineStrict
-        (ctx: Ctx)
-        (decls: Declaration list)
-        (opts: PipelineOptions)
-        : WModule =
+let runPipelineStrict (ctx: Ctx) (decls: Declaration list) (opts: PipelineOptions) =
     match runPipeline ctx decls opts with
-    | Ok wmod -> wmod
+    | Ok m -> m
     | Error errs ->
-        let msg =
-            errs
-            |> List.map (fun e -> sprintf "  [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
-            |> String.concat "\n"
-        failwithf "WasmGC pipeline validation failed:\n%s" msg
+        errs
+        |> List.map (fun e -> sprintf "  [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
+        |> String.concat "\n"
+        |> failwithf "Pipeline validation failed:\n%s"

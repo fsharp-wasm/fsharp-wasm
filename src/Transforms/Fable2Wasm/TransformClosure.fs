@@ -7,6 +7,8 @@ open WasmGc.Runtime.Types
 open WasmGc.Runtime.FreeVars
 module Lc = WasmGc.Runtime.Locals
 
+// TODO: looks like a bunch duplicate code below
+
 // ─────────────────────────────────────────────────────────────────
 // Value translation
 // ─────────────────────────────────────────────────────────────────
@@ -44,14 +46,21 @@ let rec buildClosure (ctx: Ctx) (eval: Ctx -> Fable.Expr -> WExpr) (args: Ident 
     let allFreeVarNames = collectFreeVars argNames body |> Set.toList
     let freeVarNames =
         allFreeVarNames
-        |> List.filter (fun name -> 
-            Map.containsKey name ctx.Locals &&
-            // excluding the lambda parameters themselves.
-            let q = ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
-            match Map.tryFind q ctx.KnownFuncs with
-            | Some([], _) -> false   // zero-arg = module value, will be emitted as Call
-            | _ -> true
-            )
+        |> List.filter (fun name ->
+            // Step 1: if it's a zero-arg KnownFunc, it's a module-level value
+            // → never capture it, the transform emits a direct Call instead.
+            let resolvedName =
+                ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
+            match Map.tryFind resolvedName ctx.KnownFuncs with
+            | Some([], _) ->
+                false  // zero-arg KnownFunc → module-level value, not a capture
+            | Some(_ :: _, _) ->
+                // Non-zero-arg function referenced as value → it IS captured
+                // (this is a partial application / first-class function reference)
+                Map.containsKey name ctx.Locals
+            | None ->
+                // Not a known function → it's a regular local → capture if in Locals
+                Map.containsKey name ctx.Locals)
 
     // Build capture list: (name, WType)
     let captures =
@@ -201,7 +210,12 @@ and buildLetRecLambdas (ctx: Ctx) (eval: Ctx -> Fable.Expr -> WExpr)
             let bound = Set.union bindingNames argNames
             collectFreeVars bound lbody |> Set.toList)
         |> List.distinct
-        |> List.filter (fun name -> Map.containsKey name ctx.Locals)
+        |> List.filter (fun name ->
+            let resolvedName =
+                ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
+            match Map.tryFind resolvedName ctx.KnownFuncs with
+            | Some([], _) -> false  // module-level value → not a capture
+            | _           -> Map.containsKey name ctx.Locals)
         // TODO: check if we have to filter like in buildClosure
 
     let commonCaptures =

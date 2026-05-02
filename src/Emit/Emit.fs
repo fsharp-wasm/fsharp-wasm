@@ -79,31 +79,6 @@ let getRefTypeIdx (expr: WExpr) : int =
     | WType.Ref(idx, _) -> idx
     | _ -> 0
 
-/// Emits the complex self-parameter calling convention for closures.
-/// Used by both standard calls and tail calls.
-let emitClosureDispatch (ctx: EmitCtx) closureInstrs argsInstrs closureTypeIdx funcTypeIdx isTailCall =
-    let tmpIdx = ctx.GetLocalIdx("$clo_apply_tmp")
-    
-    let castInstr =
-        if closureTypeIdx > 0 then
-            let rt = { Nullable = false; HeapType = HeapType.TypeIdx closureTypeIdx }
-            [Instr.RefCast rt]
-        else []
-        
-    let callInstr = 
-        if isTailCall then Instr.ReturnCallRef funcTypeIdx 
-        else Instr.CallRef funcTypeIdx
-
-    closureInstrs
-    @ castInstr                              // Cast to ClosureBase
-    @ [Instr.LocalTee tmpIdx; Instr.Drop]    // Save to temp local
-    @ [Instr.LocalGet tmpIdx]                // Push $self (first arg)
-    @ argsInstrs                             // Push explicit args
-    @ [Instr.LocalGet tmpIdx]                // Push $self again for struct.get
-    @ castInstr                              // Cast again
-    @ [Instr.StructGet(closureTypeIdx, 0)]   // Extract code ptr
-    @ [callInstr]                            // Execute call
-
 // ─────────────────────────────────────────────────────────────────
 // Expression emission
 // ─────────────────────────────────────────────────────────────────
@@ -183,6 +158,17 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let funcRefInstrs = emitExpr ctx funcRef
         argInstrs @ funcRefInstrs @ [Instr.Unreachable]
 
+    | WExpr.CallRef(funcTypeIdx, args, codePtr, _) ->
+        // args already contains self as first element (from Lower.fs)
+        let argsInstrs = args |> List.collect (emitExpr ctx)
+        let ptrInstrs  = emitExpr ctx codePtr
+        argsInstrs @ ptrInstrs @ [Instr.CallRef funcTypeIdx]
+
+    | WExpr.ReturnCallRef(funcTypeIdx, args, codePtr, _) ->
+        let argsInstrs = args |> List.collect (emitExpr ctx)
+        let ptrInstrs  = emitExpr ctx codePtr
+        argsInstrs @ ptrInstrs @ [Instr.ReturnCallRef funcTypeIdx]
+
     // ── Tail calls ────────────────────────────────────────
     | WExpr.TailCall(func, args, _) ->
         // return_call: reuse current frame, tail-jump to the named function.
@@ -201,13 +187,8 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let argsInstrs = args |> List.collect (emitExpr ctx)
         emitClosureDispatch ctx closureInstrs argsInstrs closureTypeIdx funcTypeIdx true
 
-    | WExpr.ClosureApply(closure, args, funcTypeIdx, closureTypeIdx, _, _) ->
-        let closureInstrs = emitExpr ctx closure
-        let argsInstrs = 
-            args 
-            |> List.filter (fun a -> exprWType a <> WType.Void)
-            |> List.collect (emitExpr ctx)
-        emitClosureDispatch ctx closureInstrs argsInstrs closureTypeIdx funcTypeIdx false
+    | WExpr.ClosureApply _ | WExpr.TailCallRef _ ->
+        failwith "Emit: ClosureApply/TailCallRef reached emitter — Lower.fs must run before Emit"
 
     | WExpr.CallVirtual(box, boxTypeIdx, vtableTypeIdx, methodIdx, funcTypeIdx, args, _) ->
         // Vtable dispatch — correct call_ref stack order: [self, args..., funcref]
@@ -820,11 +801,14 @@ let emitModule (wmod: WModule) : WasmModule =
     // 3c. Build global index map
     // Ensure the exception carrier global exists, or create a dummy if missing
     let globalIndex =
-        let baseMap = wmod.Globals |> List.mapi (fun i g -> g.Name, i) |> Map.ofList
-        if not (Map.containsKey "$fsharp_exn_carrier" baseMap) then
-            // If the frontend forgot it, we assign it the next available global index to avoid crashes
-            Map.add "$fsharp_exn_carrier" (wmod.Globals.Length) baseMap
-        else baseMap
+        wmod.Globals |> List.mapi (fun i g -> g.Name, i) |> Map.ofList
+        // TODO: this guard shouldn't be necessary once the frontend always emits the carrier global, but we add it defensively for now to avoid crashes if it's missing.
+        // let baseMap = wmod.Globals |> List.mapi (fun i g -> g.Name, i) |> Map.ofList
+        // // TODO: this guard shouldn't be necessary once the frontend always emits the carrier global, but we add it defensively for now to avoid crashes if it's missing.
+        // if not (Map.containsKey "$fsharp_exn_carrier" baseMap) then
+        //     // If the frontend forgot it, we assign it the next available global index to avoid crashes
+        //     Map.add "$fsharp_exn_carrier" (wmod.Globals.Length) baseMap
+        // else baseMap
 
     // 3d. Register tag types and compute tag indices.
     // Imported tags come first (counted from imports), then local tags.
@@ -866,21 +850,11 @@ let emitModule (wmod: WModule) : WasmModule =
         wmod.Functions
         |> List.map (fun f ->
             let paramNames = f.Params |> List.map fst |> Set.ofList
-            
-            // INJECT COMPILER TEMPORARIES HERE
-            let injectedLocals = [
-                ("$clo_apply_tmp", WType.AnyRef)
-                ("$switch_tmp", WType.I32)
-            ]
-            
-            // Filter out temporaries if the frontend actually *did* provide them, to avoid duplicates
-            let userLocals = f.Locals |> List.filter (fun (n, _) -> n <> "$clo_apply_tmp" && n <> "$switch_tmp")
-            let combinedLocals = userLocals @ injectedLocals
 
             let paramLocals = f.Params |> List.mapi (fun i (name, _) -> name, i)
             let paramCount = List.length f.Params
             let extraLocals =
-                combinedLocals
+                f.Locals
                 |> List.filter (fun (name, _) -> not (Set.contains name paramNames))
                 |> List.mapi (fun i (name, ty) -> (name, paramCount + i), ty)
 
