@@ -77,6 +77,11 @@
     <Compile Include="Util/FableAstDump.fs" />
     <Compile Include="Util/IrDump.fs" />
 
+    <!-- Builder -->
+    <Compile Include="Builder/Builder.fs" />
+    <Compile Include="Builder/Locals.fs" />
+    <Compile Include="Builder/Equality.fs" />
+
     <!-- Runtime -->
     <Compile Include="Runtime/FreeVars.fs" />
     <Compile Include="Runtime/ListShape.fs" />
@@ -85,13 +90,8 @@
     <Compile Include="Runtime/ListOps.fs" />
     <Compile Include="Runtime/VTable.fs" />
     <Compile Include="Runtime/LoopHelpers.fs" />
-    <!-- <Compile Include="Runtime/QuotationWalker.fs" /> -->
+    <Compile Include="Runtime/QuotationWalker.fs" />
     <Compile Include="Runtime/Runtime.fs" />
-
-    <!-- Builder -->
-    <Compile Include="Builder/Builder.fs" />
-    <Compile Include="Builder/Equality.fs" />
-    <Compile Include="Builder/Locals.fs" />
 
     <!-- Pipeline -->
     <Compile Include="Pipeline/TypeResolver.fs" />
@@ -101,7 +101,6 @@
     <Compile Include="Pipeline/Scope.fs" />
     <Compile Include="Pipeline/Validator.fs" />
     <Compile Include="Pipeline/Dumps.fs" />
-    <Compile Include="Pipeline/Phases.fs" />
 
     <!-- Transforms -->
     <Compile Include="Transforms/MathMap.fs" />
@@ -126,10 +125,11 @@
 
     <!-- Emit -->
     <Compile Include="Emit/Optimize.fs" />
+    <Compile Include="Emit/Emit.fs" />
     <Compile Include="Emit/Encoder.fs" />
     <Compile Include="Emit/Wat.fs" />
-    <Compile Include="Emit/Emit.fs" />
 
+    <Compile Include="Pipeline/Phases.fs" />
 
     <!-- Top-level Pipeline -->
     <Compile Include="Pipeline.fs" />

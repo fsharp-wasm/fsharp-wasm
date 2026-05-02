@@ -7,6 +7,8 @@ open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 
+// module Fable = Fable.AST.Fable
+
 // ─────────────────────────────────────────────────────────────────
 // Constants — pre-registered type indices (always the same)
 // ─────────────────────────────────────────────────────────────────

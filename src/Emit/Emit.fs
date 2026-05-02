@@ -75,7 +75,7 @@ let wtypeToBlockType (ty: WType) : BlockType =
 
 /// Extracts the heap type index from a reference type.
 let getRefTypeIdx (expr: WExpr) : int =
-    match exprResultType expr with
+    match exprWType expr with
     | WType.Ref(idx, _) -> idx
     | _ -> 0
 

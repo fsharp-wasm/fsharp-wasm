@@ -9,6 +9,8 @@ open WasmGc.Core.AST
 open WasmGc.Builder
 
 open WasmGc.Runtime.Types
+open WasmGc.Pipeline.Scope
+
 module RT = WasmGc.Runtime.Runtime
 
 open WasmGc.Transforms.MathMap
@@ -20,7 +22,7 @@ open TransformOperation
 open TransformTest
 open TransformDecisionTree
 
-open WasmGc.Pipeline.Scope
+module Scope = WasmGc.Pipeline.Scope
 
 open Helpers
 

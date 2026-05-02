@@ -11,6 +11,7 @@
 ///   - FuncTypeToClosureMap maintenance
 module WasmGc.Transforms.ClosureBuilder
 
+open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types

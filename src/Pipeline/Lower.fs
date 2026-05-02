@@ -16,6 +16,7 @@
 module WasmGc.Pipeline.Lower
 
 open WasmGc.Core.AST
+open WasmGc.Runtime.Types
 
 // ─────────────────────────────────────────────────────────────────
 // Fresh name generation

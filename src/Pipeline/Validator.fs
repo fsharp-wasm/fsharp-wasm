@@ -10,6 +10,7 @@
 module WasmGc.Pipeline.Validator
 
 open WasmGc.Core.AST
+open WasmGc.Runtime.Types
 open WasmGc.Util.WExprQuery   // collect, exists
 
 // ─────────────────────────────────────────────────────────────────
@@ -32,7 +33,9 @@ let private arityIndex (typeDefs: ResizeArray<WTypeDeclEntry>) : Map<int, int> =
     typeDefs
     |> Seq.mapi (fun i entry -> i, entry)
     |> Seq.choose (fun (i, entry) ->
-        match e.Def with WTypeDef.Func(params, _) -> Some(i, params.Length) | _ -> None)
+        match entry.Def with 
+            | WTypeDef.Func(params, _) -> Some(i, params.Length)
+            | _ -> None)
     |> Map.ofSeq
 
 // ─────────────────────────────────────────────────────────────────

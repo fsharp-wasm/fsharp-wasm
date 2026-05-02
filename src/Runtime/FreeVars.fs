@@ -5,6 +5,8 @@ module WasmGc.Runtime.FreeVars
 open Fable.AST
 open Fable.AST.Fable
 
+// module Fable = Fable.AST
+
 // ─────────────────────────────────────────────────────────────────
 // Free variable analysis
 // ─────────────────────────────────────────────────────────────────

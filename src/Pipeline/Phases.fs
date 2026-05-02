@@ -28,7 +28,7 @@ open WasmGc.Pipeline.ScopeAnalyzer
 open WasmGc.Pipeline.Normalizer
 open WasmGc.Pipeline.Lower
 
-zmodule Dump    = WasmGc.Pipeline.Dumps
+module Dump    = WasmGc.Pipeline.Dumps
 module L       = WasmGc.Runtime.Locals
 module Valid   = WasmGc.Pipeline.Validator
 module Opt     = WasmGc.Emit.Optimize
@@ -72,7 +72,7 @@ let optionsFromDumpFlag (flag: string) (dir: string) : PipelineOptions =
 
     { defaultOptions with
         DumpPhases = phases
-        DumpDir = dumpDir }
+        DumpDir = dir }
 
 // ─────────────────────────────────────────────────────────────────
 // Helpers
