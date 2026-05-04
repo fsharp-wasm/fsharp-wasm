@@ -618,15 +618,21 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
                 eprintfn "[WasmGc] WARNING: unhandled import call '%s' from '%s' — emitting Nop" selector path
                 WExpr.Nop
 
-    | _ ->
-        eprintfn "[WasmGc] WARNING: unhandled import call '%s' from '%s'" sel path
-        WExpr.Nop
+    // TODO: already handled above in the more specific match arm for wasm:memory imports, but we need to check if there are any other cases that might be missed by the current patterns.
+    // | _ ->
+    //     eprintfn "[WasmGc] WARNING: unhandled import call '%s' from '%s'" sel path
+    //     WExpr.Nop
 
 // ─────────────────────────────────────────────────────────────────
 // Call translation
 // ─────────────────────────────────────────────────────────────────
 
-/// Main-Dispatcher for all Call-Expressions
+/// Main-Dispatcher for all C
+// ── Builder/Locals.fs (~line 61) — FS0026 rule never matched ─────────────
+// Same issue.  The Locals.fs collectLocals has a catch-all that shadows a
+// specific case below it.  Find the duplicate and remove the shadowed arm.
+
+all-Expressions
 let transformCall 
     (ctx: Ctx) 
     (eval: Ctx -> Expr -> WExpr)

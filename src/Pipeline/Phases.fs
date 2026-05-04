@@ -249,7 +249,9 @@ let phase5_ResolveLocals (opts: PipelineOptions) (wmod: WModule) : WModule =
 /// With StrictValidation=false, logs warnings and returns Ok (for incremental dev).
 let phase6_Validate (opts: PipelineOptions) (wmod: WModule) =
     timed opts "Phase6-Validate" (fun () ->
-        let typeDefs = ResizeArray<WTypeDeclEntry>(wmod.Types)
+        let typeDefs = new ResizeArray<WTypeDeclEntry>(wmod.Types)
+        // let typeDefs = ResizeArray wmod.Types
+        // let typeDefs = wmod.Types
         let errors   = Valid.validate false typeDefs wmod.Functions
         if errors.IsEmpty then Ok wmod
         else

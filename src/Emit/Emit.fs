@@ -154,6 +154,7 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         // Emit args + funcRef for side-effects then trap so the developer sees
         // a runtime panic rather than a silent wrong-answer or stack corruption.
         eprintfn "[WasmGc] WARNING: WExpr.CallIndirect reached binary emitter — emitting unreachable trap. Use WExpr.TailCallRef for closure dispatch."
+        // TODO: implement call_ref in the binary emitter and remove this trap.  For now, this is a safety net to catch any unexpected CallIndirect nodes that weren't transformed to TailCallRef by Lower.fs.
         let argInstrs = args |> List.collect (emitExpr ctx)
         let funcRefInstrs = emitExpr ctx funcRef
         argInstrs @ funcRefInstrs @ [Instr.Unreachable]
@@ -172,9 +173,10 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
 
     // ── Tail calls & Closures ─────────────────────────────
     | WExpr.TailCallRef(closure, args, funcTypeIdx, closureTypeIdx, _, _) ->
-        let closureInstrs = emitExpr ctx closure
-        let argsInstrs = args |> List.collect (emitExpr ctx)
-        emitClosureDispatch ctx closureInstrs argsInstrs closureTypeIdx funcTypeIdx true
+        failwith "Emit: TailCallRef reached the emitter. Run Lower.lowerModule first."
+        // let closureInstrs = emitExpr ctx closure
+        // let argsInstrs = args |> List.collect (emitExpr ctx)
+        // emitClosureDispatch ctx closureInstrs argsInstrs closureTypeIdx funcTypeIdx true
 
     | WExpr.CallRef(funcTypeIdx, args, codePtr, _) ->
         // LIR node from Lower.fs.
@@ -336,28 +338,60 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         args |> List.collect (emitExpr ctx)
 
     // ── Pattern matching ──────────────────────────────────
+    // | WExpr.SwitchInt(scrutinee, cases, default_, retTy) ->
+    //     // After Lower.fs: scrutinee is always a LocalGet (no injection needed).
+    //     // The emitter just evaluates it once and builds the br_table.
+    //     let scrutInstrs = emitExpr ctx scrutinee
+    //     // Build label blocks: block_N { block_N-1 { ... block_0 { br_table } } }
+    //     // Each case i jumps to block i (br i), default jumps past all blocks.
+    //     let caseCount   = cases.Length
+    //     let defaultCode = emitExpr ctx default_
+    //     let caseCodes   = cases |> List.map (fun (_, body) -> emitExpr ctx body)
+    //     let retBlockTy  = wtypeToBlockType retTy
+    //     // Build reversed label depths: case 0 → depth (n-1), case n-1 → depth 0
+    //     // default (out of range) → depth caseCount (past all case blocks)
+    //     let labelNums   = cases |> List.mapi (fun i _ -> caseCount - 1 - i) // innermost label = 0
+    //     let brTable     = Instr.BrTable(labelNums, caseCount)     // default = past all
+    //     // Nest: outermost wraps all; innermost holds the scrutinee + br_table
+    //     let innerBlock  = scrutInstrs @ [brTable]
+    //     // Stack case blocks from inside out; each case breaks out to its block level
+    //     let caseBlocks =
+    //         caseCodes
+    //         |> List.mapi (fun i code ->
+    //             fun inner -> [Instr.Block(retBlockTy, inner @ code)])
+    //         |> List.fold (fun acc wrapper -> wrapper acc) innerBlock
+    //     [Instr.Block(retBlockTy, caseBlocks @ defaultCode)]
+
     | WExpr.SwitchInt(scrutinee, cases, default_, retTy) ->
-        // After Lower.fs: scrutinee is always a LocalGet (no injection needed).
-        // The emitter just evaluates it once and builds the br_table.
+        // After Lower.fs: scrutinee is always LocalGet — no temp injection needed.
         let scrutInstrs = emitExpr ctx scrutinee
-        // Build label blocks: block_N { block_N-1 { ... block_0 { br_table } } }
-        // Each case i jumps to block i (br i), default jumps past all blocks.
-        let caseCount   = cases.Length
-        let defaultCode = emitExpr ctx default_
-        let caseCodes   = cases |> List.map (fun (_, body) -> emitExpr ctx body)
         let retBlockTy  = wtypeToBlockType retTy
-        // br_table [0; 1; 2; ...; caseCount-1] caseCount  (default = last)
-        let labelNums   = cases |> List.mapi (fun i _ -> i) |> List.rev  // innermost label = 0
-        let brTable     = Instr.BrTable(labelNums @ [caseCount])         // default = past all
-        // Nest: outermost wraps all; innermost holds the scrutinee + br_table
-        let innerBlock  = scrutInstrs @ [brTable]
-        // Stack case blocks from inside out; each case breaks out to its block level
-        let caseBlocks =
-            caseCodes
-            |> List.mapi (fun i code ->
-                fun inner -> [Instr.Block(retBlockTy, inner @ code)])
-            |> List.fold (fun acc wrapper -> wrapper acc) innerBlock
-        [Instr.Block(retBlockTy, caseBlocks @ defaultCode)]
+        let caseCount   = cases.Length
+
+        // Build reversed label depths: case 0 → depth (n-1), case n-1 → depth 0
+        // default (out of range) → depth caseCount (past all case blocks)
+        let labelDepths = List.init caseCount (fun i -> caseCount - 1 - i)
+        let brTable     = Instr.BrTable(labelDepths, caseCount)
+
+        // TODO: we start to sort now? Really?!
+        // Sort cases by tag for deterministic output
+        let sortedCases  = cases |> List.sortBy fst
+        let caseCodes    = sortedCases |> List.map (fun (_, body) -> emitExpr ctx body)
+        let defaultCode  = emitExpr ctx default_
+
+        // Inner block: [scrutinee br_table] — the actual dispatch
+        let innerBlock = scrutInstrs @ [brTable]
+
+        // Nest blocks: case 0 is outermost (depth 0 from inside = caseCount-1 from outside)
+        // We fold from the rightmost case inward
+        // After br_table lands in a case block, we fall through to that case's code.
+        let nested =
+            List.foldBack
+                (fun caseCode acc -> [Instr.Block(retBlockTy, acc)] @ caseCode)
+                caseCodes
+                (innerBlock @ defaultCode)
+
+        [Instr.Block(retBlockTy, nested)]
 
     | WExpr.TagOf(obj) ->
         let objInstrs = emitExpr ctx obj

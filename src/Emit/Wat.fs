@@ -196,6 +196,8 @@ let rec private exprType (expr: WExpr) : WType =
     | WExpr.Call(_, _, t)        -> t
     | WExpr.CallIndirect(_, _, t)-> t
     | WExpr.CallVirtual(_, _, _, _, _, _, t) -> t
+    | WExpr.CallRef (_, _, _, t) -> t
+    | WExpr.ReturnCallRef (_, _, _, t) -> t
     | WExpr.FuncRef _            -> WType.Ref(0, false)
     | WExpr.StructNew(_, _, t)   -> t
     | WExpr.StructGet(_, _, t)   -> t
@@ -700,6 +702,19 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         w $"struct.get {watId cloName} 0"
         w $"return_call_ref {watId ftName}"
 
+    | WExpr.CallRef(funcTypeIdx, args, codePtr, _) ->
+        // LIR node from Lower.fs: args[0]=self, args[1..]=user args, codePtr=struct.get
+        let ftName = typeNames |> Map.tryFind funcTypeIdx |> Option.defaultValue (string funcTypeIdx)
+        for a in args do emit a
+        emitD depth codePtr
+        w $"call_ref {watId ftName}"
+
+    | WExpr.ReturnCallRef(funcTypeIdx, args, codePtr, _) ->
+        let ftName = typeNames |> Map.tryFind funcTypeIdx |> Option.defaultValue (string funcTypeIdx)
+        for a in args do emit a
+        emitD depth codePtr
+        w $"return_call_ref {watId ftName}"
+
     // ── Numeric operations ─────────────────────────────────
     | WExpr.Unary(op, operand, ty) ->
         match op, ty with
@@ -875,7 +890,10 @@ let private collectClosureFuncNames (funcs: WFuncDecl list) : string list =
         | WExpr.Assign(_, value) -> scan value
         | WExpr.Sequence exprs -> for e in exprs do scan e
         | WExpr.If(cond, thenE, elseE, _) -> scan cond; scan thenE; scan elseE
-        | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _) -> for a in args do scan a
+        | WExpr.Call(_, args, _) 
+        | WExpr.TailCall(_, args, _) 
+        | WExpr.CallRef(_, args, _, _) 
+        | WExpr.ReturnCallRef(_, args, _, _)-> for a in args do scan a
         | WExpr.CallIndirect(funcRef, args, _) -> scan funcRef; for a in args do scan a
         | WExpr.CallVirtual(obj, _, _, _, _, args, _) -> scan obj; for a in args do scan a
         | WExpr.FuncRef funcName -> refs.Add(funcName) |> ignore

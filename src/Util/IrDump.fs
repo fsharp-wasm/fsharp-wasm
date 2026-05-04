@@ -209,6 +209,22 @@ let rec dumpExpr (indent: int) (expr: WExpr) : string =
             @ [ $"{p})" ]
         )
 
+    | WExpr.CallRef(fti, args, codePtr, ty) ->
+        let argLines = args |> List.map d
+        joinLines (
+            [ $"{p}(call_ref fti={fti} : {wTypeToString ty}" ]
+            @ argLines
+            @ [ d codePtr; $"{p})" ]
+        )
+
+    | WExpr.ReturnCallRef(fti, args, codePtr, ty) ->
+        let argLines = args |> List.map d
+        joinLines (
+            [ $"{p}(return_call_ref fti={fti} : {wTypeToString ty}" ]
+            @ argLines
+            @ [ d codePtr; $"{p})" ]
+        )
+
     | WExpr.FuncRef funcName ->
         $"{p}(ref.func {funcName})"
 

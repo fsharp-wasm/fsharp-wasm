@@ -36,6 +36,11 @@ type Resolution =
     /// Unresolvable — emit LocalGet as a fallback (Validator will catch it).
     | Unknown     of name: string
 
+// ─────────────────────────────────────────────────────────────────
+// Core resolution
+// ─────────────────────────────────────────────────────────────────
+
+
 /// Resolve `name` in the given context.
 /// `funcName` is the current function being compiled (for ScopeMap lookup).
 let resolve (ctx: Ctx) (funcName: string option) (name: string) : Resolution =
@@ -54,9 +59,8 @@ let resolve (ctx: Ctx) (funcName: string option) (name: string) : Resolution =
     | Some { Kind = ScopeKind.Local;   WType = ty } -> Resolution.Local(name, ty)
     | _ ->
 
-    // 3 & 4. Known function (module-level or multi-arg)
-    let qualName =
-        ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
+    // 3 & 4. Known function  (module-level or multi-arg)
+    let qualName = ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
     match Map.tryFind qualName ctx.KnownFuncs with
     | Some([], retTy)           -> Resolution.ModuleValue(qualName, retTy)
     | Some(paramTys, retTy)     -> Resolution.KnownFunc(qualName, paramTys, retTy)
@@ -65,7 +69,14 @@ let resolve (ctx: Ctx) (funcName: string option) (name: string) : Resolution =
     // 5. Extern import
     let extKey = sprintf "$ext$%s" name
     match ctx.ExternImports.TryGetValue(extKey) with
-    | true, imp -> Resolution.ExternFunc(extKey, imp.ReturnType)
+    | true, imp ->
+        // Extract return type from WImportDesc
+        let retTy =
+            match imp.Desc with
+            | ImportFunc(_, result) -> result
+            | ImportGlobal(ty, _)   -> ty
+            | _                     -> WType.Void
+        Resolution.ExternFunc(extKey, retTy)
     | _ ->
 
     // 6. Fallback
@@ -96,8 +107,7 @@ let isModuleValue (ctx: Ctx) (name: string) : bool =
     | _           -> false
 
 /// True when the identifier is a local variable in scope.
-let isLocal (ctx: Ctx) (name: string) : bool =
-    Map.containsKey name ctx.Locals
+let isLocal (ctx: Ctx) (name: string) : bool = Map.containsKey name ctx.Locals
 
 /// True when the identifier is capturable (local and NOT a module-level value).
 let isCapturable (ctx: Ctx) (name: string) : bool =
@@ -106,16 +116,20 @@ let isCapturable (ctx: Ctx) (name: string) : bool =
 // ─────────────────────────────────────────────────────────────────
 // Ctx extension helpers — fluent context building
 // ─────────────────────────────────────────────────────────────────
-// These are already on Ctx via WithLocal etc., but documented here
-// for discoverability.
+// TODO: This should or could be on Ctx via WithLocal etc.,  for discoverability.
 
-/// Add a batch of (name, WType) locals to ctx — used when entering a function scope.
+let withLocal (name: string) (ty: WType) (ctx: Ctx) : Ctx =
+    { ctx with Locals = Map.add name ty ctx.Locals }
+
 let withLocals (locals: (string * WType) list) (ctx: Ctx) : Ctx =
-    locals |> List.fold (fun c (n, t) -> c.WithLocal(n, t)) ctx
+    locals |> List.fold (fun c (n, t) -> { c with Locals = Map.add n t c.Locals }) ctx
 
-/// Add a batch of known functions to ctx — used during TransformMemberDecl pre-scan.
+let withKnownFunc (name: string) (parms: WType list) (retTy: WType) (ctx: Ctx) : Ctx =
+    { ctx with KnownFuncs = Map.add name (parms, retTy) ctx.KnownFuncs }
+
 let withKnownFuncs (funcs: (string * (WType list * WType)) list) (ctx: Ctx) : Ctx =
-    funcs |> List.fold (fun c (n, sig_) -> c.WithKnownFunc(n, sig_)) ctx
+    funcs |> List.fold (fun c (n, sig_) ->
+        { c with KnownFuncs = Map.add n sig_ c.KnownFuncs }) ctx
 
 /// Enter a new function scope: add params as locals, set CurrentFunc.
 let enterFunc (name: string) (parms: (string * WType) list) (ctx: Ctx) : Ctx =

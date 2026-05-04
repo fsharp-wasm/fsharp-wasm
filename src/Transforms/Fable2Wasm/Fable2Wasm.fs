@@ -314,8 +314,12 @@ let buildWModule (ctx: Ctx) : WModule =
         ctx.Functions |> Seq.toList
         |> RT.fixClosureApply ctx.TypeDefs
 
+    // TODO: obsolete when pipeline is in place
     // Validate the functions after closure transformations are applied
-    Val.validate true ctx.TypeDefs fixedFunctions
+
+    // TODO:  should we validate only in debug? not sures
+    // if opts.ValidateBeforeEmit then
+    Val.validate true ctx.TypeDefs fixedFunctions |> ignore
 
     // TODO: Refactor buildWModule into a modular pipeline (e.g., separate modules for RuntimeHelpers, 
     // Validation, and ExportResolution) to avoid this becoming a "God Function."

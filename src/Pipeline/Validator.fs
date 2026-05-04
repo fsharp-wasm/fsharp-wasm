@@ -27,15 +27,14 @@ type ValidationError = {
 // ─────────────────────────────────────────────────────────────────
 // Arity index
 // ─────────────────────────────────────────────────────────────────
-
 /// Build funcTypeIdx → paramCount map from the module's type table.
 let private arityIndex (typeDefs: ResizeArray<WTypeDeclEntry>) : Map<int, int> =
     typeDefs
     |> Seq.mapi (fun i entry -> i, entry)
     |> Seq.choose (fun (i, entry) ->
-        match entry.Def with 
-            | WTypeDef.Func(params, _) -> Some(i, params.Length)
-            | _ -> None)
+        match entry.Def with
+        | WTypeDef.Func(parms, _) -> Some(i, parms.Length)
+        | _                       -> None)
     |> Map.ofSeq
 
 // ─────────────────────────────────────────────────────────────────
@@ -52,26 +51,26 @@ let private checkFunc
     let errors = ResizeArray()
     let err desc msg = errors.Add { FuncName = name; NodeDesc = desc; Message = msg }
 
-    let nonVoid args = args |> List.filter (fun a -> exprWType a <> WType.Void) |> List.length
+    let nonVoidCount args = args |> List.filter (fun a -> exprWType a <> WType.Void) |> List.length
 
     let arityCheck desc fti selfCount args =
+        let nv = nonVoidCount args
         match Map.tryFind fti arity with
         | None ->
-            err desc (sprintf "funcTypeIdx %d not in type table" fti)
-        | Some expected ->
-            let actual = selfCount + nonVoid args
-            if actual <> expected then
-                err desc (sprintf "call_ref needs %d params, %d on stack (self=%d + %d non-void args)"
-                              expected actual selfCount (nonVoid args))
-        let voids = args |> List.filter (fun a -> exprWType a = WType.Void) |> List.length
-        if voids > 0 then
-            err desc (sprintf "%d void arg(s) — no stack value produced → underflow" voids)
+            err desc (sprintf "funcTypeIdx %d not registered in type table" fti)
+        | Some expected when selfCount + nv <> expected ->
+            err desc (sprintf "call_ref fti=%d: need %d params, got %d (self=%d + %d non-void args)"
+                          fti expected (selfCount + nv) selfCount nv)
+        | _ -> ()
+        args |> List.iteri (fun i a ->
+            if exprWType a = WType.Void then
+                err desc (sprintf "arg[%d] is void — no stack value → stack underflow" i))
 
-    // Unknown local references
+    // Unknown LocalGet references
     collect (function WExpr.LocalGet _ -> true | _ -> false) body
     |> List.choose (function WExpr.LocalGet(n, _) when not (Set.contains n known) -> Some n | _ -> None)
     |> List.distinct
-    |> List.iter (fun n -> err "LocalGet" (sprintf "unknown local '%s' — not in params or .Locals" n))
+    |> List.iter (fun n -> err "LocalGet" (sprintf "unknown local '%s' not in params or .Locals" n))
 
     // Walk and check call nodes
     let rec walk = function
@@ -85,6 +84,7 @@ let private checkFunc
 
         | WExpr.CallRef(fti, args, ptr, _) ->
             // LIR node: self is already first element of args (from Lower.fs)
+            // Post-Lower: self is already args[0]; arity check uses 0 extra self
             arityCheck (sprintf "CallRef(fti=%d)" fti) fti 0 args
             List.iter walk args; walk ptr
 
@@ -117,16 +117,16 @@ let validate
         (funcs    : WFuncDecl list)
         : ValidationError list =
 
-    let arity = arityIndex typeDefs
+    let arity  = arityIndex typeDefs
     let errors =
         funcs |> List.collect (fun f ->
-            let known =
-                (f.Params |> List.map fst) @ (f.Locals |> List.map fst) |> Set.ofList
+            let known = (f.Params |> List.map fst) @ (f.Locals |> List.map fst) |> Set.ofList
             checkFunc f.Name arity known f.Body)
 
     if not errors.IsEmpty then
         eprintfn ""
-        eprintfn "[Validator] %s — %d issue(s):" (if strict then "✗ ERRORS" else "⚠ WARNINGS") errors.Length
+        let severity = if strict then "✗ ERROR" else "⚠ WARNING"
+        eprintfn "\n[Validator] %s — %d issue(s):" severity errors.Length
         eprintfn "%s" (String.replicate 72 "─")
         // Group by function for readability
         errors

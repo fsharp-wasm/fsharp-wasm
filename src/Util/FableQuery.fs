@@ -11,27 +11,27 @@ open Fable.AST
 open Fable.AST.Fable
 
 // ─────────────────────────────────────────────────────────────────
-// Lambda / delegate shape normalization
+// Lambda / delegate normalization
 // ─────────────────────────────────────────────────────────────────
 
 /// Single-arg lambda or single-element delegate.
 let (|UnaryLambda|_|) = function
     | Lambda(arg, body, _)
-    | Delegate([arg], body, _, _)          -> Some(arg, body)
-    | _                                    -> None
+    | Delegate([arg], body, _, _)                        -> Some(arg, body)
+    | _                                                  -> None
 
 /// Curried 2-arg lambda or 2-element delegate.
 let (|BinaryLambda|_|) = function
     | Lambda(a1, Lambda(a2, body, _), _)
     | Delegate([a1; a2], body, _, _)
-    | Lambda(a1, Delegate([a2], body, _, _), _) -> Some(a1, a2, body)
-    | _                                          -> None
+    | Lambda(a1, Delegate([a2], body, _, _), _)          -> Some(a1, a2, body)
+    | _                                                  -> None
 
 /// Curried 3-arg lambda or 3-element delegate.
 let (|TernaryLambda|_|) = function
     | Lambda(a1, Lambda(a2, Lambda(a3, body, _), _), _)
-    | Delegate([a1; a2; a3], body, _, _)   -> Some(a1, a2, a3, body)
-    | _                                    -> None
+    | Delegate([a1; a2; a3], body, _, _)                 -> Some(a1, a2, a3, body)
+    | _                                                  -> None
 
 /// N-arg curried lambda (arbitrary depth).
 let (|NaryLambda|_|) (n: int) (expr: Expr) : (Ident list * Expr) option =
@@ -142,10 +142,14 @@ let (|ImportCall|_|) = function
         Some(sel, path, info.Args)
     | _ -> None
 
-/// Module-value (static) call.
+// StaticCall: any Call without a this-arg (covers both module-value and static member)
 let (|StaticCall|_|) = function
-    | Call(callee, info, retType, _) when info.IsModuleValue -> Some(callee, info.Args, retType)
-    | _                                                       -> None
+    | Call (callee, info, retType, _) 
+        when info.ThisArg.IsNone 
+        // TODO: or/and not memberInfo.IsInstance
+        ->
+        Some (callee, info.Args, retType)
+    | _ -> None
 
 /// Instance method call → (thisArg, memberRef, args, retType).
 let (|InstanceCall|_|) = function
@@ -166,25 +170,32 @@ let (|ResizeArrayPush|_|) = function
 // ─────────────────────────────────────────────────────────────────
 
 let private numToInt = function
-    | NumberValue.Int8 n | NumberValue.UInt8 n
-    | NumberValue.Int16 n | NumberValue.UInt16 n
-    | NumberValue.Int32 n | NumberValue.UInt32 n
-    | NumberValue.NativeInt n | NumberValue.UNativeInt n -> Some(int n)
-    | _ -> None
+    | NumberValue.Int8 v    -> Some(int v)
+    | NumberValue.UInt8 v   -> Some(int v)
+    | NumberValue.Int16 v   -> Some(int v)
+    | NumberValue.UInt16 v  -> Some(int v)
+    | NumberValue.Int32 v   -> Some v
+    | NumberValue.UInt32 v  -> Some(int v)
+    | NumberValue.NativeInt v  -> Some(int v)
+    | NumberValue.UNativeInt v -> Some(int v)
+    | _                     -> None
 
-let private numToFloat = function
-    | NumberValue.Float16 n | NumberValue.Float32 n | NumberValue.Float64 n -> Some(float n)
-    | NumberValue.Decimal n   -> Some(float n)
-    | NumberValue.Int8 n      -> Some(float n)
-    | NumberValue.UInt8 n     -> Some(float n)
-    | NumberValue.Int16 n     -> Some(float n)
-    | NumberValue.UInt16 n    -> Some(float n)
-    | NumberValue.Int32 n     -> Some(float n)
-    | NumberValue.UInt32 n    -> Some(float n)
-    | NumberValue.Int64 n     -> Some(float n)
-    | NumberValue.UInt64 n    -> Some(float n)
-    | NumberValue.NativeInt n -> Some(float n)
-    | NumberValue.UNativeInt n-> Some(float n)
+let private numToFloat (n: NumberValue) : float option =
+    match n with
+    | NumberValue.Float16 v  -> Some(float v)
+    | NumberValue.Float32 v  -> Some(float v)
+    | NumberValue.Float64 v  -> Some v
+    | NumberValue.Decimal v  -> Some(float v)
+    | NumberValue.Int8 v     -> Some(float v)
+    | NumberValue.UInt8 v    -> Some(float v)
+    | NumberValue.Int16 v    -> Some(float v)
+    | NumberValue.UInt16 v   -> Some(float v)
+    | NumberValue.Int32 v    -> Some(float v)
+    | NumberValue.UInt32 v   -> Some(float v)
+    | NumberValue.Int64 v    -> Some(float v)
+    | NumberValue.UInt64 v   -> Some(float v)
+    | NumberValue.NativeInt v   -> Some(float v)
+    | NumberValue.UNativeInt v  -> Some(float v)
     | _                       -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -193,14 +204,12 @@ let private numToFloat = function
 
 let (|IntLit|_|)   = function Value(NumberConstant(n, _), _) -> numToInt n   | _ -> None
 let (|FloatLit|_|) = function Value(NumberConstant(n, _), _) -> numToFloat n | _ -> None
-let (|StrLit|_|)   = function Value(StringConstant s, _)     -> Some s        | _ -> None
-let (|BoolLit|_|)  = function Value(BoolConstant b, _)       -> Some b        | _ -> None
-let (|CharLit|_|)  = function Value(CharConstant c, _)       -> Some c        | _ -> None
-let (|UnitVal|_|)  = function Value(UnitConstant, _)         -> Some()        | _ -> None
-let (|NullLit|_|)  = function Value(Null _, _)               -> Some()        | _ -> None
-
-// Alias for compatibility
-let (|Null|_|) = (|NullLit|_|)
+let (|StrLit|_|)   = function Value(StringConstant s, _)     -> Some s       | _ -> None
+let (|BoolLit|_|)  = function Value(BoolConstant b, _)       -> Some b       | _ -> None
+let (|CharLit|_|)  = function Value(CharConstant c, _)       -> Some c       | _ -> None
+let (|UnitVal|_|)  = function Value(UnitConstant, _)         -> Some()       | _ -> None
+let (|NullLit|_|)  = function Value(Null _, _)               -> Some()       | _ -> None
+let (|Null|_|)     = (|NullLit|_|)   // backward compat alias
 
 // ─────────────────────────────────────────────────────────────────
 // Get / Set / field access
@@ -216,46 +225,46 @@ let (|FieldGet|_|) = function
     | _                                        -> None
 
 let (|SetField|_|) = function
-    | Set(obj, FieldSet fieldName, _, value, _)-> Some(obj, fieldName, value)
-    | _                                        -> None
+    | Set(obj, FieldSet name, _, value, _)      -> Some(obj, name, value)
+    | _                                         -> None
 
 let (|GetIndex|_|) = function
-    | Get(obj, ExprGet idx, _, _)              -> Some(obj, idx)
-    | _                                        -> None
+    | Get(obj, ExprGet idx, _, _)               -> Some(obj, idx)
+    | _                                         -> None
 
 let (|SetIndex|_|) = function
-    | Set(obj, ExprSet idx, _, value, _)       -> Some(obj, idx, value)
-    | _                                        -> None
+    | Set(obj, ExprSet idx, _, value, _)        -> Some(obj, idx, value)
+    | _                                         -> None
 
 let (|TupleGet|_|) = function
-    | Get(obj, TupleIndex i, retTy, _)         -> Some(obj, i, retTy)
-    | _                                        -> None
+    | Get(obj, TupleIndex i, retTy, _)          -> Some(obj, i, retTy)
+    | _                                         -> None
 
 let (|UnionCaseGet|_|) = function
-    | Get(obj, UnionField(caseRef, fi), retTy, _) -> Some(obj, caseRef, fi, retTy)
-    | _                                            -> None
+    | Get(obj, UnionField info, retTy, _)       -> Some(obj, info, retTy)
+    | _                                         -> None
 
 // ─────────────────────────────────────────────────────────────────
 // Operators
 // ─────────────────────────────────────────────────────────────────
 
 let (|BinOp|_|) = function
-    | Operation(OperationKind.Binary(op, l, r), _, ty, _) -> Some(op, l, r, ty)
+    | Operation(OperationKind.Binary(op, l, r), _, ty, _)  -> Some(op, l, r, ty)
     | _                                                    -> None
 
 let (|UnOp|_|) = function
-    | Operation(OperationKind.Unary(op, e), _, ty, _)     -> Some(op, e, ty)
+    | Operation(OperationKind.Unary(op, e), _, ty, _)      -> Some(op, e, ty)
     | _                                                    -> None
 
 let (|LogicalOp|_|) = function
-    | Operation(OperationKind.Logical(op, l, r), _, ty, _)-> Some(op, l, r, ty)
+    | Operation(OperationKind.Logical(op, l, r), _, ty, _) -> Some(op, l, r, ty)
     | _                                                    -> None
 
 // ─────────────────────────────────────────────────────────────────
-// Control flow shapes
+// Control flow
 // ─────────────────────────────────────────────────────────────────
 
-let (|IfExpr|_|)    = function IfThenElse(g, t, e, _)        -> Some(g, t, e)    | _ -> None
+let (|IfExpr|_|)    = function IfThenElse(g, t, e, _)         -> Some(g, t, e)    | _ -> None
 let (|WhileExpr|_|) = function WhileLoop(g, b, _)             -> Some(g, b)       | _ -> None
 let (|ForExpr|_|)   = function ForLoop(i, s, e, b, _, _)      -> Some(i, s, e, b) | _ -> None
 let (|TryExpr|_|)   = function TryCatch(b, c, f, _)           -> Some(b, c, f)    | _ -> None
@@ -269,15 +278,15 @@ let (|StringConcat|_|) = function
     | _ -> None
 
 let (|StringLength|_|) = function
-    | Get(str_, FieldGet fi, _, _) when fi.Name = "Length" -> Some str_
-    | _ -> None
+    | Get(s, FieldGet fi, _, _) when fi.Name = "Length" -> Some s
+    | _                                                  -> None
 
-let (|StringIndex|_|) = function      // BUG FIX: was `functions` instead of `function`
-    | Get(str_, ExprGet idx, _, _)  -> Some(str_, idx)
-    | _                             -> None
+let (|StringIndex|_|) = function
+    | Get(s, ExprGet idx, _, _) -> Some(s, idx)
+    | _                         -> None
 
 // ─────────────────────────────────────────────────────────────────
-// Declaration patterns
+// Declaration helpers
 // ─────────────────────────────────────────────────────────────────
 
 let private hasTag (tag: string) (tags: string list) =
@@ -293,7 +302,7 @@ let (|IsAbstract|_|) = function
     | _                                                -> None
 
 // ─────────────────────────────────────────────────────────────────
-// Collection constructor shapes
+// Collection constructors
 // ─────────────────────────────────────────────────────────────────
 
 let (|ArrayCreate|_|) = function

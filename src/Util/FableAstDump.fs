@@ -308,6 +308,14 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
           dumpExpr nextIndent q ]
         |> String.concat "\n"
 
+    | Fable.Expr.Operation(kind, _tags, _ty, _range) ->
+        let desc =
+            match kind with
+            | OperationKind.Binary(op, _, _) -> sprintf "Binary(%A)" op
+            | OperationKind.Unary(op, _)     -> sprintf "Unary(%A)" op
+            | OperationKind.Logical(op, _, _)-> sprintf "Logical(%A)" op
+        sprintf "%sOperation(%s)" indentStr desc
+
 /// Dump a function/member declaration.
 let dumpFuncDecl (func: MemberDecl) : string =
     let sig_ = sprintf "[Function] %s" func.Name

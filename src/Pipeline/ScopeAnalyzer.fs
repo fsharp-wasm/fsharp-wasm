@@ -136,8 +136,8 @@ let analyzeScopeOfExpr (_ctx: Ctx) (expr: Expr) : ScopeMap =
             | OperationKind.Logical(_, l, r) ->
                 let b1 = analyzeExpr depth localBindings l
                 analyzeExpr depth b1 r
-            | _ ->
-                localBindings
+            // TODO: never reached
+            // | _ -> localBindings
 
         | Call(callee, info, _, _) ->
             let bindings = analyzeExpr depth localBindings callee

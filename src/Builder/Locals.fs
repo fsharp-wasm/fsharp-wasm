@@ -34,7 +34,8 @@ let rec findAllReferencedLocals (expr: WExpr) : (string * WType) list =
     | WExpr.If(c, t, e, _)                           -> findAllReferencedLocals c @ findAllReferencedLocals t @ findAllReferencedLocals e
     | WExpr.Sequence xs                              -> List.collect findAllReferencedLocals xs
     | WExpr.Loop(_, b, _) | WExpr.Block(_, b, _)    -> findAllReferencedLocals b
-    | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _)
+    | WExpr.Call(_, args, _) 
+    | WExpr.TailCall(_, args, _)
     | WExpr.CallIndirect(_, args, _)                 -> List.collect findAllReferencedLocals args
     | WExpr.Binary(_, l, r, _) | WExpr.Compare(_, l, r) -> findAllReferencedLocals l @ findAllReferencedLocals r
     | WExpr.Unary(_, x, _)                           -> findAllReferencedLocals x
@@ -58,7 +59,6 @@ let rec findAllReferencedLocals (expr: WExpr) : (string * WType) list =
     | WExpr.CallRef(_, args, ptr, _)
     | WExpr.ReturnCallRef(_, args, ptr, _)           -> List.collect findAllReferencedLocals args @ findAllReferencedLocals ptr
     | WExpr.CallVirtual(box, _, _, _, _, args, _)    -> findAllReferencedLocals box @ List.collect findAllReferencedLocals args
-    | WExpr.TailCall(_, args, _)                     -> List.collect findAllReferencedLocals args
     | WExpr.SwitchInt(s, cases, def, _) ->
         findAllReferencedLocals s
         @ List.collect (snd >> findAllReferencedLocals) cases
