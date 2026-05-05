@@ -1,6 +1,4 @@
-/// WasmGC inline replacements for List operations: sort, take, skip, partition,
-/// primitives (head, tail, length, rev, append, nth, isEmpty, ofArray, toArray),
-/// tryHead, tryFind, tryFindIndex, findIndex, and List.range.
+/// WasmGC inline replacements for List operations.
 module WasmGc.Transforms.ListOps
 
 open Fable
@@ -11,7 +9,6 @@ open WasmGc.Runtime.Types
 open WasmGc.Builder
 open WasmGc.Runtime.Runtime
 open WasmGc.Runtime.LoopHelpers
-
 open WasmGc.Runtime.ListShape
 open WasmGc.Runtime.ListOps
 open WasmGc.Runtime.LoopPrimitives

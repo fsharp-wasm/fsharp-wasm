@@ -31,6 +31,11 @@
   </ItemGroup>
 
   <ItemGroup>
+      <!-- Use the exact assembly name of your Expecto test project -->
+    <InternalsVisibleTo Include="TestNative" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!--
       Official Fable.Compiler NuGet — provides Fable.AST, Fable.Transforms, FSharp.Compiler.Service.
       PrivateAssets="all" prevents these NuGet DLLs from propagating to consumers (e.g. the fork's Fable.Cli).

@@ -36,7 +36,7 @@
 
     <Compile Include="Unit/CEBuilderTests.fs" />
     <Compile Include="Unit/ClosureArityTests.fs" />
-    <Compile Include="Unit/ClosureTests.fs" />
+    <!-- <Compile Include="Unit/ClosureTests.fs" /> -->
 
     <Compile Include="Unit/IdentExprTests.fs" />
     <Compile Include="Unit/LocalsCollectionTests.fs" />

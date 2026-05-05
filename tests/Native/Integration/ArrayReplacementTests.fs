@@ -14,6 +14,8 @@ open WasmGc.Runtime.Types
 open WasmGc.Transforms.ArrayReplacements
 open WasmGc.Transforms.TransformExpr
 
+module ArrayReplacements = WasmGc.Transforms.ArrayReplacements
+
 open Tests.WasmTestHelper
 open Tests.WasmTestHelper.FableAst
 
@@ -103,7 +105,7 @@ let arrayReplacementTests = testList "Array replacements" [
         let ctx    = makeTestCtx()
         let farg   = mkParam "x" (Type.Number(Int32, NumberInfo.Empty))
         // pred: x > 0
-        let fbody  = Operation(OperationKind.Binary(BinaryOperator.Greater,
+        let fbody  = Operation(OperationKind.Binary(BinaryOperator.BinaryGreater,
                         IdentExpr farg,
                         Value(NumberConstant(NumberValue.Int32 0, NumberInfo.Empty), None)), [], Type.Boolean, None)
         let lambda = Lambda(farg, fbody, None)

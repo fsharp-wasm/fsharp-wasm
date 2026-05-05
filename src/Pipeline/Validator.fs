@@ -41,7 +41,7 @@ let private arityIndex (typeDefs: ResizeArray<WTypeDeclEntry>) : Map<int, int> =
 // Per-function checker
 // ─────────────────────────────────────────────────────────────────
 
-let private checkFunc
+let internal checkFunc
         (name    : string)
         (arity   : Map<int, int>)
         (known   : Set<string>)       // params + locals
@@ -53,7 +53,7 @@ let private checkFunc
 
     let nonVoidCount args = args |> List.filter (fun a -> exprWType a <> WType.Void) |> List.length
 
-    let arityCheck desc fti selfCount args =
+    let arityCheckCallRef desc fti selfCount args =
         let nv = nonVoidCount args
         match Map.tryFind fti arity with
         | None ->
@@ -66,6 +66,14 @@ let private checkFunc
             if exprWType a = WType.Void then
                 err desc (sprintf "arg[%d] is void — no stack value → stack underflow" i))
 
+    let arityCheckVirtual desc fti args =             // for CallVirtual
+        let nv = nonVoidCount args
+        match Map.tryFind fti arity with
+        | None -> err desc (sprintf "funcTypeIdx %d not in type table" fti)
+        | Some expected when 1 + nv <> expected ->
+            err desc (sprintf "need %d params, got self + %d non-void args" expected nv)
+        | _ -> ()
+
     // Unknown LocalGet references
     collect (function WExpr.LocalGet _ -> true | _ -> false) body
     |> List.choose (function WExpr.LocalGet(n, _) when not (Set.contains n known) -> Some n | _ -> None)
@@ -75,25 +83,25 @@ let private checkFunc
     // Walk and check call nodes
     let rec walk = function
         | WExpr.ClosureApply(clo, args, fti, _, _, _) ->
-            arityCheck (sprintf "ClosureApply(fti=%d)" fti) fti 1 args  // +1 self
+            arityCheckCallRef (sprintf "ClosureApply(fti=%d)" fti) fti 1 args  // +1 self
             walk clo; List.iter walk args
 
         | WExpr.TailCallRef(clo, args, fti, _, _, _) ->
-            arityCheck (sprintf "TailCallRef(fti=%d)" fti) fti 1 args
+            arityCheckCallRef (sprintf "TailCallRef(fti=%d)" fti) fti 1 args
             walk clo; List.iter walk args
 
         | WExpr.CallRef(fti, args, ptr, _) ->
             // LIR node: self is already first element of args (from Lower.fs)
             // Post-Lower: self is already args[0]; arity check uses 0 extra self
-            arityCheck (sprintf "CallRef(fti=%d)" fti) fti 0 args
+            arityCheckCallRef (sprintf "CallRef(fti=%d)" fti) fti 0 args
             List.iter walk args; walk ptr
 
         | WExpr.ReturnCallRef(fti, args, ptr, _) ->
-            arityCheck (sprintf "ReturnCallRef(fti=%d)" fti) fti 0 args
+            arityCheckCallRef (sprintf "ReturnCallRef(fti=%d)" fti) fti 0 args
             List.iter walk args; walk ptr
 
         | WExpr.CallVirtual(box, _, _, _, fti, args, _) ->
-            arityCheck (sprintf "CallVirtual(fti=%d)" fti) fti 1 args   // +1 self (box)
+            arityCheckVirtual (sprintf "CallVirtual(fti=%d)" fti) fti args   // +1 self (box)
             walk box; List.iter walk args
 
         | WExpr.Closure(n, _, WType.Ref(0, _)) ->

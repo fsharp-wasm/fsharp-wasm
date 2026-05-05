@@ -15,6 +15,9 @@ open WasmGc.Runtime.ListShape
 open WasmGc.Runtime.LoopPrimitives
 open WasmGc.Runtime.ListOps
 
+// ─────────────────────────────────────────────────────────────────
+// Shared helpers
+// ─────────────────────────────────────────────────────────────────
 
 /// Extract only the element Fable.Type shape for list-like sequence signatures:
 /// - Fable.Type.List<T>

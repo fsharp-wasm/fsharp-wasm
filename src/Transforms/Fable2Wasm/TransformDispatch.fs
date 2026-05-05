@@ -632,7 +632,6 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
 // Same issue.  The Locals.fs collectLocals has a catch-all that shadows a
 // specific case below it.  Find the duplicate and remove the shadowed arm.
 
-all-Expressions
 let transformCall 
     (ctx: Ctx) 
     (eval: Ctx -> Expr -> WExpr)
@@ -659,7 +658,8 @@ let transformCall
                 match methodNames |> List.tryFindIndex (fun n -> n = methodName) with
                 | Some methodIdx ->
                     let boxExpr = eval ctx thisArg
-                    Some (VT.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx boxExpr wArgs ty)
+                    let wArgsFilt  = wArgs |> List.filter (fun a -> exprWType a <> WType.Void)
+                    Some (VT.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx boxExpr wArgsFilt ty)
                 | None -> None
             | false, _ -> None
         | _ -> None

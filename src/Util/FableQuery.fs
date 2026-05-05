@@ -17,21 +17,21 @@ open Fable.AST.Fable
 /// Single-arg lambda or single-element delegate.
 let (|UnaryLambda|_|) = function
     | Lambda(arg, body, _)
-    | Delegate([arg], body, _, _)                        -> Some(arg, body)
-    | _                                                  -> None
+    | Delegate([arg], body, _, _)                    -> Some(arg, body)
+    | _                                              -> None
 
 /// Curried 2-arg lambda or 2-element delegate.
 let (|BinaryLambda|_|) = function
     | Lambda(a1, Lambda(a2, body, _), _)
     | Delegate([a1; a2], body, _, _)
-    | Lambda(a1, Delegate([a2], body, _, _), _)          -> Some(a1, a2, body)
-    | _                                                  -> None
+    | Lambda(a1, Delegate([a2], body, _, _), _)      -> Some(a1, a2, body)
+    | _                                              -> None
 
 /// Curried 3-arg lambda or 3-element delegate.
 let (|TernaryLambda|_|) = function
     | Lambda(a1, Lambda(a2, Lambda(a3, body, _), _), _)
-    | Delegate([a1; a2; a3], body, _, _)                 -> Some(a1, a2, a3, body)
-    | _                                                  -> None
+    | Delegate([a1; a2; a3], body, _, _)             -> Some(a1, a2, a3, body)
+    | _                                              -> None
 
 /// N-arg curried lambda (arbitrary depth).
 let (|NaryLambda|_|) (n: int) (expr: Expr) : (Ident list * Expr) option =
@@ -78,9 +78,9 @@ let (|MaybeTuple|_|) = function
     | _                                            -> None
 
 let (|FunctionType|_|) = function
-    | Type.LambdaType(arg, ret)                    -> Some([arg], ret)
-    | Type.DelegateType(args, ret)                 -> Some(args, ret)
-    | _                                            -> None
+    | Type.LambdaType(arg, ret)    -> Some([arg], ret)
+    | Type.DelegateType(args, ret) -> Some(args, ret)
+    | _                            -> None
 
 let (|NamedType|_|) (name: string) = function
     | Type.DeclaredType(e, _) when e.FullName = name -> Some()
@@ -91,18 +91,18 @@ let (|GenericType|_|) = function
     | _                                            -> None
 
 // Type predicates
-let isListType    = function Type.List _                   -> true | _ -> false
-let isArrayType   = function Type.Array _                  -> true | _ -> false
-let isOptionType  = function Type.Option _                 -> true | _ -> false
-let isTupleType   = function Type.Tuple _                  -> true | _ -> false
-let isUnitType    = function Type.Unit                     -> true | _ -> false
-let isBoolType    = function Type.Boolean                  -> true | _ -> false
-let isStringType  = function Type.String                   -> true | _ -> false
-let isNumericType = function Type.Number _                 -> true | _ -> false
+let isListType    = function Type.List _    -> true | _ -> false
+let isArrayType   = function Type.Array _   -> true | _ -> false
+let isOptionType  = function Type.Option _  -> true | _ -> false
+let isTupleType   = function Type.Tuple _   -> true | _ -> false
+let isUnitType    = function Type.Unit      -> true | _ -> false
+let isBoolType    = function Type.Boolean   -> true | _ -> false
+let isStringType  = function Type.String    -> true | _ -> false
+let isNumericType = function Type.Number _  -> true | _ -> false
 
 let elemTypeOf = function
-    | Type.List t | Type.Array(t, _) | Type.Option(t, _)  -> Some t
-    | _                                                    -> None
+    | Type.List t | Type.Array(t, _) | Type.Option(t, _) -> Some t
+    | _                                                  -> None
 
 // ─────────────────────────────────────────────────────────────────
 // HOF argument shapes
@@ -143,6 +143,7 @@ let (|ImportCall|_|) = function
     | _ -> None
 
 // StaticCall: any Call without a this-arg (covers both module-value and static member)
+// StaticCall here means: Call without a this-arg (module-level or static).
 let (|StaticCall|_|) = function
     | Call (callee, info, retType, _) 
         when info.ThisArg.IsNone 
@@ -166,19 +167,20 @@ let (|ResizeArrayPush|_|) = function
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
+// Literals — each NumberValue case has its own concrete type
 // Number value helpers (shared by IntLit / FloatLit)
 // ─────────────────────────────────────────────────────────────────
 
 let private numToInt = function
-    | NumberValue.Int8 v    -> Some(int v)
-    | NumberValue.UInt8 v   -> Some(int v)
-    | NumberValue.Int16 v   -> Some(int v)
-    | NumberValue.UInt16 v  -> Some(int v)
-    | NumberValue.Int32 v   -> Some v
-    | NumberValue.UInt32 v  -> Some(int v)
-    | NumberValue.NativeInt v  -> Some(int v)
-    | NumberValue.UNativeInt v -> Some(int v)
-    | _                     -> None
+    | NumberValue.Int8 v        -> Some(int v)
+    | NumberValue.UInt8 v       -> Some(int v)
+    | NumberValue.Int16 v       -> Some(int v)
+    | NumberValue.UInt16 v      -> Some(int v)
+    | NumberValue.Int32 v       -> Some v
+    | NumberValue.UInt32 v      -> Some(int v)
+    | NumberValue.NativeInt v   -> Some(int v)
+    | NumberValue.UNativeInt v  -> Some(int v)
+    | _                         -> None
 
 let private numToFloat (n: NumberValue) : float option =
     match n with
@@ -196,7 +198,7 @@ let private numToFloat (n: NumberValue) : float option =
     | NumberValue.UInt64 v   -> Some(float v)
     | NumberValue.NativeInt v   -> Some(float v)
     | NumberValue.UNativeInt v  -> Some(float v)
-    | _                       -> None
+    | _                         -> None
 
 // ─────────────────────────────────────────────────────────────────
 // Literal patterns
@@ -213,16 +215,25 @@ let (|Null|_|)     = (|NullLit|_|)   // backward compat alias
 
 // ─────────────────────────────────────────────────────────────────
 // Get / Set / field access
+// (|GetField|_|) is named differently to avoid shadowing GetKind.FieldGet DU constructor.
+// Use (|GetField|_|) for raw FieldInfo pair, (|FieldNamed|_|) for name-only.
 // ─────────────────────────────────────────────────────────────────
 
+// Raw field info pair — use when you need fi.IsMutable, fi.FieldType etc.
+// Use (|GetField|_|) for raw FieldInfo pair, (|FieldNamed|_|) for name-only.
 let (|GetField|_|) = function
-    | Get(obj, FieldGet fi, _, _)              -> Some(obj, fi)
-    | _                                        -> None
+    | Get(obj, FieldGet fi, _, _)               -> Some(obj, fi)
+    | _                                         -> None
 
-/// Structural FieldGet that only matches by name — for ad-hoc member access.
-let (|FieldGet|_|) = function
-    | Get(obj, FieldGet fi, retTy, _)          -> Some(obj, fi.Name, retTy)
-    | _                                        -> None
+// Name-only field access — most common case in replacements
+let (|FieldNamed|_|) = function
+    | Get(obj, FieldGet fi, retTy, _)           -> Some(obj, fi.Name, retTy)
+    | _                                         -> None
+
+// /// Structural FieldGet that only matches by name — for ad-hoc member access.
+// let (|FieldGet|_|) = function
+//     | Get(obj, FieldGet fi, retTy, _)          -> Some(obj, fi.Name, retTy)
+//     | _                                        -> None
 
 let (|SetField|_|) = function
     | Set(obj, FieldSet name, _, value, _)      -> Some(obj, name, value)
@@ -240,6 +251,7 @@ let (|TupleGet|_|) = function
     | Get(obj, TupleIndex i, retTy, _)          -> Some(obj, i, retTy)
     | _                                         -> None
 
+// UnionField wraps a single UnionFieldInfo record, not a tuple
 let (|UnionCaseGet|_|) = function
     | Get(obj, UnionField info, retTy, _)       -> Some(obj, info, retTy)
     | _                                         -> None
@@ -264,19 +276,20 @@ let (|LogicalOp|_|) = function
 // Control flow
 // ─────────────────────────────────────────────────────────────────
 
-let (|IfExpr|_|)    = function IfThenElse(g, t, e, _)         -> Some(g, t, e)    | _ -> None
-let (|WhileExpr|_|) = function WhileLoop(g, b, _)             -> Some(g, b)       | _ -> None
-let (|ForExpr|_|)   = function ForLoop(i, s, e, b, _, _)      -> Some(i, s, e, b) | _ -> None
-let (|TryExpr|_|)   = function TryCatch(b, c, f, _)           -> Some(b, c, f)    | _ -> None
+let (|IfExpr|_|)    = function IfThenElse(g, t, e, _)    -> Some(g, t, e)    | _ -> None
+let (|WhileExpr|_|) = function WhileLoop(g, b, _)        -> Some(g, b)       | _ -> None
+let (|ForExpr|_|)   = function ForLoop(i, s, e, b, _, _) -> Some(i, s, e, b) | _ -> None
+let (|TryExpr|_|)   = function TryCatch(b, c, f, _)      -> Some(b, c, f)    | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
-// String helpers
+// Strings
 // ─────────────────────────────────────────────────────────────────
 
 let (|StringConcat|_|) = function
     | Call(Import({ Selector = "concat" }, _, _), info, _, _) -> Some info.Args
     | _ -> None
 
+// NOTE: uses FieldGet as DU constructor (not active pattern) — no shadowing
 let (|StringLength|_|) = function
     | Get(s, FieldGet fi, _, _) when fi.Name = "Length" -> Some s
     | _                                                  -> None
@@ -289,7 +302,7 @@ let (|StringIndex|_|) = function
 // Declaration helpers
 // ─────────────────────────────────────────────────────────────────
 
-let private hasTag (tag: string) (tags: string list) =
+let private hasTag tag (tags: string list) =
     tags |> List.exists (fun t -> t.Equals(tag, System.StringComparison.OrdinalIgnoreCase))
 
 let (|IsExported|_|) = function

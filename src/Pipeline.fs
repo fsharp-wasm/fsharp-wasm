@@ -17,6 +17,7 @@ module L = WasmGc.Runtime.Locals
 module W = WasmGc.Emit.Wat
 module E = WasmGc.Emit.Emit
 module Bin = WasmGc.Emit.Encoder
+module Phases = WasmGc.Pipeline.Phases
 
 // Per-project shared Ctx accumulated across source files.
 // Keyed by project file path; cleared when the last file has been processed.
@@ -186,12 +187,22 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             sharedCtxs.TryRemove(projectFile) |> ignore
 
             let wasmModule =
-                let rawModule = Lowering.buildWModule finalCtx
-                let optimized = Opt.optimizeModule rawModule
-                // Re-run resolveLocals after optimization: join-point inlining introduces new
-                // Let bindings (e.g. db_2 = arg) whose locals weren't visible before inlining.
-                { optimized with
-                    Functions = optimized.Functions |> List.map L.resolveLocals }
+                let declarations = fableFile.Declarations
+                
+                // Call the full pipeline defined in Phases.fs
+                // This properly runs:
+                //   Phase 3: Fable → raw WExpr
+                //   Phase 4: Normalize
+                //   Phase 4b: Lower (ClosureApply → CallRef, etc.)
+                //   Phase 5: Resolve locals
+                //   Phase 6: Validate
+                //   Phase 7: Optimize
+                match Phases.runPipeline finalCtx declarations Phases.defaultOptions with
+                | Ok pipelineModule -> pipelineModule
+                | Error errors ->
+                    errors |> List.iter (fun e ->
+                        eprintfn "  ✗ [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
+                    failwith "Pipeline validation failed"
 
             let dir = System.IO.Path.GetDirectoryName(emitPath)
             if not (System.IO.Directory.Exists(dir)) then

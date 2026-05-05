@@ -13,7 +13,7 @@
 module WasmGc.Emit.Optimize
 
 open WasmGc.Core.AST
-open WasmGc.Util.WExprQuery   // rewrite, substituteLocal, exists, count
+open WasmGc.Util.WExprQuery   // rewrite, substituteLocal, exists, count, collect
 
 // ─────────────────────────────────────────────────────────────────
 // Purity
@@ -50,19 +50,34 @@ let private applyJoin (label: string) (parms: (string * WType) list) (body: WExp
         | _ -> None) expr
 
 let private inlineJoins (expr: WExpr) : WExpr =
-    // Outside-in: process outer joins first so inner join counts are correct
-    let mutable changed = true
-    let mutable e = expr
-    while changed do
-        let e' =
-            rewrite (function
-                | WExpr.JoinPoint(lbl, parms, body, cont, _) ->
-                    let uses = count (function WExpr.JoinApply(l,_,_) -> l = lbl | _ -> false) cont
-                    if uses >= 1 then Some(applyJoin lbl parms body cont) else None
-                | _ -> None) e
-        changed <- not (obj.ReferenceEquals(e', e))
-        e <- e'
-    e
+    // Early exit if there are no join points at all
+    // (avoid infinite loop caused by rewrite always returning new objects)
+    let hasJoinPoints = exists (function WExpr.JoinPoint _ -> true | _ -> false) expr
+    if not hasJoinPoints then
+        expr
+    else
+        // Outside-in: process outer joins first so inner join counts are correct
+        let mutable changed = true
+        let mutable e = expr
+        
+        while changed do
+            let joinPointsBefore = 
+                collect (function WExpr.JoinPoint _ -> true | _ -> false) e |> List.length
+            
+            let e' =
+                rewrite (function
+                    | WExpr.JoinPoint(lbl, parms, body, cont, _) ->
+                        let uses = count (function WExpr.JoinApply(l,_,_) -> l = lbl | _ -> false) cont
+                        if uses >= 1 then Some(applyJoin lbl parms body cont) else None
+                    | _ -> None) e
+            
+            let joinPointsAfter = 
+                collect (function WExpr.JoinPoint _ -> true | _ -> false) e' |> List.length
+            
+            changed <- joinPointsAfter < joinPointsBefore  // Changed only if we actually inlined
+            e <- e'
+        
+        e
 
 // ─────────────────────────────────────────────────────────────────
 // Pass 2 — Constant folding
