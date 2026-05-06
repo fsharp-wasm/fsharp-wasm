@@ -249,11 +249,11 @@ module WExprQuery =
 
     let children (expr: WExpr) : WExpr list =
         match expr with
-        | WExpr.Let(_, v, b) | WExpr.LetMut(_, v, b)               -> [v; b]
+        | WExpr.Let(_, v, b) | WExpr.LetMut(_, v, b)                 -> [v; b]
         | WExpr.If(c, t, e, _)                                       -> [c; t; e]
         | WExpr.Sequence xs                                          -> xs
-        | WExpr.Block(_, b, _) | WExpr.Loop(_, b, _)                -> [b]
-        | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _)       -> args
+        | WExpr.Block(_, b, _) | WExpr.Loop(_, b, _)                 -> [b]
+        | WExpr.Call(_, args, _) | WExpr.TailCall(_, args, _)        -> args
         | WExpr.ClosureApply(c, args, _, _, _, _)                    -> c :: args
         | WExpr.TailCallRef(c, args, _, _, _, _)                     -> c :: args
         | WExpr.ArrayNew(_, s, init, _)                              -> [s; init]
@@ -261,13 +261,13 @@ module WExprQuery =
         | WExpr.ArrayGet(a, i, _)                                    -> [a; i]
         | WExpr.ArraySet(a, i, v)                                    -> [a; i; v]
         | WExpr.ArrayLen e                                           -> [e]
-        | WExpr.ArrayCopy(d, d2, s, s2, n)                          -> [d; d2; s; s2; n]
+        | WExpr.ArrayCopy(d, d2, s, s2, n)                           -> [d; d2; s; s2; n]
         | WExpr.StructNew(_, fs, _)                                  -> fs
         | WExpr.StructGet(o, _, _)                                   -> [o]
         | WExpr.StructSet(o, _, v)                                   -> [o; v]
         | WExpr.Cast(e, _) | WExpr.RefIsNull e | WExpr.RefTest(e,_)
-        | WExpr.Unary(_, e, _) | WExpr.TagOf e | WExpr.Throw e      -> [e]
-        | WExpr.Binary(_, a, b, _) | WExpr.Compare(_, a, b)         -> [a; b]
+        | WExpr.Unary(_, e, _) | WExpr.TagOf e | WExpr.Throw e       -> [e]
+        | WExpr.Binary(_, a, b, _) | WExpr.Compare(_, a, b)          -> [a; b]
         | WExpr.Assign(_, v) | WExpr.GlobalSet(_, v)                 -> [v]
         | WExpr.Return(Some v) | WExpr.Break(_, Some v)              -> [v]
         | WExpr.JoinPoint(_, _, b, c, _)                             -> [b; c]
@@ -409,7 +409,9 @@ let exprShape (expr: WExpr) : string =
     | WExpr.MemorySize                  -> "mem.size"
     | WExpr.MemoryGrow _                -> "mem.grow"
     | WExpr.CallIndirect _              -> "call_indirect"
+    | WExpr.CallRef _                   -> "call_ref"       // TODO: check if this is actually used, or be lowered to call_indirect (others too)
     | WExpr.TailCallRef _               -> "tail_call_ref"
+    | WExpr.ReturnCallRef _             -> "return_call_ref"
 
 // ─────────────────────────────────────────────────────────────────
 // Assertion helpers (Expecto-compatible, also used from Wasmecto)

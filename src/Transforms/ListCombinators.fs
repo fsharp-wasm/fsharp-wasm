@@ -231,34 +231,35 @@ let tryListCollectInline
             match tryListTypeInfo ctx listArg with
             | None -> None
             | Some(elemT, consIdx) ->
-            let s   = mkListShape elemT consIdx
-            let gen = LabelGen("part")
-            let listFableT  = Fable.Type.List(elemFableT)
-            let tupleFableT = Fable.Type.Tuple([listFableT; listFableT], false)
-            let tupleWType  = mapTypeKnown ctx tupleFableT
-            let listWT      = mapTypeKnown ctx listFableT
-            let tupleIdx    =
-                let key = wTypesKey [listWT; listWT]
-                match ctx.TupleRegistry.TryGetValue(key) with
-                | true, idx -> idx
-                | _ -> failwith "List.partition: tuple not registered after mapTypeKnown"
-            let tupleRefT = WType.Ref(tupleIdx, false)
-            let ctx' = ctx.WithLocal(farg.Name, elemT)
-            let wPred = transform ctx' fbody
-            let wList = transform ctx listArg
-            Some(wasm {
-                let! yes = mutTy s.BaseTy s.Nil
-                let! no = mutTy s.BaseTy s.Nil
-                do! listIter gen s wList (fun elem ->
-                    wasm {
-                        let! e = elem
-                        return! WExpr.If(WExpr.Let(farg.Name, e, wPred),
-                            yes.Set(s.Cons e yes.Val),
-                            no.Set(s.Cons e no.Val),
-                            WType.Void)
-                    })
-                return structNew tupleIdx [listRev gen s yes.Val; listRev gen s no.Val] tupleRefT
-            })
+                let s   = mkListShape elemT consIdx
+                let gen = LabelGen("part")
+                let listFableT  = Fable.Type.List(elemFableT)
+                let tupleFableT = Fable.Type.Tuple([listFableT; listFableT], false)
+                let tupleWType  = mapTypeKnown ctx tupleFableT
+                let listWT      = mapTypeKnown ctx listFableT
+                let tupleIdx    =
+                    let key = wTypesKey [listWT; listWT]
+                    match ctx.TupleRegistry.TryGetValue(key) with
+                    | true, idx -> idx
+                    | _ -> failwith "List.partition: tuple not registered after mapTypeKnown"
+                let tupleRefT = WType.Ref(tupleIdx, false)
+                let ctx' = ctx.WithLocal(farg.Name, elemT)
+                let wPred = transform ctx' fbody
+                let wList = transform ctx listArg
+                Some(wasm {
+                    let! yes = mutTy s.BaseTy s.Nil
+                    let! no = mutTy s.BaseTy s.Nil
+                    do! listIter gen s wList (fun elem ->
+                        wasm {
+                            let! e = elem
+                            return! WExpr.If(WExpr.Let(farg.Name, e, wPred),
+                                yes.Set(s.Cons e yes.Val),
+                                no.Set(s.Cons e no.Val),
+                                WType.Void)
+                        })
+                    return structNew tupleIdx [listRev gen s yes.Val; listRev gen s no.Val] tupleRefT
+                })
+        | None -> None
     | "concat", [listArg] ->
         match tryListTypeInfo ctx listArg with
         | Some(innerListT, _) ->

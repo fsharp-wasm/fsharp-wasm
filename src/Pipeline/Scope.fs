@@ -62,15 +62,15 @@ let resolve (ctx: Ctx) (funcName: string option) (name: string) : Resolution =
     // 3 & 4. Known function  (module-level or multi-arg)
     let qualName = ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
     match Map.tryFind qualName ctx.KnownFuncs with
-    | Some([], retTy)           -> Resolution.ModuleValue(qualName, retTy)
-    | Some(paramTys, retTy)     -> Resolution.KnownFunc(qualName, paramTys, retTy)
+    | Some([], retTy)       -> Resolution.ModuleValue(qualName, retTy)
+    | Some(paramTys, retTy) -> Resolution.KnownFunc(qualName, paramTys, retTy)
     | None ->
 
     // 5. Extern import
+    // WImport.Desc: WImportDesc — return type is inside ImportFunc(_, result)
     let extKey = sprintf "$ext$%s" name
     match ctx.ExternImports.TryGetValue(extKey) with
     | true, imp ->
-        // Extract return type from WImportDesc
         let retTy =
             match imp.Desc with
             | ImportFunc(_, result) -> result
@@ -83,50 +83,44 @@ let resolve (ctx: Ctx) (funcName: string option) (name: string) : Resolution =
     Resolution.Unknown name
 
 /// Emit a WExpr for the resolved identifier.
-/// `warnUnknown`: if true, logs a warning for Unknown resolutions (Phase 3 mode).
-let toExpr (res: Resolution) (warnUnknown: bool) : WExpr =
+/// `warn`: if true, logs a warning for Unknown resolutions (Phase 3 mode).
+let toExpr (res: Resolution) (warn: bool) : WExpr =
     match res with
-    | Resolution.Local(name, ty)
-    | Resolution.CapturedVar(name, ty)      -> WExpr.LocalGet(name, ty)
-    | Resolution.ModuleValue(qn, retTy)     -> WExpr.Call(qn, [], retTy)
-    | Resolution.KnownFunc(qn, ps, retTy)   ->
-        // Return a funcref — call site will wrap in a closure or apply directly
-        WExpr.FuncRef qn
-    | Resolution.ExternFunc(key, retTy)     -> WExpr.Call(key, [], retTy)
-    | Resolution.Unknown name               ->
-        if warnUnknown then
+    | Resolution.Local(n, ty)
+    | Resolution.CapturedVar(n, ty)      -> WExpr.LocalGet(n, ty)
+    | Resolution.ModuleValue(qn, retTy)  -> WExpr.Call(qn, [], retTy)
+    | Resolution.KnownFunc(qn, _, _)     -> WExpr.FuncRef qn
+    | Resolution.ExternFunc(key, retTy)  -> WExpr.Call(key, [], retTy)
+    | Resolution.Unknown name            ->
+        if warn then
             eprintfn "  [Scope] WARNING: unresolved identifier '%s' → LocalGet fallback" name
         WExpr.LocalGet(name, WType.I32)
 
 /// True when the identifier resolves to a module-level zero-arg function.
 /// Used by buildClosure to exclude module values from capture lists.
 let isModuleValue (ctx: Ctx) (name: string) : bool =
-    let qualName = ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
-    match Map.tryFind qualName ctx.KnownFuncs with
-    | Some([], _) -> true
-    | _           -> false
+    let q = ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
+    match Map.tryFind q ctx.KnownFuncs with Some([], _) -> true | _ -> false
 
 /// True when the identifier is a local variable in scope.
-let isLocal (ctx: Ctx) (name: string) : bool = Map.containsKey name ctx.Locals
+let isLocal      (ctx: Ctx) (name: string) : bool = Map.containsKey name ctx.Locals
 
 /// True when the identifier is capturable (local and NOT a module-level value).
-let isCapturable (ctx: Ctx) (name: string) : bool =
-    isLocal ctx name && not (isModuleValue ctx name)
+let isCapturable (ctx: Ctx) (name: string) : bool = isLocal ctx name && not (isModuleValue ctx name)
 
 // ─────────────────────────────────────────────────────────────────
 // Ctx extension helpers — fluent context building
 // ─────────────────────────────────────────────────────────────────
-// TODO: This should or could be on Ctx via WithLocal etc.,  for discoverability.
 
-let withLocal (name: string) (ty: WType) (ctx: Ctx) : Ctx =
-    { ctx with Locals = Map.add name ty ctx.Locals }
 
 let withLocals (locals: (string * WType) list) (ctx: Ctx) : Ctx =
-    locals |> List.fold (fun c (n, t) -> { c with Locals = Map.add n t c.Locals }) ctx
+    locals |> List.fold (fun c (n, t) -> c.WithLocal(n, t)) ctx
 
+// TODO: still used?
 let withKnownFunc (name: string) (parms: WType list) (retTy: WType) (ctx: Ctx) : Ctx =
     { ctx with KnownFuncs = Map.add name (parms, retTy) ctx.KnownFuncs }
 
+// TODO: should it be inside ctx? maybe with caching?
 let withKnownFuncs (funcs: (string * (WType list * WType)) list) (ctx: Ctx) : Ctx =
     funcs |> List.fold (fun c (n, sig_) ->
         { c with KnownFuncs = Map.add n sig_ c.KnownFuncs }) ctx
@@ -134,3 +128,110 @@ let withKnownFuncs (funcs: (string * (WType list * WType)) list) (ctx: Ctx) : Ct
 /// Enter a new function scope: add params as locals, set CurrentFunc.
 let enterFunc (name: string) (parms: (string * WType) list) (ctx: Ctx) : Ctx =
     { withLocals parms ctx with CurrentFunc = Some name }
+
+
+
+// ─────────────────────────────────────────────────────────────────
+// Debug helperss
+// ─────────────────────────────────────────────────────────────────
+// TODO: refactor to a separate module
+
+// /// ANSI Color Helper
+// let inline color (code: string) (text: string) = sprintf "\x1b[%sm%s\x1b[0m" code text
+
+// /// Der Profi-Formatter für eprintfn %a
+// let format (tw: TextWriter) (res: Resolution) =
+//     let output =
+//         match res with
+
+//         | Resolution.Local(n, ty)        -> color "92" (sprintf "LOCAL(%s: %A)" n ty)
+//         | Resolution.CapturedVar(n, ty)  -> color "96" (sprintf "CAPTURED(%s: %A)" n ty)
+//         | Resolution.ModuleValue(qn, ty) -> color "94" (sprintf "MOD-VAL(%s: %A)" qn ty)
+
+//         | Resolution.KnownFunc(qn, p, r) -> color "95" (sprintf "K-FUNC(%s: %A->%A)" qn p r)
+//         | Resolution.ExternFunc(key, ty) -> color "93" (sprintf "EXTERN(%s: %A)" key ty)
+//         | Resolution.Unknown n           -> color "91" (sprintf "!! UNKNOWN(%s) !!" n)
+    
+//     tw.Write(output)
+
+/// Debug-Print für das Resultat einer Auflösung.
+// let debugResolution (name: string) (res: Resolution) =
+//     let tag, detail, color = 
+//         match res with
+
+//         | Resolution.Local(n, ty)        -> "LOCAL ", sprintf "%s : %A" n ty, "92" // Grün
+//         | Resolution.CapturedVar(n, ty)  -> "CAPTUR ", sprintf "%s : %A" n ty, "96" // Cyan
+//         | Resolution.ModuleValue(qn, ty) -> "M-VAL ", sprintf "%s : %A" qn ty, "94" // Blau
+
+//         | Resolution.KnownFunc(qn, p, r) -> "K-FUNC", sprintf "%s (%A -> %A)" qn p r, "95" // Magenta
+//         | Resolution.ExternFunc(key, ty) -> "EXTERN", sprintf "%s : %A" key ty, "93" // Gelb
+//         | Resolution.Unknown n           -> "UNKNOWN", n, "91" // Rot
+
+//     // TODO: we need a library for colored console output, this is just a quick hack
+//     // Format: [Scope] -> NAME => [TAG] Details
+//     eprintfn "  \x1b[90m[Scope]\x1b[0m %-15s \x1b[1m=>\x1b[0m \x1b[%sm[%s]\x1b[0m %s" 
+//             name color tag detail
+
+// let debugResolution (prefix: string) (res: Resolution) =
+//     let color code text = sprintf "\x1b[%sm%s\x1b[0m" code text
+    
+//     let msg = 
+//         match res with
+
+//         | Local(n, ty)        -> color "92" (sprintf "[LOCAL] %s : %A" n ty)
+//         | CapturedVar(n, ty)  -> color "96" (sprintf "[CAPTURED] %s : %A" n ty)
+//         | ModuleValue(qn, ty) -> color "94" (sprintf "[MOD-VAL] %s : %A" qn ty)
+
+//         | KnownFunc(qn, p, r) -> color "95" (sprintf "[K-FUNC] %s (%A->%A)" qn p r)
+//         | ExternFunc(key, ty) -> color "93" (sprintf "[EXTERN] %s : %A" key ty)
+//         | Unknown n           -> color "91" (sprintf "[UNKNOWN] %s" n)
+
+//     // WICHTIG: Nur EIN eprintfn Aufruf für die ganze Zeile verhindert das Vermischen
+//     eprintfn "  %s %s" prefix msg
+
+
+// let debugResolution (ctx: Ctx) (name: string) (res: Resolution) =
+//     let color code text = sprintf "\x1b[%sm%s\x1b[0m" code text
+//     let ctxName = defaultArg ctx.CurrentFunc "Global"
+
+//     match res with
+
+
+//     | Resolution.Unknown n ->
+//         // Hier ist die echte Hilfe: Was war eigentlich verfügbar?
+//         let locals = ctx.Locals |> Map.keys |> String.concat ", "
+//         let funcs  = ctx.KnownFuncs |> Map.keys |> Seq.truncate 5 |> String.concat ", "
+        
+//         eprintfn "  %s %s" (color "91" "[SCOPE ERROR]") (color "1" n)
+//         eprintfn "    \x1b[90m├─ Function:\x1b[0m %s" ctxName
+//         eprintfn "    \x1b[90m├─ Locals  :\x1b[0m [%s]" (if locals = "" then "none" else locals)
+//         eprintfn "    \x1b[90m└─ Knowns  :\x1b[0m [%s...]" funcs
+
+//     | _ -> 
+//         // Kompakte Erfolgsmeldung
+//         printfn "  \x1b[92m[OK]\x1b[0m %s -> %A" name res
+
+let debugResolution (ctx: Ctx) (range: Fable.AST.SourceLocation option) (name: string) (res: Resolution) =
+    let color code text = sprintf "\x1b[%sm%s\x1b[0m" code text
+    
+    // Ortsangabe extrahieren
+    let loc = 
+        match range with
+
+        | Some r -> sprintf "%s(%d,%d)" r.File r.start.line r.start.column
+        | None   -> "unknown-location"
+
+    match res with
+
+    | Resolution.Unknown n ->
+        let msg = 
+            [
+                color "91;1" (sprintf "\n[RESOLVE ERROR] '%s'" n)
+                color "90"   (sprintf "  Location: %s" loc)
+                color "90"   (sprintf "  Function: %s" (defaultArg ctx.CurrentFunc "Global"))
+                color "93"   (sprintf "  Locals  : [%s]" (ctx.Locals |> Map.keys |> String.concat ", "))
+            ] |> String.concat "\n"
+        
+        // EIN eprintfn Aufruf für den gesamten Block verhindert das Zerhäckseln durch Threads
+        eprintfn "%s\n" msg
+    | _ -> ()

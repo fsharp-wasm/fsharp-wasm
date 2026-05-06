@@ -106,7 +106,9 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             WExpr.Closure(qn, [], WType.Ref(typeIdx, false))
         | Scope.Resolution.ExternFunc(key, retTy)   -> WExpr.Call(key, [], retTy)
         | Scope.Resolution.Unknown name             ->
-            eprintfn "  [TransformExpr] WARNING: unresolved ident '%s'" name
+            // eprintfn "  [TransformExpr] WARNING: unresolved ident '%s' in '%A'" name ctx.CurrentFunc
+            // debugResolution "[TransformExpr]" res
+            Scope.debugResolution ctx name res
             WExpr.LocalGet(name, WType.I32)
 
     // ── Let bindings ──

@@ -153,7 +153,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             // ── List/Option primitives ─────────────────────────────────────────────
             fun () -> tryListPrimitiveInline      ctx sel wArgs ty info.Args
             fun () -> tryListTryHeadInline        eval ctx sel wArgs ty info.Args
-            fun () -> tryListTryFindInline        eval ctx sel info.Args ty
+            fun () -> tryListFindIndexInline      eval ctx sel info.Args ty
         ]
     match r with
     | Some result -> result
@@ -170,12 +170,12 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             | None -> WExpr.Compare(WCompareOp.Eq, a, b)
         else WExpr.Compare(WCompareOp.Eq, a, b)  // primitives: direct eq
     // Unary negation: 0 - x  (covers all int8/int16/int32/uint variants → all map to I32)
-    | ("op_UnaryNegation_Int8" | "op_UnaryNegation_UInt8"
-    |  "op_UnaryNegation_Int16" | "op_UnaryNegation_UInt16"
-    |  "op_UnaryNegation_Int32" | "op_UnaryNegation_UInt32"
+    | ("op_UnaryNegation_Int8"    | "op_UnaryNegation_UInt8"
+    |  "op_UnaryNegation_Int16"   | "op_UnaryNegation_UInt16"
+    |  "op_UnaryNegation_Int32"   | "op_UnaryNegation_UInt32"
     |  "op_UnaryNegation"), [arg], WType.I32 ->
         WExpr.Binary(WBinaryOp.Sub, WExpr.Const(WConst.I32 0), arg, WType.I32)
-    | ("op_UnaryNegation_Int64" | "op_UnaryNegation"), [arg], WType.I64 ->
+    | ("op_UnaryNegation_Int64"   | "op_UnaryNegation"), [arg], WType.I64 ->
         WExpr.Binary(WBinaryOp.Sub, WExpr.Const(WConst.I64 0L), arg, WType.I64)
     | ("op_UnaryNegation_Float32"), [arg], WType.F32 ->
         WExpr.Unary(WUnaryOp.Neg, arg, WType.F32)

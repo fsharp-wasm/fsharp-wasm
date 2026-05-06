@@ -366,6 +366,17 @@ let getOrAddArrayType (ctx: Ctx) (elemT: WType) : int =
         ctx.ArrayRegistry.[key] <- idx
         idx
 
+// TODO: docstring
+let getOrAddOptionType (ctx: Ctx) (elemT: WType) =
+    let key = wTypeKey elemT
+    match ctx.OptionRegistry.TryGetValue(key) with
+    | true, idx -> idx
+    | false, _ ->
+        let idx = ctx.TypeDefs.Count
+        ctx.TypeDefs.Add({ Name = $"Option_{idx}"; Def = WTypeDef.Struct([{ Name = "value"; Type = elemT; Mutable = false }], None) })
+        ctx.OptionRegistry.[key] <- idx
+        idx
+
 /// Register (if needed) a $ResizeArray_T struct:
 ///   struct { data: (mut ref? $Arr_T); len: (mut i32) }
 /// Returns (arrTypeIdx, ravTypeIdx).

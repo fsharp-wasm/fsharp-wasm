@@ -806,7 +806,9 @@ let tryArrayInline
                         let! res = arrayNew outArrIdx count (makeNumericZero outElemT) outArrRefT
                         return! fillExpr src res
                     })
-                | _ -> None
+                // TODO: check AnyRef 
+                | _ -> failwith("ArrayReplacements - choose - case not handled")
+            | _ -> None
         | _ -> None
     // ── Array.collect f arr — apply f (returns array), concatenate results ───
     | "collect" ->

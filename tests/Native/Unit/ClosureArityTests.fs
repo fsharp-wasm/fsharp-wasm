@@ -73,7 +73,7 @@ let closureArityTests = testList "ClosureApply arity" [
         let known = Set.empty<string>
         let errors = Validator.checkFunc "$closure_4" (buildArityIndex typeDefs) known expr
         Expect.isNonEmpty errors "validator must catch missing arg"
-        Expect.stringContains errors.Head.Message "got 1" "error should state actual provided param count"
+        Expect.stringContains errors.Head.Message "got self(1)+0" "error should state actual provided param count"
         Expect.stringContains errors.Head.Message "need 2 params" "error should state expected param count"
     }
 

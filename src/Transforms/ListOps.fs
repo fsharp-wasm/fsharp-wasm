@@ -12,6 +12,17 @@ open WasmGc.Runtime.LoopHelpers
 open WasmGc.Runtime.ListShape
 open WasmGc.Runtime.ListOps
 open WasmGc.Runtime.LoopPrimitives
+open WasmGc.Util.FableQuery
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared: lambda / type guards using DSL
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Extract list element type and cons-struct index from a Fable.Expr argument.
+let private listInfo ctx (arg: Fable.Expr) =
+    match arg.Type with
+    | ListOf _ -> tryListTypeInfo ctx arg
+    | _        -> None
 
 let tryListTakeSkipSortInline
         (transform: TransformFn)
@@ -21,16 +32,14 @@ let tryListTakeSkipSortInline
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
     // ── List.skip n xs ─────────────────────────────────────────────
-    | "skip", (nArg :: listArg :: _) ->
-        match tryListTypeInfo ctx listArg with
+    | "skip", nArg :: listArg :: _ ->
+        match listInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s   = mkListShape elemT consIdx
-            let gen = LabelGen("skip")
-            let wN   = transform ctx nArg
-            let wLst = transform ctx listArg
+            let gen = LabelGen "skip"
             Some(wasm {
-                let! n = mut wN
-                let! ptr = mutTy s.BaseTy wLst
+                let! n   = mut (transform ctx nArg)
+                let! ptr = mutTy s.BaseTy (transform ctx listArg)
                 while! (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) do
                     do! ptr.Set(s.Tail ptr.Val)
                     do! n.Set(sub n.Val (i32Const 1))
@@ -38,51 +47,44 @@ let tryListTakeSkipSortInline
             })
         | None -> None
     // ── List.take n xs ─────────────────────────────────────────────
-    | "take", (nArg :: listArg :: _) ->
-        match tryListTypeInfo ctx listArg with
+    | "take", nArg :: listArg :: _ ->
+        match listInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s   = mkListShape elemT consIdx
-            let gen = LabelGen("take")
-            let wN   = transform ctx nArg
-            let wLst = transform ctx listArg
-            // Phase 1: collect first n elements reversed
-            let revCollect =
-                wasm {
-                    let! n   = mut wN
-                    let! ptr = mutTy s.BaseTy wLst
-                    let! acc = mutTy s.BaseTy s.Nil
-                    while! (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) do
-                        do! acc.Set(s.Cons (s.Head ptr.Val) acc.Val)
-                        do! ptr.Set(s.Tail ptr.Val)
-                        do! n.Set(sub n.Val (i32Const 1))
-                    return acc.Val
-                }
-            // Phase 2: reverse
+            let gen = LabelGen "take"
+            let revCollect = wasm {
+                let! n   = mut (transform ctx nArg)
+                let! ptr = mutTy s.BaseTy (transform ctx listArg)
+                let! acc = mutTy s.BaseTy s.Nil
+                while! (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) do
+                    do! acc.Set(s.Cons (s.Head ptr.Val) acc.Val)
+                    do! ptr.Set(s.Tail ptr.Val)
+                    do! n.Set(sub n.Val (i32Const 1))
+                return acc.Val
+            }
             Some(listRev gen s revCollect)
         | None -> None
-    // ── List.sortBy / List.sortByDescending ────────────────────────
-    | ("sortBy" | "sortByDescending"),
-        ((Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _,  _)) :: listArg :: _) ->
+    // ── List.sortBy / List.sortByDescending ────────────────────────r
+    // DSL: UnaryLambda replaces Lambda|Delegate([farg]) verbose pattern
+    | ("sortBy" | "sortByDescending"), UnaryLambda(farg, fbody) :: listArg :: _ ->
         let descending = selector = "sortByDescending"
-        match tryListTypeInfo ctx listArg with
+        match listInfo ctx listArg with
         | None -> None
         | Some(elemT, consIdx) ->
-        let s   = mkListShape elemT consIdx
-        let gen = LabelGen("lsby")
+        let s          = mkListShape elemT consIdx
+        let gen        = LabelGen "lsby"
         let keyT       = mapTypeKnown ctx fbody.Type
         let arrTypeIdx = getOrAddArrayType ctx elemT
         let keyArrIdx  = getOrAddArrayType ctx keyT
         let arrRefT    = WType.Ref(arrTypeIdx, false)
         let keyArrRefT = WType.Ref(keyArrIdx, false)
-        let ctx' = ctx.WithLocal(farg.Name, elemT)
-        let wKey = transform ctx' fbody
-        let wLst = transform ctx listArg
-        let cmpOp = if descending then WCompareOp.GtS else WCompareOp.LtS
+        let wKey       = transform (ctx.WithLocal(farg.Name, elemT)) fbody
+        let cmpOp      = if descending then WCompareOp.GtS else WCompareOp.LtS
         Some(wasm {
-            let! lst    = wLst
+            let! lst    = transform ctx listArg
             let! len    = listLength gen s lst
             let! arr    = arrayNew arrTypeIdx len (makeNumericZero elemT) arrRefT
-            let! keyArr = arrayNew keyArrIdx len (makeNumericZero keyT) keyArrRefT
+            let! keyArr = arrayNew keyArrIdx  len (makeNumericZero keyT)  keyArrRefT
             // Fill arrays
             let fillPhase =
                 listFold gen s lst (i32Const 0) WType.I32
@@ -90,7 +92,7 @@ let tryListTakeSkipSortInline
                         wasm {
                             let! fe = elem
                             let! fk = WExpr.Let(farg.Name, fe, wKey)
-                            do! arraySet arr idx fe
+                            do! arraySet arr    idx fe
                             do! arraySet keyArr idx fk
                             return! add idx (i32Const 1)
                         })
@@ -542,15 +544,7 @@ let tryListTryHeadInline
         match ctx.ListRegistry.TryGetValue(elemKey) with
         | true, listConsIdx ->
             let listNNRefT = WType.Ref(listConsIdx, false)
-            let optTypeIdx =
-                let key = wTypeKey elemT
-                match ctx.OptionRegistry.TryGetValue(key) with
-                | true, idx -> idx
-                | false, _ ->
-                    let idx = ctx.TypeDefs.Count
-                    ctx.TypeDefs.Add({ Name = $"Option_{idx}"; Def = WTypeDef.Struct([{ Name = "value"; Type = elemT; Mutable = false }], None) })
-                    ctx.OptionRegistry.[key] <- idx
-                    idx
+            let optTypeIdx = getOrAddOptionType ctx elemT
             let gen = LabelGen("tryH")
             Some(wasm {
                 let! tmp = wList
@@ -564,99 +558,65 @@ let tryListTryHeadInline
         | _ -> None
     | _ -> None
 
-let tryListTryFindInline
+let tryListFindIndexInline
         (transform: TransformFn)
         (ctx: Ctx)
         (selector: string)
         (fableArgs: Fable.Expr list)
         (ty: WType) : WExpr option =
     match selector, fableArgs with
-    | ("tryFind" | "pick"), [Fable.Expr.Lambda(farg, fbody, _); listArg]
-    | ("tryFind" | "pick"), [Fable.Expr.Delegate([farg], fbody, _, _); listArg] ->
-        match tryListTypeInfo ctx listArg with
+    | ("tryFind" | "pick"), [UnaryLambda(farg, fbody); listArg] ->
+        match listInfo ctx listArg with
         | Some(elemT, consIdx) ->
-            let s   = mkListShape elemT consIdx
-            let gen = LabelGen("tryf")
-            let wList = transform ctx listArg
-            let optTypeIdx =
-                let key = wTypeKey elemT
-                match ctx.OptionRegistry.TryGetValue(key) with
-                | true, idx -> idx
-                | false, _ ->
-                    let idx = ctx.TypeDefs.Count
-                    ctx.TypeDefs.Add({ Name = $"Option_{idx}"; Def = WTypeDef.Struct([{ Name = "value"; Type = elemT; Mutable = false }], None) })
-                    ctx.OptionRegistry.[key] <- idx
-                    idx
-            let ctx'  = ctx.WithLocal(farg.Name, elemT)
-            let wPred = transform ctx' fbody
-            Some(listSearch gen s wList ty
+            let s          = mkListShape elemT consIdx
+            let gen        = LabelGen "tryf"
+            let optTypeIdx = getOrAddOptionType ctx elemT
+            let wPred      = transform (ctx.WithLocal(farg.Name, elemT)) fbody
+            Some(listSearch gen s (transform ctx listArg) ty
                     (fun elem -> WExpr.Let(farg.Name, elem, wPred))
                     (fun elem -> structNew optTypeIdx [elem] ty)
                     (nullConst ty))
         | None -> None
-    | ("findIndex" | "tryFindIndex"), [Fable.Expr.Lambda(farg, fbody, _); listArg]
-    | ("findIndex" | "tryFindIndex"), [Fable.Expr.Delegate([farg], fbody, _, _); listArg] ->
-        match tryListTypeInfo ctx listArg with
+
+    | ("findIndex" | "tryFindIndex"), [UnaryLambda(farg, fbody); listArg] ->
+        match listInfo ctx listArg with
         | Some(elemT, consIdx) ->
-            let s   = mkListShape elemT consIdx
-            let gen = LabelGen("fdi")
+            let s     = mkListShape elemT consIdx
+            let gen   = LabelGen "fdi"
+            let wPred = transform (ctx.WithLocal(farg.Name, elemT)) fbody
             let wList = transform ctx listArg
-            let ctx'  = ctx.WithLocal(farg.Name, elemT)
-            let wPred = transform ctx' fbody
             if selector = "tryFindIndex" then
-                let optTypeIdx =
-                    let key = wTypeKey WType.I32
-                    match ctx.OptionRegistry.TryGetValue(key) with
-                    | true, idx -> idx
-                    | false, _ ->
-                        let idx = ctx.TypeDefs.Count
-                        ctx.TypeDefs.Add({ Name = $"Option_{idx}"; Def = WTypeDef.Struct([{ Name = "value"; Type = WType.I32; Mutable = false }], None) })
-                        ctx.OptionRegistry.[key] <- idx
-                        idx
-                let exitLbl = gen.Next("exit")
-                let lpLbl   = gen.Next("lp")
+                let optTypeIdx = getOrAddOptionType ctx WType.I32
+                let exitLbl    = gen.Next "exit"
+                let lpLbl      = gen.Next "lp"
                 Some(wasm {
                     let! cur = mutTy s.BaseTy wList
                     let! idx = mut (i32Const 0)
-                    return! WExpr.Block(exitLbl,
-                        sequence [
-                            WExpr.Loop(lpLbl,
-                                wasmIf (refIsNotNull cur.Val)
-                                    (wasmIf (WExpr.Let(farg.Name, s.Head cur.Val, wPred))
-                                        (WExpr.Break(exitLbl, Some(structNew optTypeIdx [idx.Val] ty)))
-                                        (sequence [
-                                            idx.Set(add idx.Val (i32Const 1))
-                                            cur.Set(s.Tail cur.Val)
-                                            continue_ lpLbl
-                                        ]))
-                                    WExpr.Nop,
-                                WType.Void)
-                            nullConst ty
-                        ],
-                        ty)
+                    return! WExpr.Block(exitLbl, sequence [
+                        WExpr.Loop(lpLbl,
+                            wasmIf (refIsNotNull cur.Val)
+                                (wasmIf (WExpr.Let(farg.Name, s.Head cur.Val, wPred))
+                                    (WExpr.Break(exitLbl, Some(structNew optTypeIdx [idx.Val] ty)))
+                                    (sequence [idx.Set(add idx.Val (i32Const 1));
+                                               cur.Set(s.Tail cur.Val); continue_ lpLbl]))
+                                WExpr.Nop, WType.Void)
+                        nullConst ty], ty)
                 })
             else
-                let exitLbl = gen.Next("exit")
-                let lpLbl   = gen.Next("lp")
+                let exitLbl = gen.Next "exit"
+                let lpLbl   = gen.Next "lp"
                 Some(wasm {
                     let! cur = mutTy s.BaseTy wList
                     let! idx = mut (i32Const 0)
-                    return! WExpr.Block(exitLbl,
-                        sequence [
-                            WExpr.Loop(lpLbl,
-                                wasmIf (refIsNotNull cur.Val)
-                                    (wasmIf (WExpr.Let(farg.Name, s.Head cur.Val, wPred))
-                                        (WExpr.Break(exitLbl, Some idx.Val))
-                                        (sequence [
-                                            idx.Set(add idx.Val (i32Const 1))
-                                            cur.Set(s.Tail cur.Val)
-                                            continue_ lpLbl
-                                        ]))
-                                    WExpr.Nop,
-                                WType.Void)
-                            i32Const (-1)
-                        ],
-                        WType.I32)
+                    return! WExpr.Block(exitLbl, sequence [
+                        WExpr.Loop(lpLbl,
+                            wasmIf (refIsNotNull cur.Val)
+                                (wasmIf (WExpr.Let(farg.Name, s.Head cur.Val, wPred))
+                                    (WExpr.Break(exitLbl, Some idx.Val))
+                                    (sequence [idx.Set(add idx.Val (i32Const 1));
+                                               cur.Set(s.Tail cur.Val); continue_ lpLbl]))
+                                WExpr.Nop, WType.Void)
+                        i32Const (-1)], WType.I32)
                 })
         | None -> None
     | _ -> None
