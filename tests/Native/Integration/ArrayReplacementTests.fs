@@ -38,32 +38,6 @@ let private mkIntLambda argName body = Lambda(mkParam argName (Type.Number(Int32
 [<Tests>]
 let arrayReplacementTests = testList "Array replacements" [
 
-    test "Array.get (indexing) → ArrayGet (below old version)" {
-        // let ctx = makeTestCtx()
-        // let intType = Type.Number(NumberKind.Int32, NumberInfo.Empty)
-        // let arrType = Type.Array(intType, ArrayKind.ResizeArray) // TODO: test other kinds too
-
-        // // arr.[0]
-        // let expr = Expr.Operation(
-        //     OperationKind.ArrayGet(mkIntLit 0),
-        //     Tags.empty, intType, None)
-
-        // // We need to provide the array instance to the operation
-        // // (In Fable 5, ArrayGet is often a curried apply or an Operation)
-        // let appliedExpr = Expr.Operation(
-        //     OperationKind.ArrayGet(mkIntLit 0),
-        //     [], intType, None)
-
-        // // Note: For unit tests, we usually test the specific replacement logic
-        // let result = ArrayReplacements.tryArrayGet ctx [mkIdent "arr" arrType; mkIntLit 0] intType
-
-        // match result with
-        // | Some(WExpr.ArrayGet _) -> ()
-        // | _ -> failtest "Array.get should transform to Wasm ArrayGet"
-
-        Expect.isTrue false "Not Implemented"
-    }
-
     test "Array.get (indexing) → ArrayGet" {
         let ctx    = makeTestCtx()
         let arrArg = IdentExpr(mkParam "xs" (intArrT 0))
@@ -168,7 +142,22 @@ let arrayReplacementTests = testList "Array replacements" [
     }
 
     test "Array.fill → counted loop with arraySet" {
-        Expect.isTrue false "Not Implemented"
+        // Array.fill target start count value — mutates existing array in a counted loop.
+        // Implementation: while! loop over [start, start+count) calling arraySet each iteration.
+        let ctx      = makeTestCtx()
+        let intT     = Type.Number(Int32, NumberInfo.Empty)
+        let arrArg   = IdentExpr(mkParam "xs" (intArrT 0))
+        let startArg = Value(NumberConstant(NumberValue.Int32 0,  NumberInfo.Empty), None)
+        let countArg = Value(NumberConstant(NumberValue.Int32 5,  NumberInfo.Empty), None)
+        let valArg   = Value(NumberConstant(NumberValue.Int32 42, NumberInfo.Empty), None)
+        // resultFableType must NOT be an array type so the loop-based branch is hit
+        // (the first branch only activates when result is an array — create semantics)
+        let result   = tryArr ctx "fill" [arrArg; startArg; countArg; valArg] intT
+        Expect.isSome result "Array.fill should produce Some"
+        let loops = WasmGc.Util.WExprQuery.collect (function WExpr.Loop _ -> true | _ -> false) result.Value
+        Expect.isNonEmpty loops "Array.fill must emit a counted loop"
+        let sets = WasmGc.Util.WExprQuery.collect (function WExpr.ArraySet _ -> true | _ -> false) result.Value
+        Expect.isNonEmpty sets "Array.fill must emit ArraySet inside the loop"
     }
 
     test "Array.zeroCreate n → arrayNew with zero init" {
@@ -184,7 +173,21 @@ let arrayReplacementTests = testList "Array replacements" [
         Expect.isNonEmpty hasNew "zeroCreate should use ArrayNew"
     }
 
-    test "Array.sortBy → insertion sort in-place on temp array" {
-        Expect.isTrue false "Not Implemented"
+    test "Array.sortBy → insertion sort into fresh copy" {
+        // Array.sortBy keyFn arr — copies arr then sorts the copy in-place.
+        // Implementation: insertionSortInPlace → nested while loops.
+        let ctx    = makeTestCtx()
+        let farg   = mkParam "x" (Type.Number(Int32, NumberInfo.Empty))
+        let fbody  = IdentExpr farg   // identity key function
+        let lambda = Lambda(farg, fbody, None)
+        let arrArg = IdentExpr(mkParam "xs" (intArrT 0))
+        let result = tryArr ctx "sortBy" [lambda; arrArg] (intArrT 0)
+        Expect.isSome result "Array.sortBy should produce Some"
+        // insertionSortInPlace emits two nested while! loops (outer i, inner j)
+        let loops = WasmGc.Util.WExprQuery.collect (function WExpr.Loop _ -> true | _ -> false) result.Value
+        Expect.isGreaterThanOrEqual loops.Length 1 "Array.sortBy must contain at least one Loop (insertion sort)"
+        // Must allocate a result array (the fresh copy)
+        let allocs = WasmGc.Util.WExprQuery.collect (function WExpr.ArrayNew _ -> true | _ -> false) result.Value
+        Expect.isNonEmpty allocs "Array.sortBy must allocate a fresh copy with ArrayNew"
     }
 ]

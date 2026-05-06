@@ -78,13 +78,13 @@ let closureCallTests = testList "Closure call lifecycle" [
         let ctx    = makeTestCtx()
         let capVal = mkParam "capturedValue" (Fable.Type.Number(Int32, NumberInfo.Empty))
         let ctx'   = ctx.WithLocal("capturedValue", WType.I32)
-        
+
         // Lambda with no args, body references capturedValue
         let body   = Fable.Expr.IdentExpr capVal
         let lambda = Fable.Expr.Lambda(mkParam "_unit" Fable.Type.Unit, body, None)
-        
+
         let result = transformExpr ctx' lambda
-        
+
         match result with
         | WExpr.Closure(funcName, captureExprs, closureTy) ->
             // Captures are in the struct initialiser (captureExprs list)
@@ -93,7 +93,7 @@ let closureCallTests = testList "Closure call lifecycle" [
             match captureExprs.[0] with
             | WExpr.LocalGet("capturedValue", WType.I32) -> ()
             | other -> failtestf "capture should be LocalGet(capturedValue), got %A" other
-            
+
             // Verify the functype is (ref $AnyFn) → i32 — self only, no extra capture arg
             let fti =
                 match closureTy with
@@ -116,12 +116,11 @@ let closureCallTests = testList "Closure call lifecycle" [
         // Simulate: render(handle) where render: i32 → unit
         // This is the closure_4 scenario
         let funcTypeIdx = ctx.GetOrAddFuncType([WType.Ref(0, false); WType.I32], WType.Void)
-        let wClosure = localGet "$render" (WType.Ref(0, false))
+        let wClosure = WExpr.FuncRef "$render"
         let wArgs = [i32Const 42]  // handle
         let closureApply = WExpr.ClosureApply(wClosure, wArgs, funcTypeIdx, 0, 0, WType.Void)
         // Validate
-        let errors = System.Collections.Generic.List()
-        Validator.checkFunc "$test" (buildArityIndex ctx.TypeDefs) errors closureApply
+        let errors = Validator.checkFunc "$test" (buildArityIndex ctx.TypeDefs) Set.empty<string> closureApply
         Expect.isEmpty errors "call(render, handle) should have correct arity"
     }
 

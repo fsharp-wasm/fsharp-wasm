@@ -67,25 +67,25 @@ let closureArityTests = testList "ClosureApply arity" [
         typeDefs.Add({ Name = "$FT_6"; Def = WTypeDef.Func([WType.Ref(0,false); WType.I32], WType.Void) })
         // ClosureApply with 0 user args but functype expects 1 (besides self)
         let expr = WExpr.ClosureApply(
-            localGet "$render" (WType.Ref(0, false)),
+            WExpr.FuncRef "$render",
             [],  // ← MISSING the i32 arg
             0, 0, 0, WType.Void)
-        let errors = System.Collections.Generic.List()
-        Validator.checkFunc "$closure_4" (buildArityIndex typeDefs) errors expr
+        let known = Set.empty<string>
+        let errors = Validator.checkFunc "$closure_4" (buildArityIndex typeDefs) known expr
         Expect.isNonEmpty errors "validator must catch missing arg"
-        Expect.stringContains errors.[0].Message "1 on stack" "error should state actual stack count"
-        Expect.stringContains errors.[0].Message "2" "error should state expected param count"
+        Expect.stringContains errors.Head.Message "got 1" "error should state actual provided param count"
+        Expect.stringContains errors.Head.Message "need 2 params" "error should state expected param count"
     }
 
     test "validator passes: self+1 i32 arg for (self,i32)->void functype" {
         let typeDefs = System.Collections.Generic.List<WTypeDeclEntry>()
         typeDefs.Add({ Name = "$FT_6"; Def = WTypeDef.Func([WType.Ref(0,false); WType.I32], WType.Void) })
         let expr = WExpr.ClosureApply(
-            localGet "$render" (WType.Ref(0, false)),
+            WExpr.FuncRef "$render",
             [i32Const 0],  // ← CORRECT: 1 user arg
             0, 0, 0, WType.Void)
-        let errors = System.Collections.Generic.List()
-        Validator.checkFunc "$closure_4" (buildArityIndex typeDefs) errors expr
+        let known = Set.empty<string>
+        let errors = Validator.checkFunc "$closure_4" (buildArityIndex typeDefs) known expr
         Expect.isEmpty errors "validator should pass when arity is correct"
     }
 ]

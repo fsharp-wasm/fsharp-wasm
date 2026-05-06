@@ -324,3 +324,97 @@ let buildListSort
         // Rebuild list from array (right-to-left → forward order)
         return! arrayToListRev gen s arr len arrGet
     }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// listChoose — filter-map (map that can filter out None values)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Filter-map over a GC linked list (like List.choose).
+/// The mapper returns an option type; only Some values are included in the result.
+let listChoose
+        (gen    : LabelGen)
+        (s      : ListShape)       // source shape
+        (rs     : ListShape)       // result shape (element type is unwrapped from option)
+        (list   : WExpr)
+        (mapper : WExpr -> WExpr)  // srcElem → option<resElem>
+        : WExpr =
+    let rev =
+        listFold gen s list rs.Nil rs.BaseTy
+            (fun acc elem ->
+                let optVar = gen.Next "opt"
+                WExpr.Let(optVar, mapper elem,
+                    wasmIf (refIsNotNull (localGet optVar (WType.Ref(-1, true))))
+                        (rs.Cons (structGet (cast (localGet optVar (WType.Ref(-1, true))) rs.BaseTy) 0 rs.ElemTy) acc)
+                        acc))
+    listRev gen rs rev
+
+// ─────────────────────────────────────────────────────────────────────────────
+// listCollect — flatMap (map to list, then flatten)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Collect (flatMap) over a GC linked list (like List.collect).
+/// The mapper returns a list; all elements from all lists are flattened into the result.
+let listCollect
+        (gen    : LabelGen)
+        (s      : ListShape)       // source shape
+        (rs     : ListShape)       // result shape (for flattened elements)
+        (list   : WExpr)
+        (mapper : WExpr -> WExpr)  // srcElem → list<resElem>
+        : WExpr =
+    wasm {
+        let! cur = mutTy s.BaseTy list
+        let! acc = mutTy rs.BaseTy rs.Nil
+        while! (refIsNotNull cur.Val) do
+            let! innerList = mapper (s.Head cur.Val)
+            let folder acc2 elem = rs.Cons elem acc2
+            let! tempAcc = listFold gen rs innerList acc.Val rs.BaseTy folder
+            do! acc.Set(tempAcc)
+            do! cur.Set(s.Tail cur.Val)
+        return! listRev gen rs acc.Val
+    }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// listConcat — flatten a list of lists
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Flatten a list of lists (like List.concat).
+/// `list` is a list<list<T>>, and we flatten it to list<T>.
+let listConcat
+        (gen          : LabelGen)
+        (outerShape   : ListShape)  // shape for list<list<T>>
+        (list         : WExpr)
+        (elemT        : WType)      // the T from list<T>
+        (elemConsIdx  : int)        // cons index for T
+        : WExpr =
+    let innerShape = mkListShape elemT elemConsIdx
+    wasm {
+        let! outerCur = mutTy outerShape.BaseTy list
+        let! acc = mutTy innerShape.BaseTy innerShape.Nil
+        while! (refIsNotNull outerCur.Val) do
+            let! innerList = outerShape.Head outerCur.Val
+            let folder acc2 elem = innerShape.Cons elem acc2
+            let! tempAcc = listFold gen innerShape innerList acc.Val innerShape.BaseTy folder
+            do! acc.Set(tempAcc)
+            do! outerCur.Set(outerShape.Tail outerCur.Val)
+        return! listRev gen innerShape acc.Val
+    }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// listAppend — concatenate two lists
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Append two GC linked lists (like @).
+let listAppend
+        (gen    : LabelGen)
+        (s      : ListShape)
+        (list1  : WExpr)
+        (list2  : WExpr)
+        : WExpr =
+    wasm {
+        let! cur = mutTy s.BaseTy list1
+        let! acc = mutTy s.BaseTy list2
+        while! (refIsNotNull cur.Val) do
+            do! acc.Set(s.Cons (s.Head cur.Val) acc.Val)
+            do! cur.Set(s.Tail cur.Val)
+        return! listRev gen s acc.Val
+    }

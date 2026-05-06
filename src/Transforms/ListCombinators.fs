@@ -1,4 +1,5 @@
-/// WasmGC inline replacements for List higher-order functions.
+/// WasmGC inline replacements for List higher-order function HOF operations.
+/// Full FableQuery DSL integration — no Fable.Expr.Lambda inline patterns.
 /// Uses high-level combinators from WasmGcLoopCombinators for clean, composable code.
 module WasmGc.Transforms.ListCombinators
 
@@ -8,12 +9,14 @@ open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
+open WasmGc.Runtime.Equality
+
 open WasmGc.Runtime.Runtime
 open WasmGc.Runtime.LoopHelpers
-open WasmGc.Runtime.Equality
 open WasmGc.Runtime.ListShape
-open WasmGc.Runtime.LoopPrimitives
 open WasmGc.Runtime.ListOps
+open WasmGc.Runtime.LoopPrimitives
+open WasmGc.Util.FableQuery   // ← all DSL patterns
 
 // ─────────────────────────────────────────────────────────────────
 // Shared helpers
@@ -32,6 +35,17 @@ let private seqElemType (t: Fable.Type) : Fable.Type option =
     | Fable.Type.DeclaredType(_, [e]) -> Some e
     | _                               -> None
 
+let private listElemTypes ctx (listArg: Fable.Expr) (resultType: Fable.Type) =
+    match seqElemType listArg.Type, seqElemType resultType with
+    | Some inET, Some outET ->
+        match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx outET with
+        | Some(inT, inIdx), Some(outT, outIdx) -> Some(inT, inIdx, outT, outIdx)
+        | _ -> None
+    | _ -> None
+
+let private withElem (ctx: Ctx) (farg: Ident) elemT = ctx.WithLocal(farg.Name, elemT)
+let private withElems (ctx: Ctx) (a: Ident) ta (b: Ident) tb = ctx.WithLocal(a.Name, ta).WithLocal(b.Name, tb)
+
 // ─────────────────────────────────────────────────────────────────
 // fold / reduce
 // ─────────────────────────────────────────────────────────────────
@@ -42,44 +56,35 @@ let tryListFoldInline
         (selector: string)
         (fableArgs: Fable.Expr list) : WExpr option =
     match selector, fableArgs with
-    | "fold", [Fable.Expr.Lambda(farg1, Fable.Expr.Lambda(farg2, fbody, _), _); initArg; listArg]
-    | "fold", [Fable.Expr.Delegate([farg1; farg2], fbody, _, _); initArg; listArg] ->
-        match tryListTypeInfo ctx listArg with
-        | Some(elemT, consIdx) ->
-            let s     = mkListShape elemT consIdx
-            let gen   = LabelGen("fold")
-            let accT  = mapTypeKnown ctx initArg.Type
-            let ctx'  = ctx.WithLocal(farg1.Name, accT).WithLocal(farg2.Name, elemT)
-            let wBody = transform ctx' fbody
-            let wInit = transform ctx initArg
-            let wList = transform ctx listArg
-            Some(listFold gen s wList wInit accT
-                    (fun acc elem -> WExpr.Let(farg1.Name, acc, WExpr.Let(farg2.Name, elem, wBody))))
-        | None -> None
-    | "reduce", [Fable.Expr.Lambda(farg1, Fable.Expr.Lambda(farg2, fbody, _), _); listArg]
-    | "reduce", [Fable.Expr.Delegate([farg1; farg2], fbody, _, _); listArg] ->
+    | "fold", FoldArgs(farg1, farg2, fbody, initArg, listArg) ->
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s    = mkListShape elemT consIdx
-            let gen  = LabelGen("red")
-            let ctx' = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
-            let wBody = transform ctx' fbody
-            let wList = transform ctx listArg
+            let accT = mapTypeKnown ctx initArg.Type
+            let wBody = transform (withElems ctx farg1 accT farg2 elemT) fbody
+            Some(listFold (LabelGen "fold") s (transform ctx listArg) (transform ctx initArg) accT
+                    (fun acc elem -> WExpr.Let(farg1.Name, acc, WExpr.Let(farg2.Name, elem, wBody))))
+        | None -> None
+
+    | "reduce", [BinaryLambda(farg1, farg2, fbody); listArg] ->
+        match tryListTypeInfo ctx listArg with
+        | Some(elemT, consIdx) ->
+            let s     = mkListShape elemT consIdx
+            let wBody = transform (withElems ctx farg1 elemT farg2 elemT) fbody
             Some(wasm {
-                let! lst = wList
-                let! nn = s.CastNN lst
-                return! listFold gen s
+                let! lst = transform ctx listArg
+                let! nn  = s.CastNN lst
+                return! listFold (LabelGen "red") s
                     (WExpr.StructGet(nn, 1, s.BaseTy))
                     (WExpr.StructGet(nn, 0, elemT))
                     elemT
-                    (fun acc elem ->
-                        WExpr.Let(farg1.Name, acc, WExpr.Let(farg2.Name, elem, wBody)))
+                    (fun acc elem -> WExpr.Let(farg1.Name, acc, WExpr.Let(farg2.Name, elem, wBody)))
             })
         | None -> None
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
-// map / mapIndexed
+// map / mapi (mapIndexed)
 // ─────────────────────────────────────────────────────────────────
 
 let tryListMapInline
@@ -89,42 +94,29 @@ let tryListMapInline
         (fableArgs: Fable.Expr list)
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
-    | "map", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
-        match seqElemType listArg.Type with
-        | Some elemFableType ->
-            let resultElemFableType = seqElemType resultFableType |> Option.defaultValue elemFableType
-            match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx resultElemFableType with
-            | Some(inputElemT, inputConsIdx), Some(resultElemT, resultConsIdx) ->
-                let s    = mkListShape inputElemT inputConsIdx
-                let rs   = mkListShape resultElemT resultConsIdx
-                let gen  = LabelGen("map")
-                let ctx' = ctx.WithLocal(farg.Name, inputElemT)
-                let wBody = transform ctx' fbody
-                let wList = transform ctx listArg
-                Some(listMap gen s rs wList (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
-            | _ -> None
+    | "map", [UnaryLambda(farg, fbody); listArg] ->
+        match listElemTypes ctx listArg resultFableType with
+        | Some(inT, inIdx, outT, outIdx) ->
+            let wBody = transform (withElem ctx farg inT) fbody
+            Some(listMap (LabelGen "map")
+                    (mkListShape inT inIdx) (mkListShape outT outIdx)
+                    (transform ctx listArg)
+                    (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
         | None -> None
-    | "mapIndexed", [(Fable.Expr.Lambda(iarg, Fable.Expr.Lambda(farg, fbody, _), _)
-                   | Fable.Expr.Delegate([iarg; farg], fbody, _, _)); listArg] ->
-        match seqElemType listArg.Type with
-        | Some elemFableType ->
-            let resultElemFableType = seqElemType resultFableType |> Option.defaultValue elemFableType
-            match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx resultElemFableType with
-            | Some(inputElemT, inputConsIdx), Some(resultElemT, resultConsIdx) ->
-                let s    = mkListShape inputElemT inputConsIdx
-                let rs   = mkListShape resultElemT resultConsIdx
-                let gen  = LabelGen("mapi")
-                let ctx' = ctx.WithLocal(iarg.Name, WType.I32).WithLocal(farg.Name, inputElemT)
-                let wBody = transform ctx' fbody
-                let wList = transform ctx listArg
-                Some(listMapi gen s rs wList
-                        (fun idx elem -> WExpr.Let(iarg.Name, idx, WExpr.Let(farg.Name, elem, wBody))))
-            | _ -> None
+
+    | "mapIndexed", [BinaryLambda(iarg, farg, fbody); listArg] ->
+        match listElemTypes ctx listArg resultFableType with
+        | Some(inT, inIdx, outT, outIdx) ->
+            let wBody = transform (withElems ctx iarg WType.I32 farg inT) fbody
+            Some(listMapi (LabelGen "mapi")
+                    (mkListShape inT inIdx) (mkListShape outT outIdx)
+                    (transform ctx listArg)
+                    (fun idx elem -> WExpr.Let(iarg.Name, idx, WExpr.Let(farg.Name, elem, wBody))))
         | None -> None
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
-// filter
+// filter / choose
 // ─────────────────────────────────────────────────────────────────
 
 let tryListFilterInline
@@ -133,20 +125,33 @@ let tryListFilterInline
         (selector: string)
         (fableArgs: Fable.Expr list) : WExpr option =
     match selector, fableArgs with
-    | "filter", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
+    | "filter", [UnaryLambda(farg, fbody); listArg] ->
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s     = mkListShape elemT consIdx
-            let gen   = LabelGen("filt")
-            let ctx'  = ctx.WithLocal(farg.Name, elemT)
-            let wPred = transform ctx' fbody
-            let wList = transform ctx listArg
-            Some(listFilter gen s wList (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
+            let wPred = transform (withElem ctx farg elemT) fbody
+            Some(listFilter (LabelGen "filt") s (transform ctx listArg)
+                    (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
         | None -> None
+
+    | "choose", [UnaryLambda(farg, fbody); listArg] ->
+        match tryListTypeInfo ctx listArg with
+        | Some(elemT, consIdx) ->
+            let resultElemFableT = seqElemType fbody.Type |> Option.defaultValue Fable.Type.Any
+            match tryListTypeInfoFromElemType ctx resultElemFableT with
+            | Some(outElemT, outConsIdx) ->
+                let s     = mkListShape elemT consIdx
+                let rs    = mkListShape outElemT outConsIdx
+                let wBody = transform (withElem ctx farg elemT) fbody
+                Some(listChoose (LabelGen "choo") s rs (transform ctx listArg)
+                        (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
+            | None -> None
+        | None -> None
+
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
-// iter / iterateIndexed
+// iter / iteri (iterateIndexed)
 // ─────────────────────────────────────────────────────────────────
 
 let tryListIterInline
@@ -155,26 +160,21 @@ let tryListIterInline
         (selector: string)
         (fableArgs: Fable.Expr list) : WExpr option =
     match selector, fableArgs with
-    | ("iter" | "iterate"), [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
+    | ("iter" | "iterate"), [UnaryLambda(farg, fbody); listArg] ->
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->
-            let s    = mkListShape elemT consIdx
-            let gen  = LabelGen("iter")
-            let ctx' = ctx.WithLocal(farg.Name, elemT)
-            let wBody = transform ctx' fbody
-            let wList = transform ctx listArg
-            Some(listIter gen s wList (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
+            let s     = mkListShape elemT consIdx
+            let wBody = transform (withElem ctx farg elemT) fbody
+            Some(listIter (LabelGen "iter") s (transform ctx listArg)
+                    (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
         | None -> None
-    | "iterateIndexed", [(Fable.Expr.Lambda(iarg, Fable.Expr.Lambda(farg, fbody, _), _)
-                       | Fable.Expr.Delegate([iarg; farg], fbody, _, _)); listArg] ->
+
+    | "iterateIndexed", [BinaryLambda(iarg, farg, fbody); listArg] ->
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->
-            let s    = mkListShape elemT consIdx
-            let gen  = LabelGen("iteri")
-            let ctx' = ctx.WithLocal(iarg.Name, WType.I32).WithLocal(farg.Name, elemT)
-            let wBody = transform ctx' fbody
-            let wList = transform ctx listArg
-            Some(listIteri gen s wList
+            let s     = mkListShape elemT consIdx
+            let wBody = transform (withElems ctx iarg WType.I32 farg elemT) fbody
+            Some(listIteri (LabelGen "iteri") s (transform ctx listArg)
                     (fun idx elem -> WExpr.Let(iarg.Name, idx, WExpr.Let(farg.Name, elem, wBody))))
         | None -> None
     | _ -> None
@@ -189,22 +189,20 @@ let tryListExistsForAllInline
         (selector: string)
         (fableArgs: Fable.Expr list) : WExpr option =
     match selector, fableArgs with
-    | (("exists" | "forAll") as sel), [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
+    | (("exists" | "forAll") as sel), [UnaryLambda(farg, fbody); listArg] ->
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s     = mkListShape elemT consIdx
-            let gen   = LabelGen("exi")
-            let ctx'  = ctx.WithLocal(farg.Name, elemT)
-            let wPred = transform ctx' fbody
-            let wList = transform ctx listArg
-            let pred elem = WExpr.Let(farg.Name, elem, wPred)
-            Some(if sel = "exists" then listExists gen s wList pred
-                 else listForAll gen s wList pred)
+            let wPred = transform (withElem ctx farg elemT) fbody
+            let pred  = fun elem -> WExpr.Let(farg.Name, elem, wPred)
+            Some(if sel = "exists"
+                 then listExists  (LabelGen "exi") s (transform ctx listArg) pred
+                 else listForAll  (LabelGen "all") s (transform ctx listArg) pred)
         | None -> None
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
-// collect (flatMap) / partition
+// collect (flatMap) / concat / append / partition
 // ─────────────────────────────────────────────────────────────────
 
 let tryListCollectInline
@@ -214,26 +212,19 @@ let tryListCollectInline
         (fableArgs: Fable.Expr list)
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
-    | "collect", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
-        match seqElemType listArg.Type with
-        | Some inputElemFableType ->
-            let outputElemFableType = seqElemType resultFableType |> Option.defaultValue inputElemFableType
-            match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx outputElemFableType with
-            | Some(inputElemT, inputConsIdx), Some(outputElemT, outputConsIdx) ->
-                let sIn  = mkListShape inputElemT inputConsIdx
-                let sOut = mkListShape outputElemT outputConsIdx
-                let gen  = LabelGen("coll")
-                let ctx' = ctx.WithLocal(farg.Name, inputElemT)
-                let wBody = transform ctx' fbody
-                let wList = transform ctx listArg
-                let revResult =
-                    listFold gen sIn wList sOut.Nil sOut.BaseTy
-                        (fun acc outerElem ->
-                            listFold gen sOut (WExpr.Let(farg.Name, outerElem, wBody)) acc sOut.BaseTy
-                                (fun acc2 innerElem -> sOut.Cons innerElem acc2))
-                Some(listRev gen sOut revResult)
-            | _ -> None
-        | None -> None
+    | "collect", [UnaryLambda(farg, fbody); listArg] ->
+        match tryListTypeInfo ctx listArg, seqElemType resultFableType with
+        | Some(inElemT, inConsIdx), Some outElemFableT ->
+            match tryListTypeInfoFromElemType ctx outElemFableT with
+            | Some(outElemT, outConsIdx) ->
+                let s     = mkListShape inElemT inConsIdx
+                let rs    = mkListShape outElemT outConsIdx
+                let wBody = transform (withElem ctx farg inElemT) fbody
+                Some(listCollect (LabelGen "coll") s rs (transform ctx listArg)
+                        (fun elem -> WExpr.Let(farg.Name, elem, wBody)))
+            | None -> None
+        | _ -> None
+    // TODO: obsolete or still useful? 
     | "partition", [(Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)); listArg] ->
         match seqElemType listArg.Type with
         | Some elemFableT ->
@@ -268,9 +259,31 @@ let tryListCollectInline
                     })
                 return structNew tupleIdx [listRev gen s yes.Val; listRev gen s no.Val] tupleRefT
             })
+    | "concat", [listArg] ->
+        match tryListTypeInfo ctx listArg with
+        | Some(innerListT, _) ->
+            match innerListT with
+            | WType.Ref(innerConsIdx, _) ->
+                // list<list<T>> → flatten
+                match seqElemType listArg.Type |> Option.bind (seqElemType) with
+                | Some innerElemFableT ->
+                    let innerElemT = mapTypeKnown ctx innerElemFableT
+                    let s = mkListShape (WType.Ref(innerConsIdx, true)) innerConsIdx
+                    Some(listConcat (LabelGen "cat") s (transform ctx listArg) innerElemT innerConsIdx)
+                | None -> None
+            | _ -> None
+        | None -> None
+
+    | "append", [listArg1; listArg2] ->
+        match tryListTypeInfo ctx listArg1 with
+        | Some(elemT, consIdx) ->
+            let s = mkListShape elemT consIdx
+            Some(listAppend (LabelGen "app") s (transform ctx listArg1) (transform ctx listArg2))
         | None -> None
     | _ -> None
 
+
+// TODO: all below has to be checked if still useful or moved
 // ─────────────────────────────────────────────────────────────────
 // choose (filter-map)
 // ─────────────────────────────────────────────────────────────────
@@ -342,6 +355,7 @@ let tryListFoldBackInline
                     (fun acc elem ->
                         WExpr.Let(farg.Name, elem, WExpr.Let(sacc.Name, acc, wBody))))
         | None -> None
+
     | _ -> None
 
 let tryListSumByInline

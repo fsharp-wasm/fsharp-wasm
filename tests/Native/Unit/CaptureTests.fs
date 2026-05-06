@@ -54,8 +54,9 @@ let captureTests = testList "Free variable capture" [
     // }
 
     test "module-level function NOT captured in closure" {
-        // KnownFuncs zero-arg functions should not appear in capture list
-        // They become direct calls inside the lifted function
+        // Zero-arg KnownFuncs (module-level functions/values) must never appear
+        // in the closure capture list — they are emitted as direct calls inside
+        // the lifted function body, not as captured variables.
         let ctx = { makeTestCtx() with
                         Locals     = Map.ofList [("x", WType.I32)]
                         KnownFuncs = Map.ofList [("helperFn", ([], WType.I32))] }
@@ -69,15 +70,22 @@ let captureTests = testList "Free variable capture" [
             lambdaBody, None)
         let wClosure = transformExpr ctx lambda
         match wClosure with
-        // | WExpr.Closure(_, captures, _) ->
-        // printf "CAPTURES are: %A" captures
-        //     let hasHelperFn = captures |> List.exists (fun (n, _) -> n = "helperFn")
-        //     Expect.isFalse hasHelperFn "Module-level functions should NOT be captured"
-        | other -> failtestf "Expected Closure but got %A" other
-
-        printf "my closure %A" wClosure
-        failtestf " but got %A" wClosure
-        Expect.isTrue false (sprintf ">>>>>>> Not yet implemented %A <<<<<<<<" wClosure)
+        | WExpr.Closure(_, captures, _) ->
+            // captures: WExpr list, each entry is LocalGet(name, ty)
+            let hasHelperFn =
+                captures |> List.exists (function
+                    | WExpr.LocalGet("helperFn", _) -> true
+                    | _ -> false)
+            Expect.isFalse hasHelperFn
+                "Module-level KnownFunc 'helperFn' must NOT appear in captures (emitted as direct call)"
+            let hasX =
+                captures |> List.exists (function
+                    | WExpr.LocalGet("x", _) -> true
+                    | _ -> false)
+            Expect.isTrue hasX
+                "Local 'x' must appear in captures — it crosses the lambda boundary"
+        | other ->
+            failtestf "Expected WExpr.Closure but got %A" other
     }
 
     // test "SSA rename 'db_2' captured like original 'db'" {

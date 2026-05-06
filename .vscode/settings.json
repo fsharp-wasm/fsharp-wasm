@@ -3,5 +3,8 @@
     "editor.formatOnType" : false,
     "editor.formatOnPaste": false,
     "dotnet.defaultSolution": "disable",
-    "editor.inlayHints.enabled": "offUnlessPressed"
+    "editor.inlayHints.enabled": "offUnlessPressed",
+    "chat.tools.terminal.autoApprove": {
+        "dotnet build": true
+    }
 }

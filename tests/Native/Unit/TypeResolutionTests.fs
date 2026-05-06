@@ -194,17 +194,42 @@ let typeResolutionTests = testList "mapTypeKnown" [
             Expect.equal (mapTypeKnown ctx handleType) WType.I32 "Handle must be I32, never Void"
         }
 
-        test "Element = El of int DU → Ref, not I32, after registration" {
-            // Browser.Dom.Element is a single-case DU
-            // Before registration: I32 fallback
-            // After registration: Ref(idx, false)
-            let ctx = makeTestCtx()
-            // Register the type
+        test "Unknown DeclaredType → I32 fallback (no auto-registration)" {
+            // mapTypeKnown is a pure lookup — it does NOT auto-register types.
+            // TransformConstruct populates TypeRegistry during ClassDeclaration processing.
+            let ctx    = makeTestCtx()
             let entity = { FullName = "Browser.Dom.Element"; Path = SourcePath "" }
-            let _ = mapTypeKnown ctx (Type.DeclaredType(entity, []))
-            // After registration attempt — check
-            // (actual behavior depends on whether we auto-register DUs)
-            Expect.isTrue false "Not implemented"
+            let result = mapTypeKnown ctx (Type.DeclaredType(entity, []))
+            Expect.equal result WType.I32
+                "Unknown DeclaredType with no TypeRegistry entry → I32 fallback"
+        }
+
+        test "DeclaredType → Ref(idx, false) after TypeRegistry injection" {
+            // Simulate what TransformConstruct does: register then look up.
+            let ctx    = makeTestCtx()
+            let entity = { FullName = "Browser.Dom.Element"; Path = SourcePath "" }
+            let fakeIdx = 99
+            let ctx2   = { ctx with TypeRegistry = Map.add entity.FullName fakeIdx ctx.TypeRegistry }
+            let result = mapTypeKnown ctx2 (Type.DeclaredType(entity, []))
+            Expect.equal result (WType.Ref(fakeIdx, false))
+                "Registered DeclaredType must resolve to Ref(idx, false)"
+        }
+
+        test "Generic DU with args → GenericDuRegistry → Ref" {
+            // Generic DU instances (Result<int,string>, Choice<T,U>, etc.) are keyed
+            // by "FullName<wTypeKey1,wTypeKey2>" in GenericDuRegistry.
+            let ctx    = makeTestCtx()
+            let entity = { FullName = "Microsoft.FSharp.Core.FSharpResult`2"; Path = SourcePath "" }
+            // Pre-compute the key that mapTypeKnown will form from (entity, [Int32; String])
+            let argKeys = [Type.Number(Int32, NumberInfo.Empty); Type.String]
+                          |> List.map (mapTypeKnown ctx >> wTypeKey)
+                          |> String.concat ","
+            let instKey = $"{entity.FullName}<{argKeys}>"
+            let fakeIdx = 77
+            ctx.GenericDuRegistry.[instKey] <- fakeIdx
+            let result  = mapTypeKnown ctx (Type.DeclaredType(entity, [Type.Number(Int32, NumberInfo.Empty); Type.String]))
+            Expect.equal result (WType.Ref(fakeIdx, false))
+                "Generic DU must resolve via GenericDuRegistry before I32 fallback"
         }
     ]
 

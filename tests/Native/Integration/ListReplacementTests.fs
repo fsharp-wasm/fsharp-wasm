@@ -99,11 +99,13 @@ let listReplacementTests = testList "List replacements" [
         let farg = mkParam "x" (Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty))
         let fbody = listArg  // trivial: identity (maps each int to a list of... something)
         let lambda = Fable.Expr.Lambda(farg, fbody, None)
-        let result = ListCombinators.tryListMapInline
+        // tryListCollectInline handles "collect"; tryListMapInline only handles "map"/"mapIndexed"
+        let result = ListCombinators.tryListCollectInline
                         transformExpr ctx "collect"
                         [lambda; listArg] (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
-        // Currently None (unimplemented) — should be Some after fix
         Expect.isSome result "List.collect must be implemented (required by Html/Elements.fs)"
+        let loops = WExprQuery.collect (function WExpr.Loop _ -> true | _ -> false) result.Value
+        Expect.isNonEmpty loops "List.collect must produce a loop"
     }
 
     test "List.exists → short-circuit with Block exit" {

@@ -53,26 +53,36 @@ let internal checkFunc
 
     let nonVoidCount args = args |> List.filter (fun a -> exprWType a <> WType.Void) |> List.length
 
-    let arityCheckCallRef desc fti selfCount args =
+    /// Strict check for call_ref paths: void args ARE errors (no stack value produced).
+    let arityCheckCallRef desc fti selfCount (args: WExpr list) =
         let nv = nonVoidCount args
         match Map.tryFind fti arity with
         | None ->
             err desc (sprintf "funcTypeIdx %d not registered in type table" fti)
         | Some expected when selfCount + nv <> expected ->
-            err desc (sprintf "call_ref fti=%d: need %d params, got %d (self=%d + %d non-void args)"
-                          fti expected (selfCount + nv) selfCount nv)
+            err desc (sprintf "call_ref fti=%d: need %d params, got self(%d)+%d non-void"
+                          fti expected selfCount nv)
         | _ -> ()
+        // For call_ref: a void arg in the arg list means TransformDispatch forgot to filter it.
+        // This is a real bug — flag it.
         args |> List.iteri (fun i a ->
             if exprWType a = WType.Void then
-                err desc (sprintf "arg[%d] is void — no stack value → stack underflow" i))
+                err desc (sprintf "arg[%d] is void → no stack value (forgot to filter unit args?)  → stack underflow" i))
 
-    let arityCheckVirtual desc fti args =             // for CallVirtual
+    /// Relaxed check for CallVirtual: emitter filters void args before pushing,
+    /// so void args in the list are NOT individually flagged — only count mismatch is.
+    let arityCheckVirtual desc fti (args: WExpr list) =
         let nv = nonVoidCount args
         match Map.tryFind fti arity with
-        | None -> err desc (sprintf "funcTypeIdx %d not in type table" fti)
-        | Some expected when 1 + nv <> expected ->
-            err desc (sprintf "need %d params, got self + %d non-void args" expected nv)
+        | None ->
+            err desc (sprintf "funcTypeIdx %d not registered" fti)
+        | Some expected when 1 + nv <> expected ->  // 1 = self (box)
+            err desc (sprintf "CallVirtual fti=%d: need %d params, got self + %d non-void"
+                          fti expected nv)
         | _ -> ()
+        // NOTE: individual void-arg check intentionally omitted —
+        // TransformDispatch should filter them; even if it doesn't, the emitter
+        // skips void exprs. The count check above is sufficient.
 
     // Unknown LocalGet references
     collect (function WExpr.LocalGet _ -> true | _ -> false) body
@@ -101,11 +111,13 @@ let internal checkFunc
             List.iter walk args; walk ptr
 
         | WExpr.CallVirtual(box, _, _, _, fti, args, _) ->
-            arityCheckVirtual (sprintf "CallVirtual(fti=%d)" fti) fti args   // +1 self (box)
+            // Use relaxed check — emitter filters void args
+            arityCheckVirtual (sprintf "CallVirtual(fti=%d)" fti) fti args
             walk box; List.iter walk args
 
         | WExpr.Closure(n, _, WType.Ref(0, _)) ->
-            err (sprintf "Closure('%s')" n) "has AnyFnTypeIdx(0) — fixClosureApply may not have run"
+            err (sprintf "Closure('%s')" n)
+                "type is Ref(0)=AnyFn — concrete closure type not registered"
 
         // Descend
         | expr -> children expr |> List.iter walk
@@ -132,7 +144,6 @@ let validate
             checkFunc f.Name arity known f.Body)
 
     if not errors.IsEmpty then
-        eprintfn ""
         let severity = if strict then "✗ ERROR" else "⚠ WARNING"
         eprintfn "\n[Validator] %s — %d issue(s):" severity errors.Length
         eprintfn "%s" (String.replicate 72 "─")
@@ -144,9 +155,8 @@ let validate
             errs |> List.iter (fun e ->
                 eprintfn "    [%s]" e.NodeDesc
                 eprintfn "    → %s" e.Message))
-        eprintfn "%s" (String.replicate 72 "─")
-        eprintfn ""
+        eprintfn "%s\n" (String.replicate 72 "─")
         if strict then
-            failwithf "[Validator] %d error(s) — aborting before emit" errors.Length
+            failwithf "[Validator] %d error(s) — aborting" errors.Length
     errors
 

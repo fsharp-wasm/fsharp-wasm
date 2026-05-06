@@ -189,12 +189,21 @@ type WasmBuilder() =
 
     /// `do! e` — sequences a void expression, ignoring its (unit) result.
     /// F# desugars `do! e` as `Bind(e, fun () -> rest)` so we need this overload.
+    ///
+    /// Nop-input guard: `do! WExpr.Nop` should not emit `Sequence [Nop; rest]`.
+    /// Instead we short-circuit directly to the continuation — same semantics, no
+    /// spurious Nop node that confuses the optimizer and WAT printer.
     [<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
     member _.Bind(expr: WExpr, k: unit -> WExpr) =
-        let body = k ()
-        match body with
-        | WExpr.Nop -> expr
-        | _         -> WExpr.Sequence [expr; body]
+        match expr with
+        | WExpr.Nop ->
+            // Side-effect-free: skip entirely and run continuation.
+            k ()
+        | _ ->
+            let body = k ()
+            match body with
+            | WExpr.Nop -> expr          // continuation is unit: only the effect matters
+            | _         -> WExpr.Sequence [expr; body]
 
     // ── while! support ────────────────────────────────────────────────────────
     // Patched compiler calls WhileBang directly; guard arrives as WExpr, no bool coercion.
