@@ -74,6 +74,7 @@
     -->
     <!-- Core -->
     <Compile Include="Core/AST.fs" />
+    <Compile Include="Core/Diagnostics.fs" />
     <Compile Include="Core/Types.fs" />
 
     <!-- Utilities (no Ctx dependency) -->

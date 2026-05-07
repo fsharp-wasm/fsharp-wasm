@@ -188,7 +188,12 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
 
             let wasmModule =
                 let declarations = fableFile.Declarations
-                
+
+                // ── Flush accumulated diagnostics from all processed files ────────
+                // Each processFileIntoCtx call accumulates into finalCtx.Diagnostics.
+                // Print here (after last file) so all warnings are visible together.
+                finalCtx.Diagnostics.Flush()
+
                 // Call the full pipeline defined in Phases.fs
                 // This properly runs:
                 //   Phase 3: Fable → raw WExpr

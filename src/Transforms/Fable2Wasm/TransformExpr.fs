@@ -106,10 +106,20 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             WExpr.Closure(qn, [], WType.Ref(typeIdx, false))
         | Scope.Resolution.ExternFunc(key, retTy)   -> WExpr.Call(key, [], retTy)
         | Scope.Resolution.Unknown name             ->
-            // eprintfn "  [TransformExpr] WARNING: unresolved ident '%s' in '%A'" name ctx.CurrentFunc
-            // debugResolution "[TransformExpr]" res
-            Scope.debugResolution ctx ident.Range name res
-            WExpr.LocalGet(name, WType.I32)
+            // ── Type-safe unknown-ident fallback ───────────────────────
+            // Critical: emit LocalGet with the DECLARED Fable type, not I32.
+            // I32 fallback caused "expected ref $T, found i32" WASM validator
+            // failures that only surfaced deep in the pipeline — far too late.
+            //
+            // Using the declared type means:
+            //   - The type stack stays consistent (no silent corruption)
+            //   - The Validator's LocalGet-unknown check still fires → early error
+            //   - If code is somehow dead-path, the wrong local name is the only
+            //     issue, not also a type mismatch
+            let declaredTy = mapTypeKnown ctx ident.Type
+            WasmGc.Core.Diagnostics.unresolvedIdent
+                ctx.Diagnostics name ctx.CurrentFunc ident.Range
+            WExpr.LocalGet(name, declaredTy)
 
     // ── Let bindings ──
     | Let(ident, value, body) ->

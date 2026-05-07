@@ -92,9 +92,11 @@ let toExpr (res: Resolution) (warn: bool) : WExpr =
     | Resolution.KnownFunc(qn, _, _)     -> WExpr.FuncRef qn
     | Resolution.ExternFunc(key, retTy)  -> WExpr.Call(key, [], retTy)
     | Resolution.Unknown name            ->
+        // Note: callers should emit diagnostics via ctx.Diagnostics rather than
+        // calling this path. toExpr is kept for legacy call sites only.
         if warn then
-            eprintfn "  [Scope] WARNING: unresolved identifier '%s' → LocalGet fallback" name
-        WExpr.LocalGet(name, WType.I32)
+            eprintfn "  [WGC001] unresolved identifier '%s'" name
+        WExpr.LocalGet(name, WType.I32)   // type I32 is a fallback; callers should use mapTypeKnown
 
 /// True when the identifier resolves to a module-level zero-arg function.
 /// Used by buildClosure to exclude module values from capture lists.

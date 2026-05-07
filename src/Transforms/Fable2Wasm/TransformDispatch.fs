@@ -615,7 +615,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             match FSharpCoreReplacements.tryHandleStdlibImport ctx selector wArgs ty with
             | Some result -> result
             | None ->
-                eprintfn "[WasmGc] WARNING: unhandled import call '%s' from '%s' — emitting Nop" selector path
+                WasmGc.Core.Diagnostics.unhandledImport ctx.Diagnostics selector path ctx.CurrentFunc
                 WExpr.Nop
 
     // TODO: already handled above in the more specific match arm for wasm:memory imports, but we need to check if there are any other cases that might be missed by the current patterns.

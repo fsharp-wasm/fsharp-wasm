@@ -470,6 +470,14 @@ let processFileIntoCtx (ctx: Ctx) (com: Compiler) (file: Fable.File) (isLastFile
             { baseCtx with FuncNameAlias = aliases }
         else baseCtx
     preScanGenerics ctx file.Declarations
+
+    // ── Phase 1: Scope analysis ───────────────────────────────────────────────
+    // Build ScopeMaps for all member functions so Scope.resolve can distinguish
+    // LocalGet vs CapturedVar correctly in Phase 3.
+    // Must run BEFORE processDecl so ctx.ScopeMaps is populated on first use.
+    let scopeMaps = WasmGc.Pipeline.ScopeAnalyzer.analyzeModuleScope ctx file.Declarations
+    let ctx = { ctx with ScopeMaps = Map.fold (fun m k v -> Map.add k v m) ctx.ScopeMaps scopeMaps }
+
     (ctx, file.Declarations) ||> List.fold processDecl
 
 
@@ -478,4 +486,11 @@ let processFileIntoCtx (ctx: Ctx) (com: Compiler) (file: Fable.File) (isLastFile
 let transformFile (com: Compiler) (file: Fable.File) : WModule =
     let ctx = Ctx.Create(com)
     let finalCtx = processFileIntoCtx ctx com file true  // single-file = always the "last" file
+    // ── Flush diagnostics before emit ────────────────────────────────────────
+    // Warnings are printed but don't abort; errors fail fast here before any
+    // WASM binary is produced. This replaces the old scattered eprintfn calls.
+    finalCtx.Diagnostics.Flush()
+    // Note: FailOnErrors is intentionally NOT called here — the validator in
+    // buildWModule will catch structural errors more precisely. Use strict
+    // validate flag instead for hard failures.
     buildWModule finalCtx

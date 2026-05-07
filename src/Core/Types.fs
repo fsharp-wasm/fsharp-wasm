@@ -196,6 +196,10 @@ type Ctx =
         /// Set to true when any wasm:memory intrinsic is lowered in this compilation.
         /// Controls whether a linear memory section is emitted in the output.
         HasLinearMemory: bool ref
+
+        /// Structured diagnostic accumulator — collect errors/warnings with source locations.
+        /// Replaces scattered eprintfn calls. Flushed and checked before WASM emit.
+        Diagnostics: WasmGc.Core.Diagnostics.DiagnosticBag
     }
 
     static member Create(com: Compiler, ?stringMode: StringMode) =
@@ -256,6 +260,7 @@ type Ctx =
             DecisionTreeCounter = ref 0
             TargetBase = ref 0
             HasLinearMemory = ref false
+            Diagnostics     = WasmGc.Core.Diagnostics.DiagnosticBag()
         }
 
     member this.WithLocal(name: string, ty: WType) =
