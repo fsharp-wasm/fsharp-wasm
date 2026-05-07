@@ -108,7 +108,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         | Scope.Resolution.Unknown name             ->
             // eprintfn "  [TransformExpr] WARNING: unresolved ident '%s' in '%A'" name ctx.CurrentFunc
             // debugResolution "[TransformExpr]" res
-            Scope.debugResolution ctx name res
+            Scope.debugResolution ctx ident.Range name res
             WExpr.LocalGet(name, WType.I32)
 
     // ── Let bindings ──

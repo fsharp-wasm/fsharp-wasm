@@ -218,7 +218,7 @@ let debugResolution (ctx: Ctx) (range: Fable.AST.SourceLocation option) (name: s
     let loc = 
         match range with
 
-        | Some r -> sprintf "%s(%d,%d)" r.File r.start.line r.start.column
+        | Some r -> sprintf "%A(%d,%d)" r.File r.start.line r.start.column
         | None   -> "unknown-location"
 
     match res with
@@ -226,7 +226,7 @@ let debugResolution (ctx: Ctx) (range: Fable.AST.SourceLocation option) (name: s
     | Resolution.Unknown n ->
         let msg = 
             [
-                color "91;1" (sprintf "\n[RESOLVE ERROR] '%s'" n)
+                color "91;1" (sprintf "\n[RESOLVE ERROR] unresolved ident '%s' in '%A'" n ctx.CurrentFunc)
                 color "90"   (sprintf "  Location: %s" loc)
                 color "90"   (sprintf "  Function: %s" (defaultArg ctx.CurrentFunc "Global"))
                 color "93"   (sprintf "  Locals  : [%s]" (ctx.Locals |> Map.keys |> String.concat ", "))

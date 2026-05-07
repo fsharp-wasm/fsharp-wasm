@@ -56,12 +56,15 @@ let internal checkFunc
     /// Strict check for call_ref paths: void args ARE errors (no stack value produced).
     let arityCheckCallRef desc fti selfCount (args: WExpr list) =
         let nv = nonVoidCount args
+        let got = selfCount + nv
         match Map.tryFind fti arity with
         | None ->
             err desc (sprintf "funcTypeIdx %d not registered in type table" fti)
-        | Some expected when selfCount + nv <> expected ->
-            err desc (sprintf "call_ref fti=%d: need %d params, got self(%d)+%d non-void"
-                          fti expected selfCount nv)
+        | Some expected when got <> expected ->
+            // Include both the detailed breakdown and a simple 'got X' substring
+            // to satisfy test expectations and aid quick scanning.
+            err desc (sprintf "call_ref fti=%d: need %d params, got self(%d)+%d non-void → got %d"
+                          fti expected selfCount nv got)
         | _ -> ()
         // For call_ref: a void arg in the arg list means TransformDispatch forgot to filter it.
         // This is a real bug — flag it.
