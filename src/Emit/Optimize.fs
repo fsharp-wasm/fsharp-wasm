@@ -14,6 +14,7 @@ module WasmGc.Emit.Optimize
 
 open WasmGc.Core.AST
 open WasmGc.Util.WExprQuery   // rewrite, substituteLocal, exists, count, collect
+open WasmGc.Builder.WasmPatterns
 
 // ─────────────────────────────────────────────────────────────────
 // Purity
@@ -92,51 +93,51 @@ let private foldConstants (expr: WExpr) : WExpr =
     // TODO: what about other consts? Can we build this more general? insteead of repeating ourself
     rewrite (function
         // ── i32 arithmetic ────────────────────────────────────────────────
-        | WExpr.Binary(WBinaryOp.Add,  WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(foldI32 (+) a b)
-        | WExpr.Binary(WBinaryOp.Sub,  WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(foldI32 (-) a b)
-        | WExpr.Binary(WBinaryOp.Mul,  WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(foldI32 ( *) a b)
-        | WExpr.Binary(WBinaryOp.DivS, WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) when b <> 0 -> Some(foldI32 (/) a b)
-        | WExpr.Binary(WBinaryOp.RemS, WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) when b <> 0 -> Some(foldI32 (%) a b)
-        | WExpr.Binary(WBinaryOp.And,  WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(foldI32 (&&&) a b)
-        | WExpr.Binary(WBinaryOp.Or,   WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(foldI32 (|||) a b)
-        | WExpr.Binary(WBinaryOp.Xor,  WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(foldI32 (^^^) a b)
-        | WExpr.Binary(WBinaryOp.Shl,  WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(foldI32 (fun a b -> a <<< (b &&& 31)) a b)
-        | WExpr.Binary(WBinaryOp.ShrS, WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(foldI32 (fun a b -> a >>> (b &&& 31)) a b)
-        | WExpr.Binary(WBinaryOp.ShrU, WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b), _) -> Some(WExpr.Const(WConst.I32(int (uint32 a >>> (b &&& 31)))))
+        | BinAdd(I32Lit a, I32Lit b, _) -> Some(foldI32 (+) a b)
+        | BinSub(I32Lit a, I32Lit b, _) -> Some(foldI32 (-) a b)
+        | BinMul(I32Lit a, I32Lit b, _) -> Some(foldI32 ( *) a b)
+        | WExpr.Binary(WBinaryOp.DivS, I32Lit a, I32Lit b, _) when b <> 0 -> Some(foldI32 (/) a b)
+        | WExpr.Binary(WBinaryOp.RemS, I32Lit a, I32Lit b, _) when b <> 0 -> Some(foldI32 (%) a b)
+        | BinAnd(I32Lit a, I32Lit b, _) -> Some(foldI32 (&&&) a b)
+        | BinOr (I32Lit a, I32Lit b, _) -> Some(foldI32 (|||) a b)
+        | WExpr.Binary(WBinaryOp.Xor,  I32Lit a, I32Lit b, _) -> Some(foldI32 (^^^) a b)
+        | WExpr.Binary(WBinaryOp.Shl,  I32Lit a, I32Lit b, _) -> Some(foldI32 (fun a b -> a <<< (b &&& 31)) a b)
+        | WExpr.Binary(WBinaryOp.ShrS, I32Lit a, I32Lit b, _) -> Some(foldI32 (fun a b -> a >>> (b &&& 31)) a b)
+        | WExpr.Binary(WBinaryOp.ShrU, I32Lit a, I32Lit b, _) -> Some(WExpr.Const(WConst.I32(int (uint32 a >>> (b &&& 31)))))
         // ── f64 arithmetic ────────────────────────────────────────────────
-        | WExpr.Binary(WBinaryOp.Add,  WExpr.Const(WConst.F64 a), WExpr.Const(WConst.F64 b), _) -> Some(foldF64 (+) a b)
-        | WExpr.Binary(WBinaryOp.Sub,  WExpr.Const(WConst.F64 a), WExpr.Const(WConst.F64 b), _) -> Some(foldF64 (-) a b)
-        | WExpr.Binary(WBinaryOp.Mul,  WExpr.Const(WConst.F64 a), WExpr.Const(WConst.F64 b), _) -> Some(foldF64 ( *) a b)
-        | WExpr.Binary(WBinaryOp.DivS, WExpr.Const(WConst.F64 a), WExpr.Const(WConst.F64 b), _) when b <> 0.0 -> Some(foldF64 (/) a b)
+        | BinAdd(F64Lit a, F64Lit b, _) -> Some(foldF64 (+) a b)
+        | BinSub(F64Lit a, F64Lit b, _) -> Some(foldF64 (-) a b)
+        | BinMul(F64Lit a, F64Lit b, _) -> Some(foldF64 ( *) a b)
+        | WExpr.Binary(WBinaryOp.DivS, F64Lit a, F64Lit b, _) when b <> 0.0 -> Some(foldF64 (/) a b)
         // ── comparisons ───────────────────────────────────────────────────
-        | WExpr.Compare(WCompareOp.Eq,  WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b)) -> Some(boolI32 (=)  a b)
-        | WExpr.Compare(WCompareOp.Ne,  WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b)) -> Some(boolI32 (<>) a b)
-        | WExpr.Compare(WCompareOp.LtS, WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b)) -> Some(boolI32 (<)  a b)
-        | WExpr.Compare(WCompareOp.LeS, WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b)) -> Some(boolI32 (<=) a b)
-        | WExpr.Compare(WCompareOp.GtS, WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b)) -> Some(boolI32 (>)  a b)
-        | WExpr.Compare(WCompareOp.GeS, WExpr.Const(WConst.I32 a), WExpr.Const(WConst.I32 b)) -> Some(boolI32 (>=) a b)
+        | CmpEq(I32Lit a, I32Lit b) -> Some(boolI32 (=)  a b)
+        | CmpNe(I32Lit a, I32Lit b) -> Some(boolI32 (<>) a b)
+        | CmpLt(I32Lit a, I32Lit b) -> Some(boolI32 (<)  a b)
+        | WExpr.Compare(WCompareOp.LeS, I32Lit a, I32Lit b) -> Some(boolI32 (<=) a b)
+        | CmpGt(I32Lit a, I32Lit b) -> Some(boolI32 (>)  a b)
+        | WExpr.Compare(WCompareOp.GeS, I32Lit a, I32Lit b) -> Some(boolI32 (>=) a b)
         // ── if-on-constant ────────────────────────────────────────────────
-        | WExpr.If(WExpr.Const(WConst.I32 1), t, _, _) -> Some t
-        | WExpr.If(WExpr.Const(WConst.I32 0), _, e, _) -> Some e
+        | IfExpr(I32One, t, _, _) -> Some t
+        | IfExpr(I32Zero, _, e, _) -> Some e
         // ── identity / annihilator ────────────────────────────────────────
-        | WExpr.Binary(WBinaryOp.Add, x, WExpr.Const(WConst.I32 0), _)
-        | WExpr.Binary(WBinaryOp.Add, WExpr.Const(WConst.I32 0), x, _)
-        | WExpr.Binary(WBinaryOp.Sub, x, WExpr.Const(WConst.I32 0), _)
-        | WExpr.Binary(WBinaryOp.Mul, x, WExpr.Const(WConst.I32 1), _)
-        | WExpr.Binary(WBinaryOp.Mul, WExpr.Const(WConst.I32 1), x, _) -> Some x
-        | WExpr.Binary(WBinaryOp.Mul, _, WExpr.Const(WConst.I32 0), _)
-        | WExpr.Binary(WBinaryOp.Mul, WExpr.Const(WConst.I32 0), _, _) -> Some(WExpr.Const(WConst.I32 0))
-        | WExpr.Binary(WBinaryOp.And, _, WExpr.Const(WConst.I32 0), _)
-        | WExpr.Binary(WBinaryOp.And, WExpr.Const(WConst.I32 0), _, _) -> Some(WExpr.Const(WConst.I32 0))
-        | WExpr.Binary(WBinaryOp.Or,  x, WExpr.Const(WConst.I32 0), _)
-        | WExpr.Binary(WBinaryOp.Or,  WExpr.Const(WConst.I32 0), x, _) -> Some x
+        | BinAdd(x, I32Zero, _)
+        | BinAdd(I32Zero, x, _)
+        | BinSub(x, I32Zero, _)
+        | BinMul(x, I32One, _)
+        | BinMul(I32One, x, _) -> Some x
+        | BinMul(_, I32Zero, _)
+        | BinMul(I32Zero, _, _) -> Some(WExpr.Const(WConst.I32 0))
+        | BinAnd(_, I32Zero, _)
+        | BinAnd(I32Zero, _, _) -> Some(WExpr.Const(WConst.I32 0))
+        | BinOr (x, I32Zero, _)
+        | BinOr (I32Zero, x, _) -> Some x
         // ── strength reduction ─────────────────────────────────────────────
         // x * 2^n → x << n (power-of-two mul)
-        | WExpr.Binary(WBinaryOp.Mul, x, WExpr.Const(WConst.I32 n), ty)
-        | WExpr.Binary(WBinaryOp.Mul, WExpr.Const(WConst.I32 n), x, ty)
-              when n > 1 && (n &&& (n - 1)) = 0 ->
-            let shift = System.Numerics.BitOperations.Log2(uint32 n) |> int
-            Some(WExpr.Binary(WBinaryOp.Shl, x, WExpr.Const(WConst.I32 shift), ty))
+        | BinMul(x, I32Lit n, ty)
+        | BinMul(I32Lit n, x, ty)
+                    when n > 1 && (n &&& (n - 1)) = 0 ->
+                let shift = System.Numerics.BitOperations.Log2(uint32 n) |> int
+                Some(WExpr.Binary(WBinaryOp.Shl, x, WExpr.Const(WConst.I32 shift), ty))
         | _ -> None) expr
 
 // ─────────────────────────────────────────────────────────────────

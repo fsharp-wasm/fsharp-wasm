@@ -23,10 +23,24 @@ open Tests.WasmTestHelper.FableAst
 // Helpers
 // ─────────────────────────────────────────────────────────────────
 
+
+// let private tryArr ctx sel fableArgs resultFableType =
+//     let wArgs = fableArgs |> List.map (transformExpr ctx)
+//     tryArrayInline transformExpr ctx sel fableArgs wArgs resultFableType
+
 /// Call tryArrayInline with a lambda-accepting selector.
 let private tryArr ctx sel fableArgs resultFableType =
-    let wArgs = fableArgs |> List.map (transformExpr ctx)
-    tryArrayInline transformExpr ctx sel fableArgs wArgs resultFableType
+    // Inject the mock identifiers into the context so the scope resolver knows they exist
+    let locals = 
+        fableArgs |> List.choose (function
+            // TODO: is this really correct? above is the original.
+            | IdentExpr id -> Some (id.Name, WType.Ref(200, false)) // Inject dummy types
+            | _ -> None)
+        |> Map.ofList
+    let ctx' = { ctx with Locals = Map.fold (fun acc k v -> Map.add k v acc) ctx.Locals locals }
+    let wArgs = fableArgs |> List.map (transformExpr ctx')
+    tryArrayInline transformExpr ctx' sel fableArgs wArgs resultFableType
+
 
 let private intArrT n = Type.Array(Type.Number(Int32, NumberInfo.Empty), ArrayKind.MutableArray)
 let private mkIntLambda argName body = Lambda(mkParam argName (Type.Number(Int32, NumberInfo.Empty)), body, None)

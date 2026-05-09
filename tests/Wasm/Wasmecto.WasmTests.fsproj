@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Compiled by fsharp-wasm (WasmGC target), not intended for dotnet test runner -->
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Wasmecto.WasmTests</AssemblyName>
+    <RootNamespace>WasmTests</RootNamespace>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Minimal Fable.Core stubs for WasmGC compilation -->
+    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
+
+    <!-- Use Wasmecto framework sources directly (avoid project-level transitive deps) -->
+    <Compile Include="../../../fsharp-wasmecto/src/Types.fs" />
+    <Compile Include="../../../fsharp-wasmecto/src/ExnState.fs" />
+    <Compile Include="../../../fsharp-wasmecto/src/Expect.fs" />
+    <Compile Include="../../../fsharp-wasmecto/src/DSL.fs" />
+    <Compile Include="../../../fsharp-wasmecto/src/Runner.fs" />
+
+    <!-- Unit tests (flattened structure) -->
+    <Compile Include="Unit/LanguageAndCollections.Tests.fs" />
+    <Compile Include="Unit/ClosureTests.fs" />
+
+    <!-- Integration tests (flattened structure) -->
+    <Compile Include="Integration/CompilerPipeline.Smoke.Tests.fs" />
+
+    <!-- Test registration / entrypoint -->
+    <Compile Include="Main.fs" />
+  </ItemGroup>
+</Project>

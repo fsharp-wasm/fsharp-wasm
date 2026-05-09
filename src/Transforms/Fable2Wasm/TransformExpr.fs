@@ -54,6 +54,25 @@ let private resizeArrayPushInline (ctx: Ctx) (elemT: WType) (arrTypeIdx: int) (r
     }
 
 // the eval-Function get's called recursivly, but injected into module
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JS Typed Array → WasmGC mapping
+// Fable's standard replacements inject these when building result arrays for
+// Array.map/init/scan/append/map2/choose/collect on typed (int/float) arrays.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Map a JS typed array constructor name to (WasmGC element type, zero value).
+/// Returns None for unknown names (not a typed array constructor).
+let jsTypedArrayElemType (name: string) : (WType * WExpr) option =
+    match name with
+    | "Int8Array"    | "Uint8Array"
+    | "Int16Array"   | "Uint16Array"
+    | "Int32Array"   | "Uint32Array"    -> Some(WType.I32, WExpr.Const(WConst.I32 0))
+    | "BigInt64Array"| "BigUint64Array" -> Some(WType.I64, WExpr.Const(WConst.I64 0L))
+    | "Float32Array"                   -> Some(WType.F32, WExpr.Const(WConst.F32 0.0f))
+    | "Float64Array"                   -> Some(WType.F64, WExpr.Const(WConst.F64 0.0))
+    | _                                -> None
+
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     match expr with
     // ── Emit: ResizeArray.Add(x) emits "void ($0)" wrapping a .push() InstanceCall ──
@@ -106,20 +125,22 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             WExpr.Closure(qn, [], WType.Ref(typeIdx, false))
         | Scope.Resolution.ExternFunc(key, retTy)   -> WExpr.Call(key, [], retTy)
         | Scope.Resolution.Unknown name             ->
-            // ── Type-safe unknown-ident fallback ───────────────────────
-            // Critical: emit LocalGet with the DECLARED Fable type, not I32.
-            // I32 fallback caused "expected ref $T, found i32" WASM validator
-            // failures that only surfaced deep in the pipeline — far too late.
-            //
-            // Using the declared type means:
-            //   - The type stack stays consistent (no silent corruption)
-            //   - The Validator's LocalGet-unknown check still fires → early error
-            //   - If code is somehow dead-path, the wrong local name is the only
-            //     issue, not also a type mismatch
-            let declaredTy = mapTypeKnown ctx ident.Type
-            WasmGc.Core.Diagnostics.unresolvedIdent
-                ctx.Diagnostics name ctx.CurrentFunc ident.Range
-            WExpr.LocalGet(name, declaredTy)
+            // ── Type-safe unknown-ident fallback ─────────────────────────────────
+            // JS typed array names (Int32Array, Float64Array, etc.) are injected by
+            // Fable's standard replacements. They have no WasmGC representation.
+            // Emit Nop so the CurriedApply Nop-guard suppresses the whole apply.
+            // For all other unknowns, use the declared Fable type (not I32 blindly)
+            // so the type stack stays consistent if the code is somehow live.
+            match jsTypedArrayElemType name with
+            | Some _ ->
+                // Handled: CurriedApply intercept turns this into ArrayNew.
+                // As a bare IdentExpr it should be unreachable, but emit Nop just in case.
+                WExpr.Nop
+            | None ->
+                let declaredTy = mapTypeKnown ctx ident.Type
+                WasmGc.Core.Diagnostics.unresolvedIdent
+                    ctx.Diagnostics name ctx.CurrentFunc ident.Range
+                WExpr.LocalGet(name, declaredTy)
 
     // ── Let bindings ──
     | Let(ident, value, body) ->
@@ -455,6 +476,30 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         transformCall ctx transformExpr callee info typ
 
     // ── CurriedApply (closure call) ───────────────────────
+
+    // ── JS Typed Array constructors (must run BEFORE general CurriedApply) ──
+    // Fable's standard Replacements.fs rewrites Array.map/init/scan/append/map2
+    // on int/float arrays into: CurriedApply(IdentExpr "Int32Array", [size])
+    // These are JS typed array constructors with no WasmGC equivalent.
+    // We translate to ArrayNew(elemTypeIdx, size, zeroVal, arrRefTy).
+    //
+    // Affected: any op that allocates a fixed-size result array before filling it.
+    // This case MUST precede the general CurriedApply path — otherwise the
+    // Unknown ident fallback emits LocalGet("Int32Array", I32) as the closure,
+    // causing "expected ref $type, found i32" at WASM binary validation time.
+    | Fable.Expr.CurriedApply(Fable.Expr.IdentExpr ctorIdent, ctorArgs, _, _)
+        when jsTypedArrayElemType ctorIdent.Name |> Option.isSome ->
+        let elemWTy, zeroVal =
+            match jsTypedArrayElemType ctorIdent.Name with
+            | Some (et, zv) -> et, zv
+            | None -> WType.I32, WExpr.Const(WConst.I32 0) // unreachable
+        let wSize =
+            ctorArgs |> List.tryHead
+            |> Option.map (transformExpr ctx)
+            |> Option.defaultValue (WExpr.Const(WConst.I32 0))
+        let arrTypeIdx = getOrAddArrayType ctx elemWTy
+        WExpr.ArrayNew(arrTypeIdx, wSize, zeroVal, WType.Ref(arrTypeIdx, false))
+
     // Special case: sprintf/printfn — Fable emits:
     //   CurriedApply(Call(Import("toText"|"toConsole"), [TypeCast(Call(Import("printf"), [StringConst fmt]))]), formatArgs)
     // We intercept this and expand the format string inline.
@@ -596,7 +641,23 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         match kind with
         | Fable.ExtendedSet.Throw(Some expr, _) ->
             let wExpr = transformExpr ctx expr
-            WExpr.Throw(wExpr)
+            // WasmGC exception model: store the object in the $fsharp_exn_carrier
+            // global BEFORE throwing the zero-payload $fsharp_exn tag.
+            // The catch_all handler reads the carrier back to inspect the exception.
+            // This must be a sequence: [carrier := obj; throw $fsharp_exn]
+            let wExprTy = exprWType wExpr
+            match wExprTy with
+            | WType.Void ->
+                // Already a Nop/unit expr — the exception construction failed upstream.
+                // Emit a bare throw so the control flow is at least correct.
+                WExpr.Throw(WExpr.Nop)
+            | _ ->
+                // $fsharp_exn_carrier is anyref — any ref value is assignment-compatible.
+                // (WasmGC: ref $T <: anyref for all concrete types T.)
+                WExpr.Sequence [
+                    WExpr.GlobalSet("$fsharp_exn_carrier", wExpr)
+                    WExpr.Throw(WExpr.Nop)
+                ]
         | _ -> WExpr.Nop
 
     // ── ObjectExpr: IComparer-like interface objects ───────
@@ -617,6 +678,24 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     | TypeCast(innerExpr, targetTy) ->
         buildTypeCast ctx (transformExpr ctx innerExpr) targetTy
 
+    // ── Import as value ─────────────────────────────────────────
+    | Fable.Expr.Import(info, typ, _) ->
+        let ty = mapTypeKnown ctx typ
+        let pLow = info.Path.ToLowerInvariant()
+        let isLocalFile = pLow.EndsWith(".fs") || pLow.EndsWith(".fsi")
+        let isFableLib = pLow.Contains("fable-library")
+        if not isLocalFile && not isFableLib && info.Selector <> "" then
+            let callName = ctx.RegisterExternFunc(info.Path, info.Selector, [], ty) 
+            WExpr.FuncRef callName
+        else
+            let stem = System.IO.Path.GetFileNameWithoutExtension(info.Path)
+            let actualName =
+                match Map.tryFind (stem, info.Selector) ctx.KnownFuncsByPath with
+                | Some qualName -> qualName
+                | None -> info.Selector
+            WExpr.FuncRef actualName
+
     | _ -> 
-        WExpr.Nop // Für Set, Get, Test etc. aus dem Original kopieren (bleiben schlank)
+        eprintfn "[WasmGc] FATAL/WARNING: Unhandled Fable AST expression: %A" expr
+        WExpr.Nop // for Set, Get, Test etc
 

@@ -42,9 +42,12 @@ let listReplacementTests = testList "List replacements" [
     test "List.map produces loop structure (no Nop)" {
         let ctx = makeTestCtx()
         // Register list type
+        
+        // Register list type and inject AST variable into scope!
+        let ctx = { ctx with Locals = Map.ofList [("myList", WType.Ref(100, true))] }
+
         let _ = mapTypeKnown ctx (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
         let (lambda, listArg, _) = buildListMapAst()
-        let wList = WExpr.LocalGet("myList", WType.Ref(100, true))
         let result = ListCombinators.tryListMapInline
                         transformExpr ctx "map"
                         [lambda; listArg] (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
@@ -94,6 +97,8 @@ let listReplacementTests = testList "List replacements" [
         // This test FAILS until List.collect is implemented
         // It documents the missing feature
         let ctx = makeTestCtx()
+        // let ctx'   = ctx.WithLocal("xs", )
+
         let _ = mapTypeKnown ctx (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
         let listArg = mkIdent "xs" (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
         let farg = mkParam "x" (Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty))
@@ -103,6 +108,7 @@ let listReplacementTests = testList "List replacements" [
         let result = ListCombinators.tryListCollectInline
                         transformExpr ctx "collect"
                         [lambda; listArg] (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
+        // TODO: once implemented, check that the result contains a loop and no Nops
         Expect.isSome result "List.collect must be implemented (required by Html/Elements.fs)"
         let loops = WExprQuery.collect (function WExpr.Loop _ -> true | _ -> false) result.Value
         Expect.isNonEmpty loops "List.collect must produce a loop"

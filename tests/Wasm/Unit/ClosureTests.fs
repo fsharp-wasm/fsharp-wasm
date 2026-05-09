@@ -157,7 +157,7 @@ module ClosureTests =
             testCase "List.map with capturing lambda" <| fun () ->
                 let offset = 10
                 let result = List.map (fun x -> x + offset) [1; 2; 3; 4; 5]
-                Expect.sequenceEqual result [11; 12; 13; 14; 15] "map with capture"
+                Expect.sequenceEqual result [11; 12; 13; 14; 15] "map with c1apture"
 
             testCase "List.filter with capturing predicate" <| fun () ->
                 let threshold = 3
@@ -195,9 +195,8 @@ module ClosureTests =
                 let results = List.map (fun f -> f ()) fns
                 Expect.sequenceEqual results [1; 4; 9; 16; 25] "each closure captures its own i"
 
-            
             testCase "record containing a closure" <| fun () ->
-                // type Transformer = { Apply: int -> int; Name: string }v
+                // type Transformer = { Apply: int -> int; Name: string }
                 let double = { Apply = fun x -> x * 2;    Name = "double" }
                 let square = { Apply = fun x -> x * x;    Name = "square" }
                 Expect.equal (double.Apply 5) 10 "double.Apply 5 = 10"

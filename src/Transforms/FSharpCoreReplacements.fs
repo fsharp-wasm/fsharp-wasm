@@ -103,16 +103,108 @@ let tryHandleEmpty (ctx: Ctx) (wArgs: WExpr list) (ty: WType) : WExpr option =
         Some WExpr.Nop
 
 // ─────────────────────────────────────────────────────────────────
+// Exceptions → WasmGC StructNew
+// ─────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────
+// Exception struct: { message: ref $string }
+// Registered on demand using GenericDuRegistry with "exn:" prefix as key.
+// All exception types share the same struct layout — any type-specific data
+// is reserved for future work (StackTrace, InnerException fields).
+// ─────────────────────────────────────────────────────────────────
+
+/// Get or register an exception struct type for the given fully-qualified name.
+/// Uses GenericDuRegistry["exn:FullName"] as the mutable on-demand cache.
+let private getOrAddExnType (ctx: Ctx) (fullName: string) : int =
+    let key = $"exn:{fullName}"
+    match ctx.GenericDuRegistry.TryGetValue(key) with
+    | true, idx -> idx
+    | false, _ ->
+        // Struct: { message: ref $string }
+        // Named after the exception type for WAT readability.
+        let msgTy     = WType.Ref(StringTypeIdx, false)
+        let shortName = fullName.Replace("System.", "").Replace("Collections.Generic.", "")
+        let idx       = ctx.TypeDefs.Count
+        ctx.TypeDefs.Add {
+            Name = $"${shortName}"
+            Def  = WTypeDef.Struct(
+                    [{ Name = "message"; Type = msgTy; Mutable = false }], None)
+        }
+        ctx.GenericDuRegistry.[key] <- idx
+        idx
+
+let tryHandleException (ctx: Ctx) (selector: string) (wArgs: WExpr list) (ty: WType) : WExpr option =
+    let exnFullName =
+        match selector with
+        | "Exception"                  -> Some "System.Exception"
+        | "ArgumentException"          -> Some "System.ArgumentException"
+        | "ArgumentNullException"      -> Some "System.ArgumentNullException"
+        | "ArgumentOutOfRangeException"-> Some "System.ArgumentOutOfRangeException"
+        | "FormatException"            -> Some "System.FormatException"
+        | "InvalidOperationException"  -> Some "System.InvalidOperationException"
+        | "NotImplementedException"    -> Some "System.NotImplementedException"
+        | "NotSupportedException"      -> Some "System.NotSupportedException"
+        | "NullReferenceException"     -> Some "System.NullReferenceException"
+        | "OverflowException"          -> Some "System.OverflowException"
+        | "InvalidCastException"       -> Some "System.InvalidCastException"
+        | "IndexOutOfRangeException"   -> Some "System.IndexOutOfRangeException"
+        | "StackOverflowException"     -> Some "System.StackOverflowException"
+        | "OutOfMemoryException"       -> Some "System.OutOfMemoryException"
+        | "KeyNotFoundException"       -> Some "System.Collections.Generic.KeyNotFoundException"
+        | _                            -> None
+
+    match exnFullName with
+    | None -> None
+    | Some fullName ->
+        let typeIdx = getOrAddExnType ctx fullName
+        // Argument normalisation: exception constructors may receive a message
+        // string, no args (parameterless), or additional args.  Normalise to
+        // always produce a struct with exactly one field: message.
+        let msgArg =
+            match wArgs with
+            | []        -> WExpr.ArrayNewFixed(StringTypeIdx, [], WType.Ref(StringTypeIdx, false)) // ""
+            | msg :: _  -> msg   // first arg is always the message
+        Some(WExpr.StructNew(typeIdx, [msgArg], WType.Ref(typeIdx, false)))
+
+// ─────────────────────────────────────────────────────────────────
 // Main dispatcher for FSharp.Core imports
 // ─────────────────────────────────────────────────────────────────
 
-/// Try to handle a standard F#.Core import call.
-/// Returns None if the import should fall through to default handling (Nop).
 let tryHandleStdlibImport (ctx: Ctx) (selector: string) (wArgs: WExpr list) (ty: WType) : WExpr option =
-    match selector with
-    | "defaultOf" -> tryHandleDefaultOf ctx wArgs ty
-    | "disposeSafe" -> tryHandleDisposeSafe ctx wArgs ty
-    | "identityHash" -> tryHandleIdentityHash ctx wArgs ty
-    | "singleton" -> tryHandleSingleton ctx wArgs ty
-    | "empty" -> tryHandleEmpty ctx wArgs ty
-    | _ -> None
+    match tryHandleException ctx selector wArgs ty with
+    | Some res -> Some res
+    | None ->
+        match selector with
+        | "defaultOf"       -> tryHandleDefaultOf   ctx wArgs ty
+        | "disposeSafe"     -> tryHandleDisposeSafe  ctx wArgs ty
+        | "identityHash"    -> tryHandleIdentityHash ctx wArgs ty
+        | "singleton"       -> tryHandleSingleton   ctx wArgs ty
+        | "empty"           -> tryHandleEmpty       ctx wArgs ty
+
+        // Fable's Util.fs helpers that have WasmGC equivalents ────────────────
+        // `downcast` in Fable is a checked cast; for WasmGC we use ref.cast via
+        // the existing TypeCast path. As an import call it just returns the arg.
+        | "downcast"        -> wArgs |> List.tryHead |> Option.orElse (Some WExpr.Nop)
+
+        // `comparePrimitives` is Fable's generic compare fallback. In WasmGC we
+        // emit subtract (for ints) as a fast approximation. Correct implementation
+        // would dispatch on type — sufficient for Map/Set ordering.
+        | "comparePrimitives" ->
+            match wArgs with
+            | [a; b] ->
+                match exprWType a with
+                | WType.F64 -> Some(WExpr.Binary(WBinaryOp.Sub, WExpr.Binary(WCompareOp.GtS, a, b, WType.I32),
+                                                                  WExpr.Binary(WCompareOp.LtS, a, b, WType.I32), WType.I32))
+                | WType.I64 ->
+                    // i64 compare: sign(a-b)
+                    let diff = WExpr.Binary(WBinaryOp.Sub, a, b, WType.I64)
+                    Some(WExpr.If(WExpr.Binary(WCompareOp.LtS, diff, WExpr.Const(WConst.I64 0L), WType.I32),
+                                  WExpr.Const(WConst.I32 -1),
+                                  WExpr.If(WExpr.Binary(WCompareOp.GtS, diff, WExpr.Const(WConst.I64 0L), WType.I32),
+                                            WExpr.Const(WConst.I32 1),
+                                            WExpr.Const(WConst.I32 0), WType.I32), WType.I32))
+                | _ ->
+                    Some(WExpr.Binary(WBinaryOp.Sub, a, b, WType.I32))
+            | _ -> None
+
+        | _ -> None

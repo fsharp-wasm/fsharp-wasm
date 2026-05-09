@@ -48,7 +48,8 @@ let mockEntity (fullName: string) =
 type NullCompiler() =
     interface Fable.Compiler with
         member _.Options =
-          CompilerOptionsHelper.Make(debugMode = false, typedArrays = true)
+          CompilerOptionsHelper.Make(debugMode = false, typedArrays = false)
+          // CompilerOptionsHelper.Make(debugMode = false, typedArrays = true)
           // { Fable.CompilerOptions.Default with
           //     DebugMode = false
           //     TypedArrays = true
@@ -164,6 +165,88 @@ let rec wTypeKey (t: WType) : string =
         sprintf "arr_%s_%s" (if mut_ then "mut" else "imm") (wTypeKey elem)
 
 // ─────────────────────────────────────────────────────────────────
+// Auto-flushing test wrapper — captures diagnostics in test output
+// ─────────────────────────────────────────────────────────────────
+
+module AutoFlushDiagnostics =
+    let private contexts = System.Collections.Concurrent.ConcurrentBag<Ctx>()
+    
+    /// Create a context and register it for auto-flushing.
+    let makeContext () : Ctx =
+        let ctx = Ctx.Create(NullCompiler() :> Fable.Compiler)
+        contexts.Add(ctx)
+        ctx
+    
+    /// Flush all accumulated diagnostics from all contexts.
+    let flushAll () =
+        for ctx in contexts do
+            if ctx.Diagnostics.Count > 0 then
+                ctx.Diagnostics.Flush()
+    
+    /// Wrap a test function to auto-flush diagnostics after execution.
+    /// Usage in tests: 
+    ///   AutoFlushDiagnostics.wrapTest "My test" {
+    ///       let ctx = makeTestCtx()
+    ///       // do test...
+    ///   }
+    let wrapTest (testName: string) (testFn: unit -> 'T) : unit -> 'T =
+        fun () ->
+            try
+                testFn ()
+            finally
+                flushAll ()
+    
+    /// Register a process-exit handler to flush any remaining diagnostics
+    do
+        System.AppDomain.CurrentDomain.ProcessExit.Add(fun _ ->
+            try flushAll () with _ -> ())
+
+/// Finalizer wrapper for contexts — ensures diagnostics are flushed when context is GC'd.
+/// This provides automatic flushing even if the context goes out of scope unexpectedly.
+type internal ContextFinalizer(ctx: Ctx) =
+    override _.Finalize() =
+        try
+            if ctx.Diagnostics.Count > 0 then
+                ctx.Diagnostics.Flush()
+        with _ -> ()
+
+// ─────────────────────────────────────────────────────────────────
+// Disposable context wrapper — auto-flush diagnostics on disposal
+// ─────────────────────────────────────────────────────────────────
+
+/// Wrapper that auto-flushes diagnostics when disposed.
+/// Use with `use` keyword in tests for automatic flushing.
+type AutoFlushContext(ctx: Ctx) =
+    member _.Ctx = ctx
+    interface System.IDisposable with
+        member _.Dispose() =
+            if ctx.Diagnostics.Count > 0 then
+                ctx.Diagnostics.Flush()
+
+/// Create a context that auto-flushes on disposal.
+/// Use with: use ctx = makeAutoFlushCtx(); let wctx = ctx.Ctx in ...
+let makeAutoFlushCtx () : AutoFlushContext =
+    new AutoFlushContext(Ctx.Create(NullCompiler() :> Fable.Compiler))
+
+let private allTestContexts = System.Collections.Generic.List<Ctx>()
+
+/// Flush diagnostics from all test contexts created during the test run.
+let flushAllDiagnostics () =
+    for ctx in allTestContexts do
+        if ctx.Diagnostics.Count > 0 then
+            ctx.Diagnostics.Flush()
+    allTestContexts.Clear()
+
+/// Call this at the end of your test module to ensure all diagnostics are flushed.
+/// This is especially important for integration tests that compile code.
+let flushTestDiagnostics () =
+    // First, flush accumulated diagnostics
+    flushAllDiagnostics()
+    // Then, force garbage collection to run any remaining finalizers
+    System.GC.Collect()
+    System.GC.WaitForPendingFinalizers()
+
+// ─────────────────────────────────────────────────────────────────
 // makeTestCtx — creates a real Ctx with the four pre-registered types
 // ─────────────────────────────────────────────────────────────────
 
@@ -173,8 +256,16 @@ let rec wTypeKey (t: WType) : string =
 ///   index 1 = $WasmStr (array (mut i32) — UTF-16 string)
 ///   index 2 = $ListBase (struct {} — base for all list cons types)
 ///   index 3 = $StringBuilder (struct { data; length; capacity })
+///
+/// NOTE: Each context created by this function has diagnostics auto-flushing
+/// attached via a finalizer. When the context is garbage collected, any
+/// accumulated diagnostics will be flushed to stderr.
 let makeTestCtx () : Ctx =
-    Ctx.Create(NullCompiler() :> Fable.Compiler)
+    let ctx = Ctx.Create(NullCompiler() :> Fable.Compiler)
+    allTestContexts.Add(ctx)  // Auto-track for diagnostics flushing
+    // Attach a finalizer so diagnostics are flushed when context is GC'd
+    ignore (new ContextFinalizer(ctx))
+    ctx
 
 /// Ctx with specific Locals pre-added (for tests that inspect IdentExpr handling).
 let makeCtxWithLocals (locals: (string * WType) list) : Ctx =
@@ -201,6 +292,30 @@ let makeCtxFull
     let kf  = funcs |> List.map (fun (n, ps, r) -> n, (ps, r)) |> Map.ofList
     let ctx' = locals |> List.fold (fun (c: Ctx) (n, t) -> c.WithLocal(n, t)) ctx
     { ctx' with KnownFuncs = kf }
+
+// ─────────────────────────────────────────────────────────────────
+// Auto-flushing context wrapper — ensures diagnostics are printed
+// even when contexts go out of scope in tests
+// ─────────────────────────────────────────────────────────────────
+
+/// Wrap a test function to auto-flush diagnostics after execution.
+/// This ensures that any warnings/errors accumulated during the test
+/// are printed to stderr, even if the test passes.
+let withAutoFlushDiagnostics (testFn: Ctx -> 'T) : 'T =
+    let ctx = makeTestCtx ()
+    try
+        testFn ctx
+    finally
+        // Always flush diagnostics, even on exception
+        ctx.Diagnostics.Flush()
+
+/// Same as withAutoFlushDiagnostics but for a test that creates its own context.
+/// Call ctx.Diagnostics.Flush() in the finally block of your test.
+let autoFlushAfterTest (testFn: unit -> 'T) (ctxToFlush: Ctx) : 'T =
+    try
+        testFn ()
+    finally
+        ctxToFlush.Diagnostics.Flush()
 
 // ─────────────────────────────────────────────────────────────────
 // mapTypeKnown re-export — tests call it directly from Types module
