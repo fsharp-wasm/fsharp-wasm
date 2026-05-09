@@ -67,8 +67,8 @@ let inline i32Const (n: int)     = WExpr.Const(WConst.I32 n)
 let inline i64Const (n: int64)   = WExpr.Const(WConst.I64 n)
 let inline f32Const (v: float32) = WExpr.Const(WConst.F32 v)
 let inline f64Const (v: float)   = WExpr.Const(WConst.F64 v)
-let inline i32Zero               = WExpr.Const(WConst.I32 0)
-let inline i32One                = WExpr.Const(WConst.I32 1)
+let i32Zero                      = WExpr.Const(WConst.I32 0)
+let i32One                       = WExpr.Const(WConst.I32 1)
 let inline nullConst (ty: WType) = WExpr.Const(WConst.Null ty)
 
 // ── Locals / Globals ─────────────────────────────────────────────────────────
@@ -109,9 +109,6 @@ let inline gtS  a b = WExpr.Compare(WCompareOp.GtS,  a, b)
 let inline geS  a b = WExpr.Compare(WCompareOp.GeS,  a, b)
 let inline ltU  a b = WExpr.Compare(WCompareOp.LtU,  a, b)
 let inline geU  a b = WExpr.Compare(WCompareOp.GeU,  a, b)
-let inline eqF  a b = WExpr.Compare(WCompareOp.EqF,  a, b)
-let inline ltF  a b = WExpr.Compare(WCompareOp.LtF,  a, b)
-let inline leF  a b = WExpr.Compare(WCompareOp.LeF,  a, b)
 let inline refEq a b = WExpr.Compare(WCompareOp.RefEq, a, b)
 
 // ── Ref / cast ───────────────────────────────────────────────────────────────

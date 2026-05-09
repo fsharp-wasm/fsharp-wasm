@@ -42,10 +42,10 @@ let buildFor
     // }
     let loopBody =
         WExpr.If(
-            WExpr.Compare(cmpOp, WExpr.LocalGet(ident.Name, WType.I32), WExpr.LocalGet("$limit", WType.I32)),
+            WExpr.Compare(cmpOp, WExpr.LocalGet(ident.Name, WType.I32), localGet "$limit" WType.I32),
             WExpr.Sequence [
                 wBody
-                WExpr.Assign(ident.Name, WExpr.Binary(stepOp, WExpr.LocalGet(ident.Name, WType.I32), WExpr.Const(WConst.I32 1), WType.I32))
+                WExpr.Assign(ident.Name, WExpr.Binary(stepOp, WExpr.LocalGet(ident.Name, WType.I32), i32One, WType.I32))
                 WExpr.Continue(label, [])
             ],
             WExpr.Nop,
@@ -165,7 +165,7 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
         | NumberValue.Float64 n -> WExpr.Const(WConst.F64 n)
         | NumberValue.NativeInt n -> WExpr.Const(WConst.I32(int n))
         | NumberValue.UNativeInt n -> WExpr.Const(WConst.I32(int n))
-        | _ -> WExpr.Const(WConst.I32 0) // fallback
+        | _ -> i32Zero // fallback
     | Null _ -> WExpr.Const(WConst.Null(WType.I32))
     // ── Records (Phase 3) ────────────────────────────────
     | NewRecord(values, entRef, _) ->
@@ -175,7 +175,7 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
             WExpr.StructNew(typeIdx, wValues, WType.Ref(typeIdx, false))
         | None ->
             // Record type not registered yet — emit stub
-            WExpr.Const(WConst.I32 0)
+            i32Zero
     // ── Discriminated unions (Phase 4) ─────────────────
     | NewUnion(values, tag, entRef, genArgs) ->
         let ent = ctx.Compiler.GetEntity(entRef)
@@ -315,8 +315,8 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
         let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemT
         let zero = makeNumericZero elemT
         WExpr.StructNew(ravTypeIdx,
-            [WExpr.ArrayNew(arrTypeIdx, WExpr.Const(WConst.I32 4), zero, WType.Ref(arrTypeIdx, false))
-             WExpr.Const(WConst.I32 0)],
+            [WExpr.ArrayNew(arrTypeIdx, i32Const 4, zero, WType.Ref(arrTypeIdx, false))
+             i32Zero],
             WType.Ref(ravTypeIdx, false))
     | NewArray(Fable.NewArrayKind.ArrayValues exprs, elemType, _) ->
         let elemT = mapTypeKnown ctx elemType
@@ -329,10 +329,10 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
         let wSize = eval ctx sizeExpr
         let zero =
             match elemT with
-            | WType.I64 -> WExpr.Const(WConst.I64 0L)
-            | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
-            | WType.F64 -> WExpr.Const(WConst.F64 0.0)
-            | _ -> WExpr.Const(WConst.I32 0)
+            | WType.I64 -> i64Const 0L
+            | WType.F32 -> f32Const 0.0f
+            | WType.F64 -> f64Const 0.0
+            | _ -> i32Zero
         WExpr.ArrayNew(arrTypeIdx, wSize, zero, WType.Ref(arrTypeIdx, false))
     | NewArray(Fable.NewArrayKind.ArrayFrom srcExpr, elemType, _) ->
         // ArrayFrom: copy from another array/seq. Treat as identity for now (same wasm array ref).

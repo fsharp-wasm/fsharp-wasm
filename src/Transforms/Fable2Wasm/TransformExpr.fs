@@ -38,19 +38,16 @@ let private resizeArrayPushInline (ctx: Ctx) (elemT: WType) (arrTypeIdx: int) (r
         let! len  = WExpr.StructGet(rav, 1, WType.I32)
         let! data = WExpr.Cast(WExpr.StructGet(rav, 0, arrRefT), arrNNRefT)
         // When len = capacity, double the array and update the struct.
-        do! WExpr.If(WExpr.Compare(WCompareOp.GeU, len, WExpr.ArrayLen(data)),
-                wasm {
-                    let! newCap = WExpr.Binary(WBinaryOp.Shl, WExpr.ArrayLen(data),
-                                    WExpr.Const(WConst.I32 1), WType.I32)
+        do! Wasm.if_ (WExpr.Compare(WCompareOp.GeU, len, arrayLen data))
+                (wasm {
+                    let! newCap = WExpr.Binary(WBinaryOp.Shl, arrayLen data, i32One, WType.I32)
                     let! newDat = WExpr.ArrayNew(arrTypeIdx, newCap, zero, arrNNRefT)
-                    do! WExpr.ArrayCopy(newDat, WExpr.Const(WConst.I32 0),
-                                        data,   WExpr.Const(WConst.I32 0), len)
+                    do! WExpr.ArrayCopy(newDat, i32Zero, data, i32Zero, len)
                     return! WExpr.StructSet(rav, 0, newDat)
-                }, WExpr.Nop, WType.Void)
+                })
         // Re-read data (may have changed after grow)
         do! WExpr.ArraySet(WExpr.Cast(WExpr.StructGet(rav, 0, arrRefT), arrNNRefT), len, wVal)
-        return! WExpr.StructSet(rav, 1,
-            WExpr.Binary(WBinaryOp.Add, len, WExpr.Const(WConst.I32 1), WType.I32))
+        return! WExpr.StructSet(rav, 1, WExpr.Binary(WBinaryOp.Add, len, i32One, WType.I32))
     }
 
 // the eval-Function get's called recursivly, but injected into module
@@ -67,7 +64,7 @@ let jsTypedArrayElemType (name: string) : (WType * WExpr) option =
     match name with
     | "Int8Array"    | "Uint8Array"
     | "Int16Array"   | "Uint16Array"
-    | "Int32Array"   | "Uint32Array"    -> Some(WType.I32, WExpr.Const(WConst.I32 0))
+    | "Int32Array"   | "Uint32Array"    -> Some(WType.I32, i32Zero)
     | "BigInt64Array"| "BigUint64Array" -> Some(WType.I64, WExpr.Const(WConst.I64 0L))
     | "Float32Array"                   -> Some(WType.F32, WExpr.Const(WConst.F32 0.0f))
     | "Float64Array"                   -> Some(WType.F64, WExpr.Const(WConst.F64 0.0))
@@ -353,8 +350,8 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                     | WType.Ref(idx, _) when idx = typeIdx -> wExpr
                     | _ -> WExpr.Cast(wExpr, targetRefTy)
                 WExpr.StructGet(wSelf, fieldIdx, mapTypeKnown ctx typ)
-            | None -> WExpr.Const(WConst.I32 0)
-        | _ -> WExpr.Const(WConst.I32 0)
+            | None -> i32Zero
+        | _ -> i32Zero
 
     | Fable.Expr.Get(expr, GetKind.TupleIndex i, typ, _) ->
         // Tuples are GC structs; field index matches tuple element index (0-based).
@@ -496,7 +493,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let wSize =
             ctorArgs |> List.tryHead
             |> Option.map (transformExpr ctx)
-            |> Option.defaultValue (WExpr.Const(WConst.I32 0))
+            |> Option.defaultValue (i32Zero)
         let arrTypeIdx = getOrAddArrayType ctx elemWTy
         WExpr.ArrayNew(arrTypeIdx, wSize, zeroVal, WType.Ref(arrTypeIdx, false))
 

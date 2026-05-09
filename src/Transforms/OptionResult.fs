@@ -29,8 +29,8 @@ open WasmGc.Util.FableQuery   // ← DSL
 ///   Wrapper-struct options (inner is primitive):  ref.cast → struct, struct.get[0].
 let private unwrapSome (opt: WExpr) (optTypeIdx: int) (innerT: WType) : WExpr =
     match innerT with
-    | WType.Ref(innerIdx, false) -> WExpr.Cast(opt, WType.Ref(innerIdx, false))
-    | _ -> WExpr.StructGet(WExpr.Cast(opt, WType.Ref(optTypeIdx, false)), 0, innerT)
+    | WType.Ref(innerIdx, false) -> cast opt (WType.Ref(innerIdx, false))
+    | _ -> structGet (cast opt (WType.Ref(optTypeIdx, false))) 0 innerT
 
 /// Wrap an inner value as a `Some`.
 ///   Direct-ref options:     the value itself IS the Some representation.
@@ -40,7 +40,7 @@ let private wrapSome (inner: WExpr) (resultOptTy: WType) : WExpr =
     | WType.Ref(_, false) -> inner
     | _ ->
         match resultOptTy with
-        | WType.Ref(wrapperIdx, _) -> WExpr.StructNew(wrapperIdx, [inner], resultOptTy)
+        | WType.Ref(wrapperIdx, _) -> structNew wrapperIdx [inner] resultOptTy
         | _ -> inner
 
 /// Shared skeleton for all Option combinators.
@@ -49,7 +49,7 @@ let private wrapSome (inner: WExpr) (resultOptTy: WType) : WExpr =
 let private optBranch (wOpt: WExpr) (ty: WType) (onNone: WExpr) (onSome: WExpr -> WExpr) : WExpr =
     wasm {
         let! opt = wOpt
-        return WExpr.If(WExpr.RefIsNull opt, onNone, onSome opt, ty)
+        return makeIf (refIsNull opt) (onSome opt) onNone ty
     }
 
 // ─────────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ let tryOptionInline
         match exprWType wOpt, ty with
         | WType.Ref(inOptIdx, _), WType.Ref(_, _) ->
             let wBody = transform (ctx.WithLocal(farg.Name, innerT)) fbody
-            let none  = WExpr.Const(WConst.Null ty)
+            let none  = nullConst ty
             Some(optBranch wOpt ty none (fun opt ->
                 WExpr.Let(farg.Name, unwrapSome opt inOptIdx innerT, wrapSome wBody ty)))
         | _ -> None
@@ -92,7 +92,7 @@ let tryOptionInline
         match exprWType wOpt with
         | WType.Ref(inOptIdx, _) ->
             let wBody = transform (ctx.WithLocal(farg.Name, innerT)) fbody
-            Some(optBranch wOpt ty (WExpr.Const(WConst.Null ty))
+            Some(optBranch wOpt ty (nullConst ty)
                     (fun opt -> WExpr.Let(farg.Name, unwrapSome opt inOptIdx innerT, wBody)))
         | _ -> None
 

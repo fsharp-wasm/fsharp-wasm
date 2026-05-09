@@ -31,7 +31,7 @@ let tryHandleDefaultOf (ctx: Ctx) (wArgs: WExpr list) (ty: WType) : WExpr option
         // Reference type: null value
         Some (WExpr.Const(WConst.Null ty))
     | WType.I32 ->
-        Some (WExpr.Const(WConst.I32 0))
+        Some (i32Zero)
     | WType.I64 ->
         Some (WExpr.Const(WConst.I64 0L))
     | WType.F32 ->
@@ -193,16 +193,18 @@ let tryHandleStdlibImport (ctx: Ctx) (selector: string) (wArgs: WExpr list) (ty:
             match wArgs with
             | [a; b] ->
                 match exprWType a with
-                | WType.F64 -> Some(WExpr.Binary(WBinaryOp.Sub, WExpr.Binary(WCompareOp.GtS, a, b, WType.I32),
-                                                                  WExpr.Binary(WCompareOp.LtS, a, b, WType.I32), WType.I32))
+                | WType.F64 -> Some(WExpr.Binary(WBinaryOp.Sub, WExpr.Compare(WCompareOp.GtS, a, b),
+                                                                  WExpr.Compare(WCompareOp.LtS, a, b), WType.I32))
                 | WType.I64 ->
                     // i64 compare: sign(a-b)
                     let diff = WExpr.Binary(WBinaryOp.Sub, a, b, WType.I64)
-                    Some(WExpr.If(WExpr.Binary(WCompareOp.LtS, diff, WExpr.Const(WConst.I64 0L), WType.I32),
-                                  WExpr.Const(WConst.I32 -1),
-                                  WExpr.If(WExpr.Binary(WCompareOp.GtS, diff, WExpr.Const(WConst.I64 0L), WType.I32),
-                                            WExpr.Const(WConst.I32 1),
-                                            WExpr.Const(WConst.I32 0), WType.I32), WType.I32))
+                    Some(makeIf (WExpr.Compare(WCompareOp.LtS, diff, i64Const 0L))
+                                  (WExpr.Const(WConst.I32 -1))
+                                  (makeIf (WExpr.Compare(WCompareOp.GtS, diff, i64Const 0L))
+                                            (WExpr.Const(WConst.I32 1))
+                                            (i32Zero)
+                                            WType.I32)
+                                  WType.I32)
                 | _ ->
                     Some(WExpr.Binary(WBinaryOp.Sub, a, b, WType.I32))
             | _ -> None
