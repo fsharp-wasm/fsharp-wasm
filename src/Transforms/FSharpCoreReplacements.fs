@@ -193,17 +193,11 @@ let tryHandleStdlibImport (ctx: Ctx) (selector: string) (wArgs: WExpr list) (ty:
             match wArgs with
             | [a; b] ->
                 match exprWType a with
-                | WType.F64 -> Some(sub (gtS a b) (ltS a b))
-                | WType.I64 ->
-                    // i64 compare: sign(a-b)
-                    let diff = WExpr.Binary(WBinaryOp.Sub, a, b, WType.I64)
-                    Some(WExpr.If(WExpr.Compare(WCompareOp.LtS, diff, i64Const 0L),
-                                  i32Const -1,
-                                  WExpr.If(WExpr.Compare(WCompareOp.GtS, diff, i64Const 0L),
-                                            i32One,
-                                            i32Zero, WType.I32), WType.I32))
-                | _ ->
-                    Some(WExpr.Binary(WBinaryOp.Sub, a, b, WType.I32))
+                // Use boolean compare trick for sign: (a>b) - (a<b) → {-1,0,1}
+                // Works for f64, i64, and i32 without overflow and with less noise.
+                | WType.F64 -> Some((a >. b) -. (a <. b))
+                | WType.I64 -> Some((a >. b) -. (a <. b))
+                | _         -> Some((a >. b) -. (a <. b))
             | _ -> None
 
         | _ -> None
