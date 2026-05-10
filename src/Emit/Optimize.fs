@@ -22,7 +22,10 @@ open WasmGc.Builder.WasmPatterns
 // ─────────────────────────────────────────────────────────────────
 
 let rec isPure = function
-    | WExpr.Const _ | WExpr.LocalGet _ | WExpr.GlobalGet _ | WExpr.Nop -> true
+    | WExpr.Const _
+    | WExpr.LocalGet _
+    | WExpr.GlobalGet _
+    | WExpr.Nop -> true
     | WExpr.Let(_, v, b) | WExpr.LetMut(_, v, b) -> isPure v && isPure b
     | WExpr.Unary(_, x, _)
     | WExpr.Cast(x, _)

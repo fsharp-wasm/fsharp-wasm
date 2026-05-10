@@ -459,8 +459,8 @@ let tryListPrimitiveInline
                 do! listIter gen s headTail (fun elem ->
                     wasm {
                         let! h = elem
-                        return! WExpr.If(WExpr.Compare(cmpOp, h, best.Val),
-                            best.Set h, WExpr.Nop, WType.Void)
+                        return! wasmWhen (WExpr.Compare(cmpOp, h, best.Val))
+                            (best.Set h)
                     })
                 return best.Val
             })

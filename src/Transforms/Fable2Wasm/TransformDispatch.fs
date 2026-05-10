@@ -174,9 +174,9 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     |  "op_UnaryNegation_Int16"   | "op_UnaryNegation_UInt16"
     |  "op_UnaryNegation_Int32"   | "op_UnaryNegation_UInt32"
     |  "op_UnaryNegation"), [arg], WType.I32 ->
-        WExpr.Binary(WBinaryOp.Sub, WExpr.Const(WConst.I32 0), arg, WType.I32)
+        WExpr.Binary(WBinaryOp.Sub, i32Zero, arg, WType.I32)
     | ("op_UnaryNegation_Int64"   | "op_UnaryNegation"), [arg], WType.I64 ->
-        WExpr.Binary(WBinaryOp.Sub, WExpr.Const(WConst.I64 0L), arg, WType.I64)
+        WExpr.Binary(WBinaryOp.Sub, i64Const 0L, arg, WType.I64)
     | ("op_UnaryNegation_Float32"), [arg], WType.F32 ->
         WExpr.Unary(WUnaryOp.Neg, arg, WType.F32)
     | ("op_UnaryNegation_Float64" | "op_UnaryNegation"), [arg], WType.F64 ->
@@ -226,7 +226,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     // ── StringBuilder — calls from ./System.Text.fs ───────────────────────────
     | "StringBuilder_$ctor", _, _ ->
         // new StringBuilder() / new StringBuilder(capacity)
-        let cap = match wArgs with | [c] -> c | _ -> WExpr.Const(WConst.I32 16)
+        let cap = match wArgs with | [c] -> c | _ -> i32Const 16
         WExpr.Call(ctx.UseHelper("$sbCreate"), [cap], WType.Ref(StringBuilderTypeIdx, false))
     | sel, sb :: str :: _, _ when sel.StartsWith("StringBuilder__Append_") ->
         // sb.Append(str) — returns sb (unit in F# use, but typed as ref $StringBuilder)
@@ -246,21 +246,21 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; needle], WType.I32)
     // String.startsWith(str, prefix) → $strIndexOf == 0
     | "startsWith", [str; prefix], _ ->
-        WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; prefix], WType.I32), WExpr.Const(WConst.I32 0))
+        WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; prefix], WType.I32), i32Zero)
     // String.endsWith(str, suffix) → check at (len(str) - len(suffix))
     | "endsWith", [str; suffix], _ ->
-        let strLen  = WExpr.ArrayLen str
-        let sufLen  = WExpr.ArrayLen suffix
+        let strLen  = arrayLen str
+        let sufLen  = arrayLen suffix
         let pos     = WExpr.Binary(WBinaryOp.Sub, strLen, sufLen, WType.I32)
         // pos >= 0 && $strIndexOf(str, suffix) == pos
-        let posOk   = WExpr.Compare(WCompareOp.GeS, pos, WExpr.Const(WConst.I32 0))
+        let posOk   = WExpr.Compare(WCompareOp.GeS, pos, i32Zero)
         let atEnd   = WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; suffix], WType.I32), pos)
         WExpr.Binary(WBinaryOp.And, posOk, atEnd, WType.I32)
     // String.substring(str, start, len) → $strSubstring
     | "substring", [str; start; len], _ ->
         WExpr.Call(ctx.UseHelper("$strSubstring"), [str; start; len], WType.Ref(StringTypeIdx, false))
     | "substring", [str; start], _ ->
-        let len = WExpr.Binary(WBinaryOp.Sub, WExpr.ArrayLen str, start, WType.I32)
+        let len = WExpr.Binary(WBinaryOp.Sub, arrayLen str, start, WType.I32)
         WExpr.Call(ctx.UseHelper("$strSubstring"), [str; start; len], WType.Ref(StringTypeIdx, false))
     // ── Char predicates and conversions — delegated to Runtime helpers ──
     | "isDigit",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsDigit"),        [c], WType.I32)
@@ -284,15 +284,15 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         WExpr.Call(ctx.UseHelper("$strTrimEnd"), [str], WType.Ref(StringTypeIdx, false))
     // String.contains(str, needle) → $strIndexOf >= 0
     | "contains", [str; needle], _ ->
-        WExpr.Compare(WCompareOp.GeS, WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; needle], WType.I32), WExpr.Const(WConst.I32 0))
+        WExpr.Compare(WCompareOp.GeS, WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; needle], WType.I32), i32Zero)
     // String.IsNullOrEmpty(str) → array.len = 0 (our strings are never null in WasmGC)
     | "isNullOrEmpty", [str], _ ->
-        WExpr.Compare(WCompareOp.Eq, WExpr.ArrayLen(str), WExpr.Const(WConst.I32 0))
+        WExpr.Compare(WCompareOp.Eq, arrayLen(str), i32Zero)
     // String.IsNullOrWhiteSpace(str) → trim then check length = 0
     | "isNullOrWhiteSpace", [str], _ ->
         WExpr.Compare(WCompareOp.Eq,
-            WExpr.ArrayLen(WExpr.Call(ctx.UseHelper("$strTrim"), [str], WType.Ref(StringTypeIdx, false))),
-            WExpr.Const(WConst.I32 0))
+            arrayLen(WExpr.Call(ctx.UseHelper("$strTrim"), [str], WType.Ref(StringTypeIdx, false))),
+            i32Zero)
     // String.compare(a, b) / String.Compare(a, b) → $strCompare → i32 (-1 | 0 | 1)
     // Also handles generic "compare" calls with non-string args (e.g. int64 via Long module)
     | ("compare" | "compareOrdinal" | "compareCurrentCulture"), [a; b], WType.I32 ->
@@ -306,10 +306,10 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             let yv = "$cmp_b"
             WExpr.Let(xv, a, WExpr.Let(yv, b,
                 WExpr.If(WExpr.Compare(WCompareOp.Eq,  WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
-                    WExpr.Const(WConst.I32 0),
+                    i32Zero,
                     WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
-                        WExpr.Const(WConst.I32 -1),
-                        WExpr.Const(WConst.I32 1),
+                        i32Const -1,
+                        i32One,
                         WType.I32),
                     WType.I32)))
     // comparePrimitives(a, b) — Fable's generic primitive compare (Util.fs import).
@@ -324,10 +324,10 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             let yv = "$cpy"
             WExpr.Let(xv, a, WExpr.Let(yv, b,
                 WExpr.If(WExpr.Compare(WCompareOp.Eq,  WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
-                    WExpr.Const(WConst.I32 0),
+                    i32Zero,
                     WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
-                        WExpr.Const(WConst.I32 -1),
-                        WExpr.Const(WConst.I32 1),
+                        i32Const -1,
+                        i32One,
                         WType.I32),
                     WType.I32)))
     // toString for numbers (via LibCall path)
@@ -358,11 +358,11 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         match sepArr with
         | Some sepArrExpr ->
             // sepArrExpr is array of strings; take first element as the delimiter
-            let delim = WExpr.ArrayGet(sepArrExpr, WExpr.Const(WConst.I32 0), WType.Ref(StringTypeIdx, false))
+            let delim = WExpr.ArrayGet(sepArrExpr, i32Zero, WType.Ref(StringTypeIdx, false))
             WExpr.Call(ctx.UseHelper("$strSplit"), [str; delim], arrRef)
         | None ->
             // No separator — split on whitespace (use " " as separator)
-            let space = WExpr.ArrayNewFixed(StringTypeIdx, [WExpr.Const(WConst.I32 32)], WType.Ref(StringTypeIdx, false))
+            let space = WExpr.ArrayNewFixed(StringTypeIdx, [i32Const 32], WType.Ref(StringTypeIdx, false))
             WExpr.Call(ctx.UseHelper("$strSplit"), [str; space], arrRef)
     // ── printf-style format strings: "interpolate" (printfn/%d/%s/%f) ─────────
     // Fable emits: LibCall(String, "interpolate", [StringConst fmt; NewArray(ArrayValues vals)])
@@ -485,10 +485,10 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | "defaultOf", [], _ ->
         match ty with
         | WType.Ref(_, _) -> WExpr.Const(WConst.Null ty)
-        | WType.I32 -> WExpr.Const(WConst.I32 0)
-        | WType.I64 -> WExpr.Const(WConst.I64 0L)
-        | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
-        | WType.F64 -> WExpr.Const(WConst.F64 0.0)
+        | WType.I32 -> i32Zero
+        | WType.I64 -> i64Const 0L
+        | WType.F32 -> f32Const 0.0f
+        | WType.F64 -> f64Const 0.0
         | _ -> WExpr.Nop
     // ── IDisposable.Dispose → no-op (for now) ───────────────────────────────────────
     | "disposeSafe", [_obj], _ ->
@@ -503,7 +503,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         WExpr.Nop
     // ── Object.GetHashCode stub → identityHash (return 0) ────────────────────────────
     | "identityHash", [_obj], WType.I32 ->
-        WExpr.Const(WConst.I32 0)
+        i32Zero
     // ── toConsole (printfn final stage): calls $consolePrint(str) ─────────────
     // Emits a call to the JS-imported $consolePrint function.
     // String.toConsole is called with the final formatted string.
@@ -728,10 +728,10 @@ let transformCall
                 WExpr.Let(tmp, wChar,
                     WExpr.If(
                         WExpr.Binary(WBinaryOp.And,
-                            WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 65)),
-                            WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 90)),
+                            WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), i32Const 65),
+                            WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), i32Const 90),
                             WType.I32),
-                        WExpr.Binary(WBinaryOp.Add, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 32), WType.I32),
+                        WExpr.Binary(WBinaryOp.Add, WExpr.LocalGet(tmp, WType.I32), i32Const 32, WType.I32),
                         WExpr.LocalGet(tmp, WType.I32), WType.I32))
             | ("toLocaleUpperCase" | "toUpper" | "toUpperCase") ->
                 // Char.ToUpper: if a-z then c-32 else c
@@ -739,10 +739,10 @@ let transformCall
                 WExpr.Let(tmp, wChar,
                     WExpr.If(
                         WExpr.Binary(WBinaryOp.And,
-                            WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 97)),
-                            WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 122)),
+                            WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), i32Const 97),
+                            WExpr.Compare(WCompareOp.LeS, WExpr.LocalGet(tmp, WType.I32), i32Const 122),
                             WType.I32),
-                        WExpr.Binary(WBinaryOp.Sub, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 32), WType.I32),
+                        WExpr.Binary(WBinaryOp.Sub, WExpr.LocalGet(tmp, WType.I32), i32Const 32, WType.I32),
                         WExpr.LocalGet(tmp, WType.I32), WType.I32))
             | _ ->
                 eprintfn "[WasmGc] WARNING: unhandled char method '%s' — returning char unchanged" fi.Name
@@ -769,12 +769,12 @@ let transformCall
             when fi.Name = "log10" ->
             match wArgs with
             | [a] -> WExpr.Binary(WBinaryOp.DivS, WExpr.Call(ctx.UseHelper("$mathLog"), [a], WType.F64), WExpr.Const(WConst.F64 2.302585092994046), WType.F64)
-            | _ -> WExpr.Const(WConst.F64 0.0)
+            | _ -> f64Const 0.0
         | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
             when fi.Name = "log2" ->
             match wArgs with
             | [a] -> WExpr.Binary(WBinaryOp.DivS, WExpr.Call(ctx.UseHelper("$mathLog"), [a], WType.F64), WExpr.Const(WConst.F64 0.6931471805599453), WType.F64)
-            | _ -> WExpr.Const(WConst.F64 0.0)
+            | _ -> f64Const 0.0
         | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
             when fi.Name = "sin" ->
             match ty, wArgs with
@@ -817,36 +817,36 @@ let transformCall
                 WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; needle], WType.I32)
             | "indexOf", [needle; fromIdx] ->
                 // For indexOf with fromIndex: search in substring from fromIdx
-                let subLen = WExpr.Binary(WBinaryOp.Sub, WExpr.ArrayLen wStr, fromIdx, WType.I32)
+                let subLen = WExpr.Binary(WBinaryOp.Sub, arrayLen wStr, fromIdx, WType.I32)
                 let sub = WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; fromIdx; subLen], WType.Ref(StringTypeIdx, false))
                 let found = WExpr.Call(ctx.UseHelper("$strIndexOf"), [sub; needle], WType.I32)
                 // if found >= 0, add fromIdx back; else keep -1
                 let tmp = "$iofi_tmp"
                 WExpr.Let(tmp, found,
                     WExpr.If(
-                        WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), WExpr.Const(WConst.I32 0)),
+                        WExpr.Compare(WCompareOp.GeS, WExpr.LocalGet(tmp, WType.I32), i32Zero),
                         WExpr.Binary(WBinaryOp.Add, WExpr.LocalGet(tmp, WType.I32), fromIdx, WType.I32),
-                        WExpr.Const(WConst.I32 -1), WType.I32))
+                        i32Const -1, WType.I32))
             | "lastIndexOf", [needle] ->
                 WExpr.Call(ctx.UseHelper("$strLastIndexOf"), [wStr; needle], WType.I32)
             | "lastIndexOf", [needle; fromIdx] ->
                 // For lastIndexOf with fromIndex: search in prefix up to fromIdx+1
-                let clamped = WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; WExpr.Const(WConst.I32 0); WExpr.Binary(WBinaryOp.Add, fromIdx, WExpr.Const(WConst.I32 1), WType.I32)], WType.Ref(StringTypeIdx, false))
+                let clamped = WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; i32Zero; WExpr.Binary(WBinaryOp.Add, fromIdx, i32One, WType.I32)], WType.Ref(StringTypeIdx, false))
                 WExpr.Call(ctx.UseHelper("$strLastIndexOf"), [clamped; needle], WType.I32)
             | "startsWith", [prefix] ->
-                WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; prefix], WType.I32), WExpr.Const(WConst.I32 0))
+                WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; prefix], WType.I32), i32Zero)
             | "endsWith", [suffix] ->
-                let pos = WExpr.Binary(WBinaryOp.Sub, WExpr.ArrayLen wStr, WExpr.ArrayLen suffix, WType.I32)
-                let posOk = WExpr.Compare(WCompareOp.GeS, pos, WExpr.Const(WConst.I32 0))
+                let pos = WExpr.Binary(WBinaryOp.Sub, arrayLen wStr, arrayLen suffix, WType.I32)
+                let posOk = WExpr.Compare(WCompareOp.GeS, pos, i32Zero)
                 let atEnd = WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; suffix], WType.I32), pos)
                 WExpr.Binary(WBinaryOp.And, posOk, atEnd, WType.I32)
             | "substring", [start] ->
-                let len = WExpr.Binary(WBinaryOp.Sub, WExpr.ArrayLen wStr, start, WType.I32)
+                let len = WExpr.Binary(WBinaryOp.Sub, arrayLen wStr, start, WType.I32)
                 WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; start; len], strRef)
             | "substring", [start; len] ->
                 WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; start; len], strRef)
             | "slice", [start] ->
-                let len = WExpr.Binary(WBinaryOp.Sub, WExpr.ArrayLen wStr, start, WType.I32)
+                let len = WExpr.Binary(WBinaryOp.Sub, arrayLen wStr, start, WType.I32)
                 WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; start; len], strRef)
             | "slice", [start; endIdx] ->
                 let len = WExpr.Binary(WBinaryOp.Sub, endIdx, start, WType.I32)
@@ -864,7 +864,7 @@ let transformCall
             | ("trimEnd" | "trimRight"), [] ->
                 WExpr.Call(ctx.UseHelper("$strTrimEnd"), [wStr], strRef)
             | ("includes" | "contains"), [needle] ->
-                WExpr.Compare(WCompareOp.GeS, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; needle], WType.I32), WExpr.Const(WConst.I32 0))
+                WExpr.Compare(WCompareOp.GeS, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; needle], WType.I32), i32Zero)
             | "replace", [oldSub; newSub] ->
                 WExpr.Call(ctx.UseHelper("$strReplace"), [wStr; oldSub; newSub], strRef)
             | "split", [sep] ->

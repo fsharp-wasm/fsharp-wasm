@@ -33,11 +33,11 @@ let tryHandleDefaultOf (ctx: Ctx) (wArgs: WExpr list) (ty: WType) : WExpr option
     | WType.I32 ->
         Some (i32Zero)
     | WType.I64 ->
-        Some (WExpr.Const(WConst.I64 0L))
+        Some (i64Const 0L)
     | WType.F32 ->
-        Some (WExpr.Const(WConst.F32 0.0f))
+        Some (f32Const 0.0f)
     | WType.F64 ->
-        Some (WExpr.Const(WConst.F64 0.0))
+        Some (f64Const 0.0)
     | _ ->
         // Unknown: fall through to Nop (compiler will warn)
         Some WExpr.Nop
@@ -69,7 +69,7 @@ let tryHandleIdentityHash (ctx: Ctx) (wArgs: WExpr list) (ty: WType) : WExpr opt
     | [_obj] ->
         // Stub: return 0 for all objects.
         // (In future: extract address bits from ref, or use ref identity)
-        Some (WExpr.Const(WConst.I32 0))
+        Some (i32Zero)
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ let tryHandleException (ctx: Ctx) (selector: string) (wArgs: WExpr list) (ty: WT
             match wArgs with
             | []        -> WExpr.ArrayNewFixed(StringTypeIdx, [], WType.Ref(StringTypeIdx, false)) // ""
             | msg :: _  -> msg   // first arg is always the message
-        Some(WExpr.StructNew(typeIdx, [msgArg], WType.Ref(typeIdx, false)))
+        Some(structNew typeIdx [msgArg] (WType.Ref(typeIdx, false)))
 
 // ─────────────────────────────────────────────────────────────────
 // Main dispatcher for FSharp.Core imports
@@ -193,18 +193,15 @@ let tryHandleStdlibImport (ctx: Ctx) (selector: string) (wArgs: WExpr list) (ty:
             match wArgs with
             | [a; b] ->
                 match exprWType a with
-                | WType.F64 -> Some(WExpr.Binary(WBinaryOp.Sub, WExpr.Compare(WCompareOp.GtS, a, b),
-                                                                  WExpr.Compare(WCompareOp.LtS, a, b), WType.I32))
+                | WType.F64 -> Some(sub (gtS a b) (ltS a b))
                 | WType.I64 ->
                     // i64 compare: sign(a-b)
                     let diff = WExpr.Binary(WBinaryOp.Sub, a, b, WType.I64)
-                    Some(makeIf (WExpr.Compare(WCompareOp.LtS, diff, i64Const 0L))
-                                  (WExpr.Const(WConst.I32 -1))
-                                  (makeIf (WExpr.Compare(WCompareOp.GtS, diff, i64Const 0L))
-                                            (WExpr.Const(WConst.I32 1))
-                                            (i32Zero)
-                                            WType.I32)
-                                  WType.I32)
+                    Some(WExpr.If(WExpr.Compare(WCompareOp.LtS, diff, i64Const 0L),
+                                  i32Const -1,
+                                  WExpr.If(WExpr.Compare(WCompareOp.GtS, diff, i64Const 0L),
+                                            i32One,
+                                            i32Zero, WType.I32), WType.I32))
                 | _ ->
                     Some(WExpr.Binary(WBinaryOp.Sub, a, b, WType.I32))
             | _ -> None

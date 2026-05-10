@@ -111,10 +111,10 @@ let tryOptionInline
         match exprWType wOpt with
         | WType.Ref(optIdx, _) ->
             let wPred = transform (ctx.WithLocal(farg.Name, innerT)) fbody
-            let none  = WExpr.Const(WConst.Null ty)
+            let none  = nullConst ty
             Some(optBranch wOpt ty none (fun opt ->
                 WExpr.Let(farg.Name, unwrapSome opt optIdx innerT,
-                    WExpr.If(wPred, opt, none, ty))))
+                    makeIf wPred opt none ty)))
         | _ -> None
 
     // Option.defaultWith — None → thunk (), Some x → x
@@ -152,8 +152,8 @@ let tryResultInline
     let resultBranch (wResult: WExpr) (okCase: WExpr -> WExpr) =
         wasm {
             let! res = wResult
-            let isOk = WExpr.Compare(WCompareOp.Eq, WExpr.TagOf res, WExpr.Const(WConst.I32 0))
-            return WExpr.If(isOk, okCase res, res, ty)
+            let isOk = eq (WExpr.TagOf res) i32Zero
+            return makeIf isOk (okCase res) res ty
         }
 
     let withOkCase selector (resultArg: Fable.Expr) (farg: Fable.Ident) fbody =
@@ -166,8 +166,8 @@ let tryResultInline
                 let okRef    = WType.Ref(okCaseIdx, false)
                 let wBody    = transform (ctx.WithLocal(farg.Name, innerT)) fbody
                 Some(resultBranch (transform ctx resultArg) (fun res ->
-                    let castedOk = WExpr.Cast(res, okRef)
-                    let innerVal = WExpr.StructGet(castedOk, 1, innerT)
+                    let castedOk = cast res okRef
+                    let innerVal = structGet castedOk 1 innerT
                     WExpr.Let(farg.Name, innerVal, wBody)))
             | _ -> None
         | _ -> None
@@ -175,10 +175,10 @@ let tryResultInline
     match selector, fableArgs with
 
     // Result.isOk → tag == 0
-    | "Result_IsOk",    [r] -> Some(WExpr.Compare(WCompareOp.Eq, WExpr.TagOf(transform ctx r), WExpr.Const(WConst.I32 0)))
+    | "Result_IsOk",    [r] -> Some(eq (WExpr.TagOf(transform ctx r)) i32Zero)
 
     // Result.isError → tag != 0
-    | "Result_IsError", [r] -> Some(WExpr.Compare(WCompareOp.Ne, WExpr.TagOf(transform ctx r), WExpr.Const(WConst.I32 0)))
+    | "Result_IsError", [r] -> Some(ne (WExpr.TagOf(transform ctx r)) i32Zero)
 
     // Result.map f r — if Ok x → Ok (f x) else Error (pass through)
     // DSL: UnaryLambda handles both Lambda and Delegate([f]) cases
@@ -195,10 +195,10 @@ let tryResultInline
     //            let okRef    = WType.Ref(okCaseIdx, false)
     //            let wBody    = transform (ctx.WithLocal(farg.Name, innerT)) fbody
     //            Some(resultBranch (transform ctx resultArg) (fun res ->
-    //                let castedOk = WExpr.Cast(res, okRef)
-    //                let innerVal = WExpr.StructGet(castedOk, 1, innerT)
+    //                let castedOk = cast res okRef
+    //                let innerVal = structGet castedOk 1 innerT
     //                WExpr.Let(farg.Name, innerVal,
-    //                    WExpr.StructNew(okCaseIdx, [WExpr.Const(WConst.I32 0); wBody], ty))))
+    //                    WExpr.StructNew(okCaseIdx, [i32Zero; wBody], ty))))
     //        | _ -> None
     //    | _ -> None
 

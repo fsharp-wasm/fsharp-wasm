@@ -38,16 +38,19 @@ let private resizeArrayPushInline (ctx: Ctx) (elemT: WType) (arrTypeIdx: int) (r
         let! len  = WExpr.StructGet(rav, 1, WType.I32)
         let! data = WExpr.Cast(WExpr.StructGet(rav, 0, arrRefT), arrNNRefT)
         // When len = capacity, double the array and update the struct.
-        do! Wasm.if_ (WExpr.Compare(WCompareOp.GeU, len, arrayLen data))
-                (wasm {
-                    let! newCap = WExpr.Binary(WBinaryOp.Shl, arrayLen data, i32One, WType.I32)
+        do! WExpr.If(WExpr.Compare(WCompareOp.GeU, len, arrayLen(data)),
+                wasm {
+                    let! newCap = WExpr.Binary(WBinaryOp.Shl, arrayLen(data),
+                                    i32One, WType.I32)
                     let! newDat = WExpr.ArrayNew(arrTypeIdx, newCap, zero, arrNNRefT)
-                    do! WExpr.ArrayCopy(newDat, i32Zero, data, i32Zero, len)
+                    do! WExpr.ArrayCopy(newDat, i32Zero,
+                                        data,   i32Zero, len)
                     return! WExpr.StructSet(rav, 0, newDat)
-                })
+                }, WExpr.Nop, WType.Void)
         // Re-read data (may have changed after grow)
         do! WExpr.ArraySet(WExpr.Cast(WExpr.StructGet(rav, 0, arrRefT), arrNNRefT), len, wVal)
-        return! WExpr.StructSet(rav, 1, WExpr.Binary(WBinaryOp.Add, len, i32One, WType.I32))
+        return! WExpr.StructSet(rav, 1,
+            WExpr.Binary(WBinaryOp.Add, len, i32One, WType.I32))
     }
 
 // the eval-Function get's called recursivly, but injected into module
@@ -65,9 +68,9 @@ let jsTypedArrayElemType (name: string) : (WType * WExpr) option =
     | "Int8Array"    | "Uint8Array"
     | "Int16Array"   | "Uint16Array"
     | "Int32Array"   | "Uint32Array"    -> Some(WType.I32, i32Zero)
-    | "BigInt64Array"| "BigUint64Array" -> Some(WType.I64, WExpr.Const(WConst.I64 0L))
-    | "Float32Array"                   -> Some(WType.F32, WExpr.Const(WConst.F32 0.0f))
-    | "Float64Array"                   -> Some(WType.F64, WExpr.Const(WConst.F64 0.0))
+    | "BigInt64Array"| "BigUint64Array" -> Some(WType.I64, i64Const 0L)
+    | "Float32Array"                   -> Some(WType.F32, f32Const 0.0f)
+    | "Float64Array"                   -> Some(WType.F64, f64Const 0.0)
     | _                                -> None
 
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
@@ -289,7 +292,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     | Fable.Expr.Get(expr, GetKind.FieldGet fi, _, _)
           when (fi.Name = "Length" || fi.Name = "length")
             && (match expr.Type with | Fable.Type.Array _ -> true | _ -> false) ->
-        WExpr.ArrayLen(transformExpr ctx expr)
+        arrayLen(transformExpr ctx expr)
 
     | Fable.Expr.Get(expr, GetKind.ExprGet idxExpr, typ, _)
           when (match expr.Type with | Fable.Type.Array _ -> true | _ -> false) ->
@@ -301,7 +304,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     // ── String operations (length, char indexing) ─────────
     | Fable.Expr.Get(expr, GetKind.FieldGet fi, _, _)
           when expr.Type = Fable.Type.String && (fi.Name = "length" || fi.Name = "Length") ->
-        WExpr.ArrayLen(transformExpr ctx expr)
+        arrayLen(transformExpr ctx expr)
 
     | Fable.Expr.Get(expr, GetKind.ExprGet idxExpr, _, _)
           when expr.Type = Fable.Type.String ->
@@ -381,7 +384,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             let castedObj = WExpr.Cast(wObj, WType.Ref(caseTypeIdx, false))
             WExpr.StructGet(castedObj, info.FieldIndex + 1, mapTypeKnown ctx typ)
         | None ->
-            WExpr.Const(WConst.I32 0)
+            i32Zero
 
     | Fable.Expr.Get(expr, GetKind.UnionTag, _, _) ->
         let wObj = transformExpr ctx expr
@@ -489,7 +492,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let elemWTy, zeroVal =
             match jsTypedArrayElemType ctorIdent.Name with
             | Some (et, zv) -> et, zv
-            | None -> WType.I32, WExpr.Const(WConst.I32 0) // unreachable
+            | None -> WType.I32, i32Zero // unreachable
         let wSize =
             ctorArgs |> List.tryHead
             |> Option.map (transformExpr ctx)
@@ -592,7 +595,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                     // Unit arg at a JS-bridge call site: the JS side sends an i32.
                     // Preserve as i32Const 0 so the stack count matches.
                     // For pure F# closures this is dead code (the body ignores it).
-                    WExpr.Const(WConst.I32 0)
+                    i32Zero
                 | _ -> wArg)
 
         let wArgs    = wArgsAll |> List.filter (fun a -> exprWType a <> WType.Void)
@@ -627,7 +630,7 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             let ctxWithIdent = ctx.WithLocal(ident.Name, WType.AnyRef)
             let wHandlerExpr = transformExpr ctxWithIdent expr
             let wHandlerWithCarrier =
-                WExpr.Let(ident.Name, WExpr.GlobalGet("$fsharp_exn_carrier", WType.AnyRef), wHandlerExpr)
+                WExpr.Let(ident.Name, globalGet "$fsharp_exn_carrier" WType.AnyRef, wHandlerExpr)
             ident.Name, wHandlerWithCarrier)
         let wFinally = finalizer |> Option.map (transformExpr ctx)
         let ty = mapType body.Type
