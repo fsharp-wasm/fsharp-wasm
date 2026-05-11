@@ -21,24 +21,31 @@
     <Compile Include="Helper/FableAstHelpers.fs" />
     <Compile Include="Helper/WasmTestHelper.fs" />
     <!-- <Compile Include="Helper/PipelineHelper.fs" /> -->
+    <Compile Include="Helper/SnapshotFramework.fs" />
 
     <Compile Include="Integration/ArrayReplacementTests.fs" />
     <Compile Include="Integration/ClosureCallTests.fs" />
+    <Compile Include="Integration/CurriedApplyTests.fs" />
     <Compile Include="Integration/ElmishTests.fs" />
     
+    
+
     <Compile Include="Integration/FableQueryTests.fs" />
+    <!-- TODO: FutureTests early impl from RealFSharpTests -->
     <!-- <Compile Include="Integration/FutureTests.fs" /> -->
 
     <Compile Include="Integration/ListReplacementTests.fs" />
     <Compile Include="Integration/PatternMatchTests.fs" />
+    <Compile Include="Integration/RealFSharpTests.fs" />
     <Compile Include="Integration/StringRuntimeTests.fs" />
     <Compile Include="Integration/WhileBangTests.fs" />
 
-    <Compile Include="Unit/CaptureTests.fs" />
 
+    <Compile Include="Unit/CaptureTests.fs" />
     <Compile Include="Unit/CEBuilderTests.fs" />
     <Compile Include="Unit/ClosureArityTests.fs" />
     <!-- <Compile Include="Unit/ClosureTests.fs" /> -->
+    <Compile Include="Unit/EmitTests.fs" />
 
     <Compile Include="Unit/IdentExprTests.fs" />
     <Compile Include="Unit/LocalsCollectionTests.fs" />

@@ -5,7 +5,7 @@ open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
-open WasmGc.Builder
+open WasmGc.Builder.Core
 
 module VT = WasmGc.Runtime.VTable
 

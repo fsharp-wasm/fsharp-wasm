@@ -6,7 +6,7 @@ module Tests.Unit.ClosureArityTests
 
 open Expecto
 open WasmGc.Core.AST
-open WasmGc.Builder
+open WasmGc.Builder.Core
 open WasmGc.Runtime.Types
 
 open WasmGc.Pipeline.Core

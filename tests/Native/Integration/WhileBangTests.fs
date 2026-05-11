@@ -6,8 +6,8 @@ module Tests.Integration.WhileBangTests
 
 open Expecto
 open WasmGc.Core.AST
-open WasmGc.Builder
-open WasmGc.Builder
+open WasmGc.Builder.Core
+open WasmGc.Builder.Core
 
 open WasmGc.Runtime.ListShape
 open WasmGc.Runtime.ListOps

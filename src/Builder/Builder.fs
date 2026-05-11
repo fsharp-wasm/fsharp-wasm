@@ -15,10 +15,13 @@
 ///   `for x in col do body`  → builder.ForExpr(col, fun x -> body)  [WExpr collection]
 ///
 /// Without the patch, `while!` falls back to Bind(WExpr, bool→WExpr) + While stack hack.
-module WasmGc.Builder
+module WasmGc.Builder.Core
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
+
+// [<AutoOpen>]
+// module Core = 
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Name / label generation
@@ -252,10 +255,12 @@ let loopResult (ty: WType) (fallback: WExpr) (body: (WExpr -> WExpr) -> WExpr) :
     let gen = LabelGen("loop")
     let brk v = WExpr.Break(gen.Exit, Some v)
     WExpr.Block(gen.Exit,
-        seqOf [WExpr.Loop(gen.Loop,
-                    seqOf [body brk; WExpr.Continue(gen.Loop, [])],
-                    WType.Void)
-               fallback],
+        seqOf [
+            WExpr.Loop(gen.Loop,
+                seqOf [body brk; WExpr.Continue(gen.Loop, [])],
+                WType.Void);
+            fallback
+        ],
         ty)
 
 // ── Scoped binding helpers ────────────────────────────────────────────────────
@@ -474,12 +479,12 @@ type WasmBuilder() =
     member _.Bind2Return(a: WExpr, b: WExpr, f: WExpr * WExpr -> WExpr) : WExpr =
         let n1, n2 = freshName(), freshName()
         WExpr.Let(n1, a, WExpr.Let(n2, b, f (WExpr.LocalGet(n1, exprWType a),
-                                              WExpr.LocalGet(n2, exprWType b))))
+                                            WExpr.LocalGet(n2, exprWType b))))
 
     member _.Bind2(a: WExpr, b: WExpr, f: WExpr * WExpr -> WExpr) : WExpr =
         let n1, n2 = freshName(), freshName()
         WExpr.Let(n1, a, WExpr.Let(n2, b, f (WExpr.LocalGet(n1, exprWType a),
-                                              WExpr.LocalGet(n2, exprWType b))))
+                                            WExpr.LocalGet(n2, exprWType b))))
 
 /// The `wasm { }` singleton CE builder.
 let wasm = WasmBuilder()
@@ -520,8 +525,8 @@ module Wasm =
     let foldRange (len: WExpr) (init: WExpr) (accTy: WType) (f: WExpr -> WExpr -> WExpr) : WExpr =
         let acc = freshName()
         WExpr.LetMut(acc, init,
-            seqOf [for_ len (fun i -> WExpr.Assign(acc, f (localGet acc accTy) i))
-                   localGet acc accTy])
+                seqOf [for_ len (fun i -> WExpr.Assign(acc, f (localGet acc accTy) i));
+                    localGet acc accTy])
 
     /// Early-exit block — body receives a `breakWith: WExpr → WExpr` to exit with value.
     let withEarlyExit (retTy: WType) (f: (WExpr -> WExpr) -> WExpr) : WExpr =
@@ -533,9 +538,9 @@ module Wasm =
     /// Infinite loop with BlockCtrl (break exits, continue jumps to top).
     let loop (body: BlockCtrl -> WExpr) : WExpr =
         let gen = LabelGen "loop"
-        let ctrl = { Break = WExpr.Break(gen.Exit, None)
-                     BreakWith = fun v -> WExpr.Break(gen.Exit, Some v)
-                     Continue = WExpr.Continue(gen.Loop, []) }
+        let ctrl = {    Break = WExpr.Break(gen.Exit, None)
+                        BreakWith = fun v -> WExpr.Break(gen.Exit, Some v)
+                        Continue = WExpr.Continue(gen.Loop, []) }
         WExpr.Block(gen.Exit,
             WExpr.Loop(gen.Loop,
                 seqOf [body ctrl; WExpr.Continue(gen.Loop, [])],
@@ -545,66 +550,19 @@ module Wasm =
     /// Named block with full BlockCtrl handle (supports BreakWith for typed exits).
     let labeledBlock (gen: LabelGen) (tag: string) (ty: WType) (body: BlockCtrl -> WExpr) : WExpr =
         let lbl  = gen.Next tag
-        let ctrl = { Break = WExpr.Break(lbl, None)
-                     BreakWith = fun v -> WExpr.Break(lbl, Some v)
-                     Continue = WExpr.Continue(lbl, []) }
+        let ctrl = {    Break = WExpr.Break(lbl, None)
+                        BreakWith = fun v -> WExpr.Break(lbl, Some v)
+                        Continue = WExpr.Continue(lbl, []) }
         WExpr.Block(lbl, body ctrl, ty)
 
     /// Named loop+block with full BlockCtrl.
     let labeledLoop (gen: LabelGen) (tag: string) (body: BlockCtrl -> WExpr) : WExpr =
         let lbl  = gen.Next tag
         let exit = lbl + "_exit"
-        let ctrl = { Break = WExpr.Break(exit, None)
-                     BreakWith = fun v -> WExpr.Break(exit, Some v)
-                     Continue = WExpr.Continue(lbl, []) }
+        let ctrl = {    Break = WExpr.Break(exit, None)
+                        BreakWith = fun v -> WExpr.Break(exit, Some v)
+                        Continue = WExpr.Continue(lbl, []) }
         WExpr.Block(exit,
             WExpr.Loop(lbl, seqOf [body ctrl; WExpr.Continue(lbl, [])], WType.Void),
             WType.Void)
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Layer 3 — WasmDsl infix operators + WasmPatterns active patterns
-// ═════════════════════════════════════════════════════════════════════════════
-
-/// Infix operators for WExpr. `open WasmDsl` inside helper modules.
-[<AutoOpen>]
-module WasmDsl =
-    let inline ( +.  ) a b = add   a b
-    let inline ( -.  ) a b = sub   a b
-    let inline ( *.  ) a b = mul   a b
-    let inline ( /.  ) a b = div_  a b
-    let inline ( %.  ) a b = rem_  a b
-    let inline ( =.  ) a b = eq    a b
-    let inline ( <>. ) a b = ne    a b
-    let inline ( <.  ) a b = ltS   a b
-    let inline ( <=. ) a b = leS   a b
-    let inline ( >.  ) a b = gtS   a b
-    let inline ( >=. ) a b = geS   a b
-    let inline ( &&. ) a b = wasmAnd a b
-    let inline ( ||. ) a b = wasmOr  a b
-    let inline ( +.. ) a b = addf64 a b
-    let inline ( -.. ) a b = subf64 a b
-    let inline ( *.. ) a b = mulf64 a b
-    let inline ( /.. ) a b = divf64 a b
-
-/// Active patterns for readable, refactor-safe WExpr transforms.
-module WasmPatterns =
-    let (|I32Lit|_|)  = function WExpr.Const(WConst.I32 n) -> Some n | _ -> None
-    let (|I64Lit|_|)  = function WExpr.Const(WConst.I64 n) -> Some n | _ -> None
-    let (|F64Lit|_|)  = function WExpr.Const(WConst.F64 v) -> Some v | _ -> None
-    let (|I32Zero|_|) = function WExpr.Const(WConst.I32 0) -> Some() | _ -> None
-    let (|I32One|_|)  = function WExpr.Const(WConst.I32 1) -> Some() | _ -> None
-
-    let (|BinAdd|_|) = function WExpr.Binary(WBinaryOp.Add,  a, b, t) -> Some(a, b, t) | _ -> None
-    let (|BinSub|_|) = function WExpr.Binary(WBinaryOp.Sub,  a, b, t) -> Some(a, b, t) | _ -> None
-    let (|BinMul|_|) = function WExpr.Binary(WBinaryOp.Mul,  a, b, t) -> Some(a, b, t) | _ -> None
-    let (|BinAnd|_|) = function WExpr.Binary(WBinaryOp.And,  a, b, t) -> Some(a, b, t) | _ -> None
-    let (|BinOr|_|)  = function WExpr.Binary(WBinaryOp.Or,   a, b, t) -> Some(a, b, t) | _ -> None
-
-    let (|CmpEq|_|)  = function WExpr.Compare(WCompareOp.Eq,  a, b) -> Some(a, b) | _ -> None
-    let (|CmpNe|_|)  = function WExpr.Compare(WCompareOp.Ne,  a, b) -> Some(a, b) | _ -> None
-    let (|CmpLt|_|)  = function WExpr.Compare(WCompareOp.LtS, a, b) -> Some(a, b) | _ -> None
-    let (|CmpGt|_|)  = function WExpr.Compare(WCompareOp.GtS, a, b) -> Some(a, b) | _ -> None
-
-    let (|IfExpr|_|)   = function WExpr.If(c, t, e, ty) -> Some(c, t, e, ty) | _ -> None
-    let (|LocalVar|_|) = function WExpr.LocalGet(n, ty)  -> Some(n, ty)       | _ -> None
-    let (|IsNull|_|)   = function WExpr.RefIsNull e       -> Some e            | _ -> None

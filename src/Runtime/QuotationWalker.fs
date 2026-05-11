@@ -24,7 +24,7 @@ open System.Reflection
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
-open WasmGc.Builder
+open WasmGc.Builder.Core
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Intrinsic attribute

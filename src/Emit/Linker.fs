@@ -46,10 +46,10 @@ let rec private typeDefKey (typeKey: int -> string) (def: WTypeDef) : string =
                 let r = rs |> List.map wt |> String.concat ","
                 $"fn({p})->({r})"
             | WType.Struct fields ->
-                let fs = fields |> List.map (fun f -> $"{f.Name}:{wt f.Type}:{if f.Mutable then "m" else ""}") |> String.concat ";"
+                let fs = fields |> List.map (fun f -> $"""{f.Name}:{wt f.Type}:{if f.Mutable then "m" else ""}""") |> String.concat ";"
                 $"struct({fs})"
             | WType.Array(elem, mut) ->
-                $"arr({wt elem},{if mut then "m" else ""})"
+                $"""arr({wt elem},{if mut then "m" else ""})"""
         wt
     match def with
     | WTypeDef.Struct(fields, parent) ->
@@ -57,7 +57,7 @@ let rec private typeDefKey (typeKey: int -> string) (def: WTypeDef) : string =
         let p  = parent |> Option.map (fun i -> $"<{typeKey i}") |> Option.defaultValue ""
         $"struct({fs}){p}"
     | WTypeDef.Array(elem, mut) ->
-        $"array({tyKey elem},{if mut then "m" else "i"})"
+        $"""array({tyKey elem},{if mut then "m" else "i"})"""
     | WTypeDef.Func(ps, rs) ->
         let p = ps |> List.map tyKey |> String.concat ","
         let r = rs |> List.map tyKey |> String.concat ","
@@ -279,9 +279,10 @@ let link (opts: LinkOptions) (modules: (string * WModule) list) : LinkResult =
     for mi, (_, m) in List.indexed modules do
         for g in m.Globals do
             if seenGlobals.Add(g.Name) then
-                mergedGlobals.Add { g with
-                    Type = rwt mi g.Type
-                    Init = remapExpr (rt mi) g.Init }
+                mergedGlobals.Add { 
+                    g with
+                        Type = rwt mi g.Type
+                        Init = remapExpr (rt mi) g.Init }
 
     // ── Step 6: merge exports ─────────────────────────────────────────────────
     let mergedExports =

@@ -6,7 +6,7 @@ module Tests.Unit.LocalsCollectionTests
 
 open Expecto
 open WasmGc.Core.AST
-open WasmGc.Builder
+open WasmGc.Builder.Core
 
 module Locals = WasmGc.Runtime.Locals
 

@@ -329,7 +329,7 @@ let autoFlushAfterTest (testFn: unit -> 'T) (ctxToFlush: Ctx) : 'T =
 // WExpr builders (convenience for test setup)
 // ─────────────────────────────────────────────────────────────────
 
-open WasmGc.Builder
+open WasmGc.Builder.Core
 
 let inline i32Const  n    = WExpr.Const(WConst.I32 n)
 let inline i64Const  n    = WExpr.Const(WConst.I64 n)

@@ -17,7 +17,8 @@ open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
-open WasmGc.Builder
+open WasmGc.Builder.Core
+open WasmGc.Builder.Operators
 
 // ─────────────────────────────────────────────────────────────────
 // Unchecked.defaultof<'T> → zero-like value for type T
@@ -195,9 +196,9 @@ let tryHandleStdlibImport (ctx: Ctx) (selector: string) (wArgs: WExpr list) (ty:
                 match exprWType a with
                 // Use boolean compare trick for sign: (a>b) - (a<b) → {-1,0,1}
                 // Works for f64, i64, and i32 without overflow and with less noise.
-                | WType.F64 -> Some((a >. b) -. (a <. b))
-                | WType.I64 -> Some((a >. b) -. (a <. b))
-                | _         -> Some((a >. b) -. (a <. b))
+                | WType.F64 -> Some(a <=> b)
+                | WType.I64 -> Some(a <=> b)
+                | _         -> Some(a <=> b)
             | _ -> None
 
         | _ -> None

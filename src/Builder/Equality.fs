@@ -5,7 +5,7 @@ module WasmGc.Runtime.Equality
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
-open WasmGc.Builder
+open WasmGc.Builder.Core
 open WasmGc.Runtime.Locals
 
 // ─────────────────────────────────────────────────────────────────

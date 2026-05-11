@@ -8,7 +8,7 @@ open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
-open WasmGc.Builder
+open WasmGc.Builder.Core
 open WasmGc.Runtime.Equality
 
 open WasmGc.Runtime.Runtime

@@ -87,6 +87,15 @@
     <Compile Include="Builder/Builder.fs" />
     <Compile Include="Builder/Locals.fs" />
     <Compile Include="Builder/Equality.fs" />
+    <Compile Include="Builder/Operators.fs" />
+
+    <!-- Emit -->
+    <Compile Include="Emit/ModuleInterface.fs" />
+    <Compile Include="Emit/Linker.fs" />
+    <Compile Include="Emit/Optimize.fs" />
+    <Compile Include="Emit/Emit.fs" />
+    <Compile Include="Emit/Encoder.fs" />
+    <Compile Include="Emit/Wat.fs" />
 
     <!-- Runtime -->
     <Compile Include="Runtime/FreeVars.fs" />
@@ -100,6 +109,7 @@
     <Compile Include="Runtime/Runtime.fs" />
 
     <!-- Pipeline -->
+    <Compile Include="Pipeline/MultiProject.fs" />
     <Compile Include="Pipeline/TypeResolver.fs" />
     <Compile Include="Pipeline/ScopeAnalyzer.fs" />
     <Compile Include="Pipeline/Normalizer.fs" />
@@ -107,6 +117,7 @@
     <Compile Include="Pipeline/Scope.fs" />
     <Compile Include="Pipeline/Validator.fs" />
     <Compile Include="Pipeline/Dumps.fs" />
+    <Compile Include="Pipeline/Phases.fs" />
 
     <!-- Transforms -->
     <Compile Include="Transforms/MathMap.fs" />
@@ -127,15 +138,7 @@
     <Compile Include="Transforms/Fable2Wasm/TransformOperation.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformMemberDecl.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformExpr.fs" />
-    <Compile Include="Transforms/Fable2Wasm/Fable2Wasm.fs" />
-
-    <!-- Emit -->
-    <Compile Include="Emit/Optimize.fs" />
-    <Compile Include="Emit/Emit.fs" />
-    <Compile Include="Emit/Encoder.fs" />
-    <Compile Include="Emit/Wat.fs" />
-
-    <Compile Include="Pipeline/Phases.fs" />
+    <Compile Include="Transforms/Fable2Wasm/Fable2Wasm.fs" />    
 
     <!-- Top-level Pipeline -->
     <Compile Include="Pipeline.fs" />

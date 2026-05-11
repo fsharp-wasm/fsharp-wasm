@@ -14,6 +14,8 @@ module WasmGc.Emit.Optimize
 
 open WasmGc.Core.AST
 open WasmGc.Util.WExprQuery   // rewrite, substituteLocal, exists, count, collect
+
+open WasmGc.Builder
 open WasmGc.Builder.WasmPatterns
 
 // ─────────────────────────────────────────────────────────────────

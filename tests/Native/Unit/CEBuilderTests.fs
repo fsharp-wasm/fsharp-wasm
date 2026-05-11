@@ -6,7 +6,7 @@ module Tests.Unit.CEBuilderTests
 
 open Expecto
 open WasmGc.Core.AST
-open WasmGc.Builder
+open WasmGc.Builder.Core
 
 module WExprQuery = WasmGc.Util.WExprQuery
 

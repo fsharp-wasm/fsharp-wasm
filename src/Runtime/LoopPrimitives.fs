@@ -7,8 +7,11 @@ module WasmGc.Runtime.LoopPrimitives
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder
+open WasmGc.Builder.Core
+
 
 open WasmGc.Runtime.ListShape
+open WasmGc.Builder.Operators
 
 // ─────────────────────────────────────────────────────────────────────────────
 // indexedLoop — index-based iteration over an array or string

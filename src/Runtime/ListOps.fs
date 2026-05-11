@@ -16,7 +16,7 @@ module WasmGc.Runtime.ListOps
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
-open WasmGc.Builder
+open WasmGc.Builder.Core
 
 open WasmGc.Runtime.ListShape
 open WasmGc.Runtime.LoopPrimitives

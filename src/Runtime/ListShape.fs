@@ -2,7 +2,7 @@ module WasmGc.Runtime.ListShape
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
-open WasmGc.Builder
+open WasmGc.Builder.Core
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ListShape — captures all per-element-type list information once
