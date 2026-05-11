@@ -49,6 +49,7 @@
 
     <Compile Include="Unit/IdentExprTests.fs" />
     <Compile Include="Unit/LocalsCollectionTests.fs" />
+    <Compile Include="Unit/OptimizerTests.fs" />
     <Compile Include="Unit/TypeResolutionTests.fs" />
   </ItemGroup>
 

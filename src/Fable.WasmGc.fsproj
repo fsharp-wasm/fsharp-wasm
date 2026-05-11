@@ -117,7 +117,6 @@
     <Compile Include="Pipeline/Scope.fs" />
     <Compile Include="Pipeline/Validator.fs" />
     <Compile Include="Pipeline/Dumps.fs" />
-    <Compile Include="Pipeline/Phases.fs" />
 
     <!-- Transforms -->
     <Compile Include="Transforms/MathMap.fs" />
@@ -139,6 +138,9 @@
     <Compile Include="Transforms/Fable2Wasm/TransformMemberDecl.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformExpr.fs" />
     <Compile Include="Transforms/Fable2Wasm/Fable2Wasm.fs" />    
+
+    <!-- TODO: split Phases.fs and Fable2Wasm for better code order -->
+    <Compile Include="Pipeline/Phases.fs" />
 
     <!-- Top-level Pipeline -->
     <Compile Include="Pipeline.fs" />

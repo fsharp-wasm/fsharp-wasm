@@ -98,7 +98,10 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         | WConst.Null WType.AnyRef -> [Instr.RefNull HeapType.Any]
         | WConst.Null _ -> [Instr.RefNull HeapType.None_]
         | WConst.Unit -> [] // unit produces no value
-        | WConst.String _ -> [Instr.I32Const 0] // TODO: string data section
+        // If this path is hit, something went wrong upstream.
+        | WConst.String s ->
+            failwithf "[WGC] Emit: WConst.String '%s' reached the emitter unhandled. \
+                    String literals must be lowered to ArrayNewFixed by TransformExpr." s 
 
     // ── Local/Global access ───────────────────────────────
     | WExpr.LocalGet(name, _) ->
@@ -108,16 +111,14 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         match Map.tryFind name ctx.GlobalIndex with
         | Some idx -> [Instr.GlobalGet idx]
         | None ->
-            eprintfn "[WasmGc] WARNING: unknown global '%s' in GlobalGet — emitting i32.const 0" name
-            [Instr.I32Const 0]
+            failwithf "[WGC] Emit: unknown global '%s' in GlobalGet. All globals must be registered before emission." name
 
     | WExpr.GlobalSet(name, value) ->
         let valueInstrs = emitExpr ctx value
         match Map.tryFind name ctx.GlobalIndex with
         | Some idx -> valueInstrs @ [Instr.GlobalSet idx]
         | None ->
-            eprintfn "[WasmGc] WARNING: unknown global '%s' in GlobalSet — dropping store" name
-            valueInstrs @ [Instr.Drop]
+            failwithf "[WGC] Emit: unknown global '%s' in GlobalSet. All globals must be registered before emission." name
 
     // ── Let binding ───────────────────────────────────────
     | WExpr.Let(name, value, body) ->
@@ -161,15 +162,14 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
 
     // ── Tail calls ────────────────────────────────────────
     | WExpr.TailCall(func, args, _) ->
-        // return_call: reuse current frame, tail-jump to the named function.
-        // Emits: args... return_call funcIdx
         let argInstrs = args |> List.collect (emitExpr ctx)
         match Map.tryFind func ctx.FuncIndex with
-        | Some funcIdx ->
-            argInstrs @ [Instr.ReturnCall funcIdx]
+        | Some funcIdx -> argInstrs @ [Instr.ReturnCall funcIdx]
         | None ->
-            // Fallback: regular call + return if function not yet indexed
-            argInstrs @ [Instr.Call 0; Instr.Return] // unreachable fallback
+            // Unknown function at emit time = compiler bug upstream.
+            // Emit unreachable so the developer sees a trap, not silent wrong behavior.
+            eprintfn "[WGC003] Emit: TailCall to unknown function '%s' — emitting trap" func
+            argInstrs @ [Instr.Drop; Instr.Unreachable]
 
     // ── Tail calls & Closures ─────────────────────────────
     | WExpr.TailCallRef(closure, args, funcTypeIdx, closureTypeIdx, _, _) ->
@@ -373,8 +373,10 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let labelDepths = List.init caseCount (fun i -> caseCount - 1 - i)
         let brTable     = Instr.BrTable(labelDepths, caseCount)
 
-        // TODO: we start to sort now? Really?!
-        // Sort cases by tag for deterministic output
+        // Sort cases by tag for deterministic output.
+        // Correct: br_table requires cases in index order [0, 1, 2, ...]
+        // without sorting, br_table depth calculation would be wrong.
+        // TODO: again - why sort - we cannot create a correct br_table without sorting, so this is not just for deterministic output, it's a correctness requirement. Maybe we should enforce this invariant in the IR instead of sorting here? Maybe
         let sortedCases  = cases |> List.sortBy fst
         let caseCodes    = sortedCases |> List.map (fun (_, body) -> emitExpr ctx body)
         let defaultCode  = emitExpr ctx default_
@@ -566,10 +568,14 @@ and exprResultType (expr: WExpr) : WType = exprWType expr
 
 and emitUnaryOp (op: WUnaryOp) (ty: WType) : Instr =
     match op, ty with
+    // | WUnaryOp.Neg, WType.I32 ->
+    //     // negate i32: 0 - x (we emit this as a sequence outside)
+    //     // For simplicity, just emit i32.const 0; i32.sub is handled at call site
+    //     Instr.I32Sub // caller must emit (i32.const 0) before operand
+    // TODO: if this get's already handled by the WExpr.Unary match arm, we can remove this case and just emit the sequence there.  For now, we keep it here to avoid accidentally forgetting to handle it in the WExpr.Unary arm.
+    // TODO: But, what is with the other cases here?
     | WUnaryOp.Neg, WType.I32 ->
-        // negate i32: 0 - x (we emit this as a sequence outside)
-        // For simplicity, just emit i32.const 0; i32.sub is handled at call site
-        Instr.I32Sub // caller must emit (i32.const 0) before operand
+        failwith "Emit: WUnaryOp.Neg/I32 must be handled by the emitExpr Unary match arm"
     | WUnaryOp.Neg, WType.F64 -> Instr.F64Neg
     | WUnaryOp.Neg, WType.F32 -> Instr.F32Neg
     | WUnaryOp.Abs, WType.F64 -> Instr.F64Abs
@@ -696,7 +702,9 @@ and emitCompareOp (op: WCompareOp) (ty: WType) : Instr =
     | WCompareOp.RefEq, _ -> Instr.RefEq
     | WCompareOp.Eq, WType.Ref _ -> Instr.RefEq
     // Ne on Ref — handled in emitExpr as [RefEq; I32Eqz]; should not reach here
-    | WCompareOp.Ne, WType.Ref _ -> Instr.RefEq
+    // | WCompareOp.Ne, WType.Ref _ -> Instr.RefEq
+    | WCompareOp.Ne, WType.Ref _ ->
+    failwith "Emit: Compare(Ne, Ref) must be handled in emitExpr, not emitCompareOp"
     | _ -> Instr.I32Eq // fallback
 
 // ─────────────────────────────────────────────────────────────────

@@ -172,7 +172,7 @@ let emitTests = testList "Emit / instruction lowering" [
         let funcType = { Name = "$fn"; Def = WTypeDef.Func([WType.Ref(0, false)], WType.I32) }
         let body = WExpr.Closure("innerFn", [], WType.Ref(0, false))
         let innerFn = func "innerFn" [] WType.I32 (WExpr.Const(WConst.I32 1))
-        let outerFn = func "f" [] WType.Ref(0, false) body
+        let outerFn = func "f" [] (WType.Ref(0, false)) body
         let m = { moduleWith [innerFn; outerFn] with
                     Types = [closureType; funcType] }
         let wm = Emit.emitModule m

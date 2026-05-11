@@ -58,9 +58,9 @@ let rec private typeDefKey (typeKey: int -> string) (def: WTypeDef) : string =
         $"struct({fs}){p}"
     | WTypeDef.Array(elem, mut) ->
         $"""array({tyKey elem},{if mut then "m" else "i"})"""
-    | WTypeDef.Func(ps, rs) ->
+    | WTypeDef.Func(ps, result) ->
         let p = ps |> List.map tyKey |> String.concat ","
-        let r = rs |> List.map tyKey |> String.concat ","
+        let r = tyKey result
         $"func({p})->({r})"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,8 +128,7 @@ let rec private remapExpr (rt: int -> int) (expr: WExpr) : WExpr =
     | WExpr.StructSet(s, f, v)       -> WExpr.StructSet(r s, f, r v)
     // Cast / test
     | WExpr.Cast(e, ty)              -> WExpr.Cast(r e, t ty)
-    | WExpr.CastNullable(e, ty)      -> WExpr.CastNullable(r e, t ty)
-    | WExpr.TypeTest(e, ty)          -> WExpr.TypeTest(r e, t ty)
+    | WExpr.RefTest(e, ty)           -> WExpr.RefTest(r e, t ty)
     // Closure ops
     | WExpr.Closure(fn, caps, ty)    -> WExpr.Closure(fn, List.map r caps, t ty)
     | WExpr.ClosureApply(clo, args, fti, cti, n, ty) ->
@@ -137,8 +136,8 @@ let rec private remapExpr (rt: int -> int) (expr: WExpr) : WExpr =
     | WExpr.TailCallRef(clo, args, fti, cti, n, ty) ->
         WExpr.TailCallRef(r clo, List.map r args, rt fti, rt cti, n, t ty)
     // TryCatch
-    | WExpr.TryCatch(body, catches, final) ->
-        WExpr.TryCatch(r body, catches |> List.map (fun (tag, h) -> tag, r h), Option.map r final)
+    | WExpr.TryCatch(body, catches, final, ty) ->
+        WExpr.TryCatch(r body, catches |> Option.map (fun (tag, h) -> tag, r h), Option.map r final, t ty)
     // Leaf / passthrough
     | e -> e
 
@@ -244,7 +243,7 @@ let link (opts: LinkOptions) (modules: (string * WModule) list) : LinkResult =
     let seenFuncNames = HashSet<string>()
 
     // External imports (not satisfied by any module in the link set)
-    let externalImports = ResizeArray<WImportEntry>()
+    let externalImports = ResizeArray<WImport>()
     let resolvedImportNames = HashSet<string>()  // imports resolved to direct calls
 
     // First pass: process imports — mark which are resolved internally

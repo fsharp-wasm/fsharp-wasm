@@ -16,6 +16,10 @@ open WasmGc.Core.AST
 open WasmGc.Emit.ModuleInterface
 open WasmGc.Emit.Linker
 
+module E = WasmGc.Emit.Emit
+module Enc = WasmGc.Emit.Encoder
+module Wat = WasmGc.Emit.Wat
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Dependency graph
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,21 +141,18 @@ let buildFromModules
         let merged = linkResult.Module
 
         // Emit WAT
-        // TODO: same name please
-        // let watText = WasmGc.Emit.Wat.emitModule merged
-        let watText = WasmGc.Emit.Wat.moduleToWat merged
+        let watText = Wat.moduleToWat merged // TODO: why not call it same as binary?
         
-        
-
-        // Emit binary
-        let wasmBytes = WasmGc.Emit.Encoder.encodeModule merged
+        // Emit binary: WModule → WasmModule → bytes
+        let wasmModule = E.emitModule merged
+        let wasmBytes = Enc.encodeModule wasmModule
 
         let projectName = namedModules |> List.last |> fst
         let wasmPath    = Path.Combine(opts.OutputDir, projectName + ".wasm")
         let watPath     = Path.Combine(opts.OutputDir, projectName + ".wat")
 
         // Write interface for the merged module (useful for consumers)
-        let iface = ModuleInterface.extract projectName "merged" merged
+        let iface = extract projectName "merged" merged
 
         { OutputFiles = [(wasmPath, wasmBytes)]
           WatFiles    = [(watPath,  watText)]
@@ -169,9 +170,10 @@ let buildFromModules
         let ifaces  = ResizeArray<string * ModuleInterface>()
 
         for name, m in namedModules do
-            let wat   = WasmGc.Emit.Wat.emitModule m
-            let bytes = WasmGc.Emit.Encoder.encodeModule m
-            let iface = ModuleInterface.extract name "head" m
+            let wat   = Wat.moduleToWat m
+            let wasmModule = E.emitModule m
+            let bytes = Enc.encodeModule wasmModule
+            let iface = extract name "head" m
 
             results.Add(Path.Combine(opts.OutputDir, name + ".wasm"), bytes)
             wats.Add(Path.Combine(opts.OutputDir, name + ".wat"),    wat)
@@ -182,7 +184,8 @@ let buildFromModules
             | Some dir ->
                 Directory.CreateDirectory(dir) |> ignore
                 let wgiPath = Path.Combine(dir, name + ".wgi")
-                File.WriteAllText(wgiPath, ModuleInterface.toJson iface)
+                let json: string = toJson iface
+                File.WriteAllText(wgiPath, json)
             | None -> ()
 
         { OutputFiles = results |> Seq.toList
