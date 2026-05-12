@@ -77,6 +77,8 @@
     <Compile Include="Core/Diagnostics.fs" />
     <Compile Include="Core/Types.fs" />
 
+    <Compile Include="Bcl/BclRegistry.fs" />
+
     <!-- Utilities (no Ctx dependency) -->
     <Compile Include="Util/WExprQuery.fs" />
     <Compile Include="Util/FableQuery.fs" />

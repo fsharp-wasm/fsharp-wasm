@@ -147,5 +147,7 @@ let assertAbsent (pred: WExpr -> bool) (msg: string) (expr: WExpr) =
 
 /// Assert exact node count matching `pred`.
 let assertCount (pred: WExpr -> bool) (expected: int) (msg: string) (expr: WExpr) =
-    let n = WExprQuery.collect (fun e -> if (pred e) then Some e else None) expr |> List.length
+    // TODO: do we need the filter here?
+    // let n = WExprQuery.collect (fun e -> if (pred e) then Some e else None) expr |> List.length
+    let n = WExprQuery.collect pred expr |> List.length
     Expect.equal n expected msg

@@ -20,6 +20,15 @@ open Expecto
 open WasmGc.Core.AST
 open WasmGc.Builder.Core
 open WasmGc.Util.WExprQuery
+
+// TODO: this should be a helper in Compiler not in Tests. So for now it's here
+// Collect values by mapping nodes to option 'a and accumulating matches.
+let collectAll (picker: WExpr -> 'a option) (expr: WExpr) : 'a list =
+    WasmGc.Util.WExprQuery.fold (fun acc e ->
+        match picker e with
+        | Some v -> v :: acc
+        | None -> acc) [] expr
+    |> List.rev
 open Tests.WasmTestHelper
 open Tests.Snapshot.Framework
 

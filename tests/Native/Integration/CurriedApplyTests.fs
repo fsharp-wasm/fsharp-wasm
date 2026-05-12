@@ -1,10 +1,13 @@
 module Tests.Integration.CurriedApplyTests
 
 open Expecto
+open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc
 open Tests.WasmTestHelper
+open Tests.WasmTestHelper.FableAst
+open WasmGc.Transforms.TransformExpr
 
 [<Tests>]
 let curryingTests = testList "Curried Application" [
@@ -15,9 +18,12 @@ let curryingTests = testList "Curried Application" [
 
         // let add a b = a + b
         // let partial = add 10
-        let addFn = mkIdent "add" (Type.Lambda(intType, Type.Lambda(intType, intType)))
-
-        let partialApply = Expr.Delegate(addFn, [mkIntLit 10], None)
+        let addFn = mkIdent "add" (Type.LambdaType(intType, Type.LambdaType(intType, intType)))
+        // Build a one-arg delegate body referencing 'add' (free var), to exercise closure creation.
+        let x = mkParam "x" intType
+        // TODO: we need `mkIntLit 10`
+        let partialApply = Expr.Delegate([x], addFn, None, [])        
+        // let partialApply = Expr.Delegate([mkIntLit 10], addFn, None, [])
 
         let result = transformExpr ctx partialApply
 

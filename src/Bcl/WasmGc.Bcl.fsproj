@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WasmGc.Bcl</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Only needs Core (WExpr/WType) and Builder DSL — no Fable.AST dependency -->
+    <ProjectReference Include="../Fable.WasmGc.Core.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="StringHelpers.fs" />
+    <Compile Include="CharHelpers.fs" />
+    <Compile Include="MathHelpers.fs" />
+    <Compile Include="StringBuilderHelpers.fs" />
+    <Compile Include="BclRegistry.fs" />
+  </ItemGroup>
+</Project>

@@ -16,6 +16,9 @@ type Op =
     | Mul of int
     | Custom of (int -> int)
 
+type Point = { X: int; Y: int }
+type Segment = { A: Point; B: Point }
+
 let private applyDiscount (basePrice: int) (d: Discount) =
     match d with
     | NoDiscount -> basePrice
@@ -126,8 +129,8 @@ module CompilerPipelineSmokeTests =
                 Expect.equal acc 3 "imperative execution over DU-program"
 
             testCase "integration smoke: nested records + tuples + arrays + folds" <| fun () ->
-                type Point = { X: int; Y: int }
-                type Segment = { A: Point; B: Point }
+                // type Point = { X: int; Y: int }
+                // type Segment = { A: Point; B: Point }
 
                 let segments =
                     [| { A = { X = 0; Y = 0 }; B = { X = 3; Y = 4 } }   // manhattan 7

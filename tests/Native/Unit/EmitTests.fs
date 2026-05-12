@@ -193,27 +193,27 @@ let watTests = testList "Emit / WAT text output" [
 
     test "simple function appears in WAT with correct name" {
         let m = moduleWith [exportedFunc "myFunc" [] WType.I32 (WExpr.Const(WConst.I32 42))]
-        let wat = Wat.emitModule m
+        let wat = Wat.moduleToWat m
         Expect.stringContains wat "myFunc" "exported func name must appear in WAT"
         Expect.stringContains wat "i32.const 42" "constant 42 must appear as i32.const"
     }
 
     test "WAT contains (module ...) wrapper" {
         let m = emptyModule
-        let wat = Wat.emitModule m
+        let wat = Wat.moduleToWat m
         Expect.stringContains wat "(module" "WAT output must start with (module"
     }
 
     test "exported function appears in export section" {
         let m = moduleWith [exportedFunc "answer" [] WType.I32 (WExpr.Const(WConst.I32 42))]
-        let wat = Wat.emitModule m
+        let wat = Wat.moduleToWat m
         Expect.stringContains wat "(export \"answer\"" "export name must appear in WAT"
     }
 
     test "type definitions appear in WAT" {
         let m = { emptyModule with
                     Types = [{ Name = "$StrArr"; Def = WTypeDef.Array(WType.I32, true) }] }
-        let wat = Wat.emitModule m
+        let wat = Wat.moduleToWat m
         Expect.stringContains wat "$StrArr" "type name must appear in WAT type section"
     }
 
@@ -221,15 +221,15 @@ let watTests = testList "Emit / WAT text output" [
         let body = WExpr.Binary(WBinaryOp.Add,
                      WExpr.Const(WConst.I32 1), WExpr.Const(WConst.I32 2), WType.I32)
         let m = moduleWith [func "f" [] WType.I32 body]
-        let wat = Wat.emitModule m
+        let wat = Wat.moduleToWat m
         Expect.stringContains wat "i32.add" "Binary Add on i32 must emit i32.add in WAT"
     }
 
     test "WAT output is deterministic across multiple calls" {
         let m = moduleWith [exportedFunc "f" [("x", WType.I32)] WType.I32
                               (WExpr.LocalGet("x", WType.I32))]
-        let wat1 = Wat.emitModule m
-        let wat2 = Wat.emitModule m
+        let wat1 = Wat.moduleToWat m
+        let wat2 = Wat.moduleToWat m
         Expect.equal wat1 wat2 "WAT output must be deterministic"
     }
 
@@ -251,7 +251,8 @@ let encoderTests = testList "Emit / binary encoder" [
 
     test "encoded binary starts with WASM magic + version" {
         let m = emptyModule
-        let bytes = Encoder.encodeModule m
+        let wm = Emit.emitModule m
+        let bytes = Encoder.encodeModule wm
         // Magic: \0asm, Version: \1\0\0\0
         Expect.isGreaterThanOrEqual bytes.Length 8 "WASM binary must be at least 8 bytes"
         Expect.equal bytes.[0] 0x00uy "byte 0: magic 0x00"
@@ -266,21 +267,22 @@ let encoderTests = testList "Emit / binary encoder" [
 
     test "empty module encodes to exactly 8 bytes (magic + version only)" {
         let m = emptyModule
-        let bytes = Encoder.encodeModule m
+        let wm = Emit.emitModule m
+        let bytes = Encoder.encodeModule wm
         Expect.equal bytes.Length 8 "empty module = 8 bytes (magic + version, no sections)"
     }
 
     test "encoded binary is different for different function bodies" {
         let m1 = moduleWith [func "f" [] WType.I32 (WExpr.Const(WConst.I32 1))]
         let m2 = moduleWith [func "f" [] WType.I32 (WExpr.Const(WConst.I32 2))]
-        let b1 = Encoder.encodeModule m1
-        let b2 = Encoder.encodeModule m2
+        let b1 = Encoder.encodeModule (Emit.emitModule m1)
+        let b2 = Encoder.encodeModule (Emit.emitModule m2)
         Expect.notEqual b1 b2 "different function bodies must produce different binaries"
     }
 
     test "module with one exported function encodes export section" {
         let m = moduleWith [exportedFunc "hello" [] WType.Void WExpr.Nop]
-        let bytes = Encoder.encodeModule m
+        let bytes = Encoder.encodeModule (Emit.emitModule m)
         // Section ID 7 = export section
         let hasExportSection = bytes |> Array.exists ((=) 7uy)
         Expect.isTrue hasExportSection "module with export must contain export section (id=7)"

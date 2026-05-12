@@ -292,7 +292,7 @@ let private arrayMapBody =
         WExpr.Let("res", WExpr.ArrayNew(1, g "n", i32 0, arrTy),
             WExpr.LetMut("i", i32 0,
                 WExpr.Sequence [
-                    WExpr.Binary(WBinaryOp.Add, i32 0, i32 0, WType.I32) |> ignore  // dead expr
+                    WExpr.Binary(WBinaryOp.Add, i32 0, i32 0, WType.I32)  // dead expr
                     WExpr.Block("exit",
                         WExpr.Loop("lp",
                             WExpr.If(
