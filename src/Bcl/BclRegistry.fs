@@ -91,7 +91,8 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$sbToString",        StringBuilderHelpers.makeStringBuilderToStringHelper
     ]
 
-/// Emit only the helpers that were actually used (including transitively resolved deps).
+/// Build and return all helpers that are in `ctx.UsedHelpers`,
+/// including transitively-required dependencies.
 let emitUsed (ctx: Ctx) : WFuncDecl list =
     resolve ctx.UsedHelpers
     forModule ctx

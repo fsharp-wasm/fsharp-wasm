@@ -57,6 +57,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="src/Core/WasmGc.Core.fsproj" />
+    <ProjectReference Include="src/Bcl/WasmGc.Bcl.fsproj" />
+    <ProjectReference Include="src/Builder/WasmGc.Builder.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!--
       Source order (strict dependency order):
         1. WasmGC AST types (WasmGc.Core.AST) — no deps on Fable.Transforms
@@ -73,11 +79,10 @@
         12. Binary encoder
     -->
     <!-- Core -->
-    <Compile Include="Core/AST.fs" />
-    <Compile Include="Core/Diagnostics.fs" />
-    <Compile Include="Core/Types.fs" />
-
-    <Compile Include="Bcl/BclRegistry.fs" />
+    <!-- <Compile Include="Core/AST.fs" /> -->
+    <!-- <Compile Include="Core/Diagnostics.fs" /> -->
+    <!-- <Compile Include="Core/Types.fs" /> -->
+    <!-- <Compile Include="Bcl/BclRegistry.fs" /> -->
 
     <!-- Utilities (no Ctx dependency) -->
     <Compile Include="Util/WExprQuery.fs" />
@@ -86,10 +91,10 @@
     <Compile Include="Util/IrDump.fs" />
 
     <!-- Builder -->
-    <Compile Include="Builder/Builder.fs" />
-    <Compile Include="Builder/Locals.fs" />
-    <Compile Include="Builder/Equality.fs" />
-    <Compile Include="Builder/Operators.fs" />
+    <!-- <Compile Include="Builder/Builder.fs" /> -->
+    <!-- <Compile Include="Builder/Locals.fs" /> -->
+    <!-- <Compile Include="Builder/Equality.fs" /> -->
+    <!-- <Compile Include="Builder/Operators.fs" /> -->
 
     <!-- Emit -->
     <Compile Include="Emit/ModuleInterface.fs" />

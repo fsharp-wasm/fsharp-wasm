@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WasmGc.Builder</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Only needs Core (WExpr/WType) and Builder DSL — no Fable.AST dependency -->
+    <ProjectReference Include="../Core/WasmGc.Core.fsproj" />    
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Builder.fs" />
+    <Compile Include="Locals.fs" />
+    <Compile Include="Equality.fs" />
+    <Compile Include="Operators.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- TODO: we should get rid of this. We don't need compiler here -->
+    <!-- <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" /> -->
+    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Core.dll" />
+  </ItemGroup>
+</Project>
