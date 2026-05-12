@@ -3,6 +3,9 @@ module WasmGc.Bcl.StringBuilderHelpers
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
+open WasmGc.Runtime.QuotationWalker
+open WasmGc.Bcl.Helpers
+
 // ─── StringBuilder runtime helpers (Tier 1 — phantom struct intrinsics) ──────
 
 /// $sbCreate(cap) → $StringBuilder  — allocate with given initial capacity.

@@ -6,9 +6,12 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Only needs Core (WExpr/WType) and Builder DSL — no Fable.AST dependency -->
-    <ProjectReference Include="../Core/WasmGc.Core.fsproj" />    
+    <ProjectReference Include="../Core/WasmGc.Core.fsproj" />
+    <ProjectReference Include="../Builder/WasmGc.Builder.fsproj" />
+    <ProjectReference Include="../Runtime.Abstractions/WasmGc.Runtime.Abstractions.fsproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Helpers.fs" />
     <Compile Include="StringHelpers.fs" />
     <Compile Include="CharHelpers.fs" />
     <Compile Include="MathHelpers.fs" />

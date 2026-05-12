@@ -3,32 +3,20 @@ module WasmGc.Bcl.StringHelpers
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
-// ─────────────────────────────────────────────────────────────────
-// Quotation walker helpers — shared by all Tier 1 string/char helpers
-// ─────────────────────────────────────────────────────────────────
+open WasmGc.Runtime.QuotationWalker
+open WasmGc.Bcl.Helpers
+open WasmGc.Builder.Core
+open WasmGc.Builder
+open WasmGc.Runtime.Locals
 
-/// Type-map used when translating runtime quotations: strings map to StringTypeIdx,
-/// StringBuilder struct maps to StringBuilderTypeIdx.
-let private runtimeTypeMap : QTypeMap =
-    { StrTypeIdx = StringTypeIdx; SbTypeIdx = StringBuilderTypeIdx; ResolveCustom = fun _ -> None }
-
-/// Intrinsics used when translating runtime quotations.
-let private runtimeIntrinsics = standardIntrinsics StringTypeIdx StringBuilderTypeIdx
-
-/// Translate an inline quotation to a WFuncDecl and collect locals.
-/// The WFuncDecl returned by translateReflected has Locals = [];
-/// resolveLocals fills them in so the function is self-contained.
-let private q (name: string) (qexpr: Microsoft.FSharp.Quotations.Expr) : WFuncDecl =
-    translateReflected name runtimeTypeMap runtimeIntrinsics qexpr
-    |> resolveLocals
+module Locals = WasmGc.Runtime.Locals
 
 // ─── Phantom functions for cross-runtime-helper calls inside quotations ───────
 // The QW translates these as WExpr.Call("$" + mi.Name, ...) — never called from F#.
-let private intToStr    (_n: int)                                    : WasmStr = WasmStr
-let private strConcat   (_a: WasmStr) (_b: WasmStr)                 : WasmStr = WasmStr
-let private strSubstring (_s: WasmStr) (_start: int) (_len: int)    : WasmStr = WasmStr
-let private strIndexOf  (_ha: WasmStr) (_ne: WasmStr)               : int     = 0
-
+let private intToStr     (_n: int)                               : WasmStr = WasmStr
+let private strConcat    (_a: WasmStr) (_b: WasmStr)             : WasmStr = WasmStr
+let private strSubstring (_s: WasmStr) (_start: int) (_len: int) : WasmStr = WasmStr
+let private strIndexOf   (_ha: WasmStr) (_ne: WasmStr)           : int     = 0
 
 // ─────────────────────────────────────────────────────────────────
 // Tier 1 — string runtime helpers (QuotationWalker-translated)

@@ -3,6 +3,10 @@ module WasmGc.Bcl.CharHelpers
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 
+open WasmGc.Runtime.QuotationWalker
+open WasmGc.Bcl.Helpers
+open WasmGc.Builder
+
 // ─────────────────────────────────────────────────────────────────
 // Tier 1 — char helpers
 // ─────────────────────────────────────────────────────────────────

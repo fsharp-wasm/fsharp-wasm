@@ -112,7 +112,6 @@
     <Compile Include="Runtime/ListOps.fs" />
     <Compile Include="Runtime/VTable.fs" />
     <Compile Include="Runtime/LoopHelpers.fs" />
-    <Compile Include="Runtime/QuotationWalker.fs" />
     <Compile Include="Runtime/Runtime.fs" />
 
     <!-- Pipeline -->
@@ -153,3 +152,6 @@
     <Compile Include="Pipeline.fs" />
   </ItemGroup>
 </Project>
+  <ItemGroup>
+    <ProjectReference Include="src/Runtime.Abstractions/WasmGc.Runtime.Abstractions.fsproj" />
+  </ItemGroup>

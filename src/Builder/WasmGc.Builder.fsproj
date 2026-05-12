@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Only needs Core (WExpr/WType) and Builder DSL — no Fable.AST dependency -->
-    <ProjectReference Include="../Core/WasmGc.Core.fsproj" />    
+    <ProjectReference Include="../Core/WasmGc.Core.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Builder.fs" />
