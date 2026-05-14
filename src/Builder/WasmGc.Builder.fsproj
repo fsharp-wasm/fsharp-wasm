@@ -14,9 +14,4 @@
     <Compile Include="Equality.fs" />
     <Compile Include="Operators.fs" />
   </ItemGroup>
-  <ItemGroup>
-    <!-- TODO: we should get rid of this. We don't need compiler here -->
-    <!-- <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" /> -->
-    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Core.dll" />
-  </ItemGroup>
 </Project>

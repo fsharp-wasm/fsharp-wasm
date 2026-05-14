@@ -43,23 +43,16 @@
       identity (Fable-Transforms 1.0.0.0) and compatible interfaces — so Fable.WasmGc.dll
       resolves correctly at runtime against the fork's assemblies.
     -->
-    <!-- <PackageReference Include="Fable.Compiler" Version="5.0.0-rc.11" PrivateAssets="all" /> -->
-
     <ProjectReference Include="../vendor/Fable/src/Fable.Compiler/Fable.Compiler.fsproj" />
     <ProjectReference Include="../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" PrivateAssets="all" />
     <ProjectReference Include="../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
-
-    <!-- <Reference Include="../vendor/Fable/src/Fable.Compiler/bin/Debug/net10.0/Fable.Compiler.dll" PrivateAssets="all" /> -->
-
-    <Reference Include="../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" />
-    <Reference Include="../vendor/Fable/lib/fcs/FSharp.DependencyManager.Nuget.dll" />
-    <Reference Include="../vendor/Fable/lib/fcs/FSharp.Core.dll" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="src/Core/WasmGc.Core.fsproj" />
-    <ProjectReference Include="src/Bcl/WasmGc.Bcl.fsproj" />
-    <ProjectReference Include="src/Builder/WasmGc.Builder.fsproj" />
+    <ProjectReference Include="Core/WasmGc.Core.fsproj" />
+    <ProjectReference Include="Bcl/WasmGc.Bcl.fsproj" />
+    <ProjectReference Include="Builder/WasmGc.Builder.fsproj" />
+    <ProjectReference Include="Ir/WasmGc.Ir.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -85,11 +78,11 @@
     <!-- <Compile Include="Bcl/BclRegistry.fs" /> -->
 
     <!-- Utilities (no Ctx dependency) -->
-    <Compile Include="Util/WExprQuery.fs" />
+    <!-- <Compile Include="Util/WExprQuery.fs" /> -->
     <Compile Include="Util/FableQuery.fs" />
     <Compile Include="Util/FableAstDump.fs" />
-    <Compile Include="Util/IrDump.fs" />
-
+    <!-- <Compile Include="Util/IrDump.fs" /> -->
+    
     <!-- Builder -->
     <!-- <Compile Include="Builder/Builder.fs" /> -->
     <!-- <Compile Include="Builder/Locals.fs" /> -->
@@ -151,7 +144,8 @@
     <!-- Top-level Pipeline -->
     <Compile Include="Pipeline.fs" />
   </ItemGroup>
-</Project>
+
   <ItemGroup>
-    <ProjectReference Include="src/Runtime.Abstractions/WasmGc.Runtime.Abstractions.fsproj" />
+    <ProjectReference Include="Runtime.Abstractions/WasmGc.Runtime.Abstractions.fsproj" />
   </ItemGroup>
+</Project>

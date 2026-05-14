@@ -11,7 +11,4 @@
   <ItemGroup>
     <Compile Include="QuotationWalker.fs" />
   </ItemGroup>
-  <ItemGroup>
-    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Core.dll" />
-  </ItemGroup>
 </Project>

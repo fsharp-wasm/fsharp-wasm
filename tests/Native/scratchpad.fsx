@@ -1,7 +1,7 @@
 
 
-#r "../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll"
-#r "../../vendor/Fable/lib/fcs/FSharp.DependencyManager.Nuget.dll"
+##  #r "../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll"
+##  #r "../../vendor/Fable/lib/fcs/FSharp.DependencyManager.Nuget.dll"
 #r "../../vendor/Fable/src/Fable.AST/bin/Debug/net10.0/Fable.AST.dll"
 #r "../../vendor/Fable/src/Fable.Transforms/bin/Debug/net10.0/Fable.Transforms.dll"
 #r "../../src/bin/Debug/net10.0/Fable.WasmGc.dll"

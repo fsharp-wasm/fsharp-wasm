@@ -47,7 +47,6 @@
       <!-- <PrivateAssets>all</PrivateAssets> -->
     </ProjectReference>
     <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
-    <!-- <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" /> -->
   </ItemGroup>
   
   <ItemGroup>
@@ -61,16 +60,6 @@
       <!-- <ExcludeAssets>runtime</ExcludeAssets> -->
     </ProjectReference>
   </ItemGroup>
-
-  <ItemGroup>
-    <!--
-      FSharp.Compiler.Service: the Fable-specific FCS build (from fcs-fable).
-      Required because Fable.Compiler.dll uses types from it in its public API.
-    -->
-    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" />
-    <!-- <Reference Include="../../lib/fcs/FSharp.DependencyManager.Nuget.dll" /> -->
-    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Core.dll" />
-  </ItemGroup>
   
   <ItemGroup>
     <!-- <PackageReference Include="EasyBuild.PackageReleaseNotes.Tasks" Version="2.1.0">
@@ -81,10 +70,4 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.6" />
     <PackageReference Include="source-map-sharp" Version="1.0.9" />
   </ItemGroup>
-  
-  
-  <!-- <Reference Include="FSharp.Core">
-    <HintPath>$(MSBuildThisFileDirectory)vendor/Fable/lib/fcs/FSharp.Core.dll</HintPath>
-    <Private>True</Private>
-  </Reference> -->
 </Project>

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>WasmGc.Ir</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- No Fable.AST reference — pure WExpr query and dump utilities. -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Core/WasmGc.Core.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- WExprQuery must precede IrDump (dump uses query). -->
+    <Compile Include="WExprQuery.fs" />
+    <Compile Include="IrDump.fs" />
+  </ItemGroup>
+</Project>

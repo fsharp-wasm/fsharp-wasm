@@ -9,10 +9,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Compiler.Service.dll" />
-    <Reference Include="../../vendor/Fable/lib/fcs/FSharp.DependencyManager.Nuget.dll" />
-    <!-- <Reference Include="../../vendor/Fable/lib/fcs/FSharp.Core.dll" /> -->
-
     <ProjectReference Include="../../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" />
     <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
   </ItemGroup>

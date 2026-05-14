@@ -12,6 +12,7 @@ open WasmGc.Runtime.Types
 module RT = WasmGc.Runtime.Runtime
 module VT = WasmGc.Runtime.VTable
 module Val = WasmGc.Pipeline.Validator
+module BclReg = WasmGc.Bcl.Registry
 
 open TransformMemberDecl
 open TransformExpr
@@ -335,64 +336,13 @@ let buildWModule (ctx: Ctx) : WModule =
                 yield { ModuleName = "env"; Name = "consolePrint"; CallName = ""
                         Desc = ImportFunc([WType.Ref(StringTypeIdx, false)], WType.Void) } ]
         Functions =
-            let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
-            let helperBuilders =
-                [ "$strConcat",        RT.makeStrConcatHelper
-                  "$strEq",            RT.makeStrEqHelper
-                  "$strIndexOf",       RT.makeStrIndexOfHelper
-                  "$strLastIndexOf",   RT.makeStrLastIndexOfHelper
-                  "$strSubstring",     RT.makeStrSubstringHelper
-                  "$strToLower",          RT.makeStrToLowerHelper
-                  "$strToUpper",          RT.makeStrToUpperHelper
-                  "$strTrim",             RT.makeStrTrimHelper
-                  "$strTrimStart",        RT.makeStrTrimStartHelper
-                  "$strTrimEnd",          RT.makeStrTrimEndHelper
-                  "$intToStr",            RT.makeIntToStrHelper
-                  "$floatToStr",          RT.makeFloatToStrHelper
-                  "$strPadLeft",          RT.makeStrPadLeftHelper
-                  "$strPadRight",         RT.makeStrPadRightHelper
-                  "$strReplace",          RT.makeStrReplaceHelper
-                  "$strSplit",            RT.makeStrSplitHelper strArrTypeIdx
-                  "$strJoin",             RT.makeStrJoinHelper strArrTypeIdx
-                  "$parseInt",            RT.makeIntParseHelper
-                  "$parseFloat",          RT.makeFloatParseHelper
-                  "$strCompare",          RT.makeStrCompareHelper
-                  // ── Tier 1 char helpers ───────────────────────────────────
-                  "$charIsDigit",         RT.makeCharIsDigitHelper
-                  "$charIsLetter",        RT.makeCharIsLetterHelper
-                  "$charIsUpper",         RT.makeCharIsUpperHelper
-                  "$charIsLower",         RT.makeCharIsLowerHelper
-                  "$charIsWhitespace",    RT.makeCharIsWhitespaceHelper
-                  "$charToLower",         RT.makeCharToLowerHelper
-                  "$charToUpper",         RT.makeCharToUpperHelper
-                  "$charIsLetterOrDigit", RT.makeCharIsLetterOrDigitHelper
-                  "$pown",                RT.makePownHelper
-                  "$powF64",              RT.makePowF64Helper
-                  "$mathExp",             RT.makeMathExpHelper
-                  "$mathLog",             RT.makeMathLogHelper
-                  "$mathSin",             RT.makeMathSinHelper
-                  "$mathCos",             RT.makeMathCosHelper
-                  "$mathTan",             RT.makeMathTanHelper
-                  "$mathAtan2",           RT.makeMathAtan2Helper
-                  // ── StringBuilder helpers ─────────────────────────────────
-                  "$sbCreate",            RT.makeStringBuilderCreateHelper
-                  "$sbAppend",            RT.makeStringBuilderAppendHelper
-                  "$sbToString",          RT.makeStringBuilderToStringHelper ]
-            let runtimeHelpers =
-                // Resolve helper dependencies: $floatToStr calls $intToStr and $strConcat
-                if ctx.UsedHelpers.Contains("$floatToStr") then
-                    ctx.UsedHelpers.Add("$intToStr") |> ignore
-                    ctx.UsedHelpers.Add("$strConcat") |> ignore
-                // $strSplit depends on $strIndexOf and $strSubstring
-                if ctx.UsedHelpers.Contains("$strSplit") then
-                    ctx.UsedHelpers.Add("$strIndexOf") |> ignore
-                    ctx.UsedHelpers.Add("$strSubstring") |> ignore
-                // $strJoin depends on $strConcat
-                if ctx.UsedHelpers.Contains("$strJoin") then
-                    ctx.UsedHelpers.Add("$strConcat") |> ignore
-                helperBuilders |> List.choose (fun (name, make) ->
-                    if ctx.UsedHelpers.Contains(name) then Some(make()) else None)
-            runtimeHelpers @ fixedFunctions
+            // Use the BCL Registry to build all required helpers with dependency resolution.
+            // BclRegistry.emitUsed handles:
+            // 1. Building only the helpers in ctx.UsedHelpers
+            // 2. Resolving transitive dependencies (e.g., $floatToStr → $intToStr + $strConcat)
+            // 3. Returning them as WFuncDecl ready for emission
+            let bclHelpers = BclReg.emitUsed ctx
+            bclHelpers @ fixedFunctions
         Globals =
             // $fsharp_exn_carrier: mutable anyref global used to pass exception objects
             // between throw and catch_all (WasmGC exception proposal has zero-payload tags).
