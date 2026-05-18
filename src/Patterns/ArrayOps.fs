@@ -1,5 +1,5 @@
 /// High-level array combinators for WasmGC code generation.
-module WasmGc.Runtime.ArrayOps
+module WasmGc.Patterns.ArrayOps
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types

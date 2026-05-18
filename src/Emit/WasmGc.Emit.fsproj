@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>WasmGc.Emit</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <!--
+      Optimizer, WAT text emitter, WASM binary encoder, and static linker.
+      NO Fable.AST dependency — operates entirely on WModule / WExpr.
+      Can be used by any project that wants to emit WasmGC binaries.
+    -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Core/WasmGc.Core.fsproj" />
+    <ProjectReference Include="../Ir/WasmGc.Ir.fsproj" />
+    <!-- Linker uses Builder DSL for type key computation. -->
+    <ProjectReference Include="../Builder/WasmGc.Builder.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ModuleInterface before Linker (Linker reads interface files). -->
+    <Compile Include="ModuleInterface.fs" />
+    <Compile Include="Linker.fs" />
+    <!-- Optimizer before emitters (optimized module goes to emit). -->
+    <Compile Include="Optimize.fs" />
+    <!-- Emit.fs (instruction lowering) before Encoder/Wat (binary/text). -->
+    <Compile Include="Emit.fs" />
+    <Compile Include="Encoder.fs" />
+    <Compile Include="Wat.fs" />
+    <Compile Include="MultiProject.fs" />
+  </ItemGroup>
+</Project>

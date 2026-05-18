@@ -1,11 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <!-- <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference> -->
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>WasmGc.Core</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <!-- <PackageReference Include="FSharp.Core"             Version="10.1.203" /> -->
     <!-- <ProjectReference Include="../Core/WasmGc.Core.fsproj" /> -->
+
 
     <!-- TODO: do we really need the compiler or transform here? -->
     <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Global/Fable.Transforms.Global.fsproj" />

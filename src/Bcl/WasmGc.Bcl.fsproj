@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <!-- <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference> -->
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>WasmGc.Bcl</AssemblyName>
   </PropertyGroup>
@@ -9,6 +9,7 @@
     <ProjectReference Include="../Core/WasmGc.Core.fsproj" />
     <ProjectReference Include="../Builder/WasmGc.Builder.fsproj" />
     <ProjectReference Include="../Runtime.Abstractions/WasmGc.Runtime.Abstractions.fsproj" />
+    <ProjectReference Include="../Patterns/WasmGc.Patterns.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Helpers.fs" />

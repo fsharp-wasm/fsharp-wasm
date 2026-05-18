@@ -19,6 +19,8 @@
     <!-- <Compile Include="Helper/PipelineHelper.fs" /> -->
     <Compile Include="Helper/SnapshotFramework.fs" />
 
+  <Compile Include="Architecture/ArchitectureTests.fs" />
+
     <Compile Include="Integration/ArrayReplacementTests.fs" />
     <Compile Include="Integration/ClosureCallTests.fs" />
     <Compile Include="Integration/CurriedApplyTests.fs" />

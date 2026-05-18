@@ -1,4 +1,17 @@
 <Solution>
+  <Folder Name="/vendor/" />
+  <Folder Name="/vendor/Fable/">
+    <Project Path="vendor/Fable/src/Fable.AST/Fable.AST.fsproj" />
+    <Project Path="vendor/Fable/src/Fable.Cli/Fable.Cli.fsproj" />
+    <Project Path="vendor/Fable/src/Fable.Compiler/Fable.Compiler.fsproj" />
+    <Project Path="vendor/Fable/src/Fable.Core/Fable.Core.fsproj" />
+    <Project Path="vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
+    <Project Path="vendor/Fable/src/Fable.Transforms/Global/Fable.Transforms.Global.fsproj" />
+  </Folder>
+  <Folder Name="/vendor/FSharp/">
+    <Project Path="vendor/fsharp/src/Compiler/FSharp.Compiler.Service.fsproj" />
+    <Project Path="vendor/fsharp/src/FSharp.Core/FSharp.Core.fsproj" />
+  </Folder>
   <Project Path="src/Fable.WasmGc.fsproj">
     <!-- <BuildType Solution="Release|*" Project="?" />
     <Platform Solution="Release|*" Project="?" />

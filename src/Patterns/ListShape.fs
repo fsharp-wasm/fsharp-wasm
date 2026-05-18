@@ -1,4 +1,4 @@
-module WasmGc.Runtime.ListShape
+module WasmGc.Patterns.ListShape
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types

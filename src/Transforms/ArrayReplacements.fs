@@ -1,4 +1,4 @@
-/// WasmGC inline replacements for Array operations.
+/// Array inline Replacements — Fable dispatch ONLY. No WExpr loop generation.
 /// Covers typed arrays: create, init, fill, copy, map, filter, fold, iter,
 /// exists, forAll, sort, sortWith, sortBy, reverse, concat, choose,
 /// collect, zip, unzip, head/tail/take/skip/splitAt, and instance-method HOFs.
@@ -13,8 +13,10 @@ open WasmGc.Builder.Core
 open WasmGc.Runtime.Runtime
 open WasmGc.Runtime.LoopHelpers
 
-open WasmGc.Runtime.ListShape
-open WasmGc.Runtime.ArrayOps
+open WasmGc.Patterns
+open WasmGc.Patterns.ListShape
+open WasmGc.Patterns.ArrayOps
+
 open WasmGc.Runtime.LoopPrimitives
 open WasmGc.Util.FableQuery
 
@@ -22,45 +24,69 @@ open WasmGc.Util.FableQuery
 // Array higher-order functions
 // ─────────────────────────────────────────────────────────────────
 
+// ── Type extraction ─────────────────────────────────────────────────────────
+
 /// Extract element type only for F# array shapes: Fable.Type.Array<T, _>.
 /// This is intentionally array-specific and complements (does not replace):
 /// - ListCombinators.seqElemType for List/seq/IEnumerable-like shapes
 /// - LoopHelpers.tryListTypeInfo for list registry resolution
 
-let private arrElemT (ftyp: Fable.Type) =
-    match ftyp with ArrayOf e -> Some e | _ -> None
+let private arrElemT = function ArrayOf e -> Some e | _ -> None
+
+let private shapeOf (ctx: Ctx) et =
+    let wt = mapTypeKnown ctx et
+    mkArrayShape wt (getOrAddArrayType ctx wt)
+
+// ── Main dispatch ────────────────────────────────────────────────────────────
 
 let tryArrayInline
-        (transform: TransformFn)
-        (ctx: Ctx)
-        (selector: string)
-        (fableArgs: Fable.Expr list)
-        (wArgs: WExpr list)
-        (resultFableType: Fable.Type) : WExpr option =
+        (transform : TransformFn)
+        (ctx       : Ctx)
+        (selector  : string)
+        (fableArgs : Fable.Expr list)
+        (wArgs     : WExpr list)       // pre-compiled args (for trivial cases)
+        (resultFableType : Fable.Type) : WExpr option =
+
+    let w f = transform ctx f
+    let inline none () = None
+
     let ty = mapTypeKnown ctx resultFableType
     match selector with
     // Array.create n initVal
     | "create" ->
-        match arrElemT resultFableType, wArgs with
-        | Some elemFableT, [wSize; wInit] ->
-            let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
-            Some(arrayNew arrTypeIdx wSize wInit (WType.Ref(arrTypeIdx, false)))
+        match arrElemT resultFableType, fableArgs with
+        | Some et, [nF; vF] -> let a = shapeOf ctx et in Some(Array.create a.ArrTypeIdx a.ArrRefTy (w nF) (w vF))
         | _ -> None
     // Array.zeroCreate n
-    | "zeroCreate" ->
-        match arrElemT resultFableType, wArgs with
-        | Some elemFableT, [wSize] ->
-            let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
-            Some(arrayNew arrTypeIdx wSize (makeNumericZero elemT) (WType.Ref(arrTypeIdx, false)))
+    | "zeroCreate" -> match arrElemT resultFableType, fableArgs with
+                      | Some et, [nF]     -> let a = shapeOf ctx et in Some(Array.create a.ArrTypeIdx a.ArrRefTy (w nF) (makeNumericZero a.ElemTy))
+                      | _ -> None
+    // Array.init / initialize
+    | ("init" | "initialize") ->
+        match fableArgs with
+        | [lenArg; UnaryLambda(farg, fbody)]
+        | [lenArg; UnaryLambda(farg, fbody); _]
+        | [_; lenArg; UnaryLambda(farg, fbody)] ->
+            let wLen = transform ctx lenArg
+            let resultFableT = match resultFableType with | ArrayOf t -> t | _ -> Fable.Type.Any
+            let resultElemT = mapTypeKnown ctx resultFableT
+            let resultArrIdx = getOrAddArrayType ctx resultElemT
+            let resultArrRefT = WType.Ref(resultArrIdx, false)
+            let gen = LabelGen("ainit")
+            let ctx' = ctx.WithLocal(farg.Name, WType.I32)
+            let wBody = transform ctx' fbody
+            Some(wasm {
+                let! res = arrayNew resultArrIdx wLen (makeNumericZero resultElemT) resultArrRefT
+                do! Wasm.for_ (arrayLen res) (fun idx ->
+                        WExpr.Let(farg.Name, idx,
+                            arraySet res idx wBody))
+                return res
+            })
         | _ -> None
     // Array.length
-    | "length" ->
-        match fableArgs with
-        | [arrArg] when arrElemT arrArg.Type |> Option.isSome ->
-            Some(arrayLen (List.head wArgs))
-        | _ -> None
+    | "length"     -> match fableArgs with
+                      | [aF] when arrElemT aF.Type |> Option.isSome -> Some(arrayLen (w aF))
+                      | _ -> None
     // Array.get / Array.item
     | ("get" | "item") ->
         let arrFableArg, arrWArgIdx, idxWArgIdx =
@@ -102,13 +128,10 @@ let tryArrayInline
             | None -> None
         | _ -> None
     // Array.set
-    | "set" ->
-        match fableArgs with
-        | [arrArg; _; _] when arrElemT arrArg.Type |> Option.isSome ->
-            match wArgs with
-            | [wArr; wIdx; wVal] -> Some(arraySet wArr wIdx wVal)
-            | _ -> None
-        | _ -> None
+    | "set"        -> match fableArgs with
+                      | [aF; iF; vF] when arrElemT aF.Type |> Option.isSome ->
+                            Some(arraySet (w aF) (w iF) (w vF))
+                      | _ -> None
     // Array.copy
     | "copy" ->
         match fableArgs with
@@ -302,28 +325,6 @@ let tryArrayInline
                 Some(arrayFilter gen a wArr
                     (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
             | None -> None
-        | _ -> None
-    // Array.init / initialize
-    | ("init" | "initialize") ->
-        match fableArgs with
-        | [lenArg; UnaryLambda(farg, fbody)]
-        | [lenArg; UnaryLambda(farg, fbody); _]
-        | [_; lenArg; UnaryLambda(farg, fbody)] ->
-            let wLen = transform ctx lenArg
-            let resultFableT = match resultFableType with | ArrayOf t -> t | _ -> Fable.Type.Any
-            let resultElemT = mapTypeKnown ctx resultFableT
-            let resultArrIdx = getOrAddArrayType ctx resultElemT
-            let resultArrRefT = WType.Ref(resultArrIdx, false)
-            let gen = LabelGen("ainit")
-            let ctx' = ctx.WithLocal(farg.Name, WType.I32)
-            let wBody = transform ctx' fbody
-            Some(wasm {
-                let! res = arrayNew resultArrIdx wLen (makeNumericZero resultElemT) resultArrRefT
-                do! Wasm.for_ (arrayLen res) (fun idx ->
-                        WExpr.Let(farg.Name, idx,
-                            arraySet res idx wBody))
-                return res
-            })
         | _ -> None
     // ── Array.reduce f arr — fold from first element as accumulator ──
     | ("reduce" | "reduceBack") ->

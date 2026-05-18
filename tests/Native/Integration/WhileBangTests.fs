@@ -9,8 +9,8 @@ open WasmGc.Core.AST
 open WasmGc.Builder.Core
 open WasmGc.Builder.Core
 
-open WasmGc.Runtime.ListShape
-open WasmGc.Runtime.ListOps
+open WasmGc.Patterns.ListShape
+open WasmGc.Patterns.ListOps
 
 open Tests.WasmTestHelper
 

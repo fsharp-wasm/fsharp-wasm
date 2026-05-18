@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <!-- <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference> -->
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>WasmGc.Builder</AssemblyName>
   </PropertyGroup>

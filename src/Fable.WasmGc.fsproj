@@ -11,7 +11,7 @@
     <LangVersion>10.0</LangVersion>
 
     <IsPackable>true</IsPackable>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <!-- <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference> -->
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
     <OtherFlags>$(OtherFlags) --nowarn:3536 --nowarn:3261</OtherFlags>
@@ -27,7 +27,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="../README.md" Pack="true" PackagePath="\" />
+    <None Include="../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>
@@ -47,14 +47,14 @@
     <ProjectReference Include="../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" PrivateAssets="all" />
     <ProjectReference Include="../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
   </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="Core/WasmGc.Core.fsproj" />
     <ProjectReference Include="Bcl/WasmGc.Bcl.fsproj" />
     <ProjectReference Include="Builder/WasmGc.Builder.fsproj" />
     <ProjectReference Include="Ir/WasmGc.Ir.fsproj" />
+    <ProjectReference Include="Patterns/WasmGc.Patterns.fsproj" />
+    <ProjectReference Include="Emit/WasmGc.Emit.fsproj" />
   </ItemGroup>
-
   <ItemGroup>
     <!--
       Source order (strict dependency order):
@@ -90,25 +90,23 @@
     <!-- <Compile Include="Builder/Operators.fs" /> -->
 
     <!-- Emit -->
-    <Compile Include="Emit/ModuleInterface.fs" />
-    <Compile Include="Emit/Linker.fs" />
-    <Compile Include="Emit/Optimize.fs" />
-    <Compile Include="Emit/Emit.fs" />
-    <Compile Include="Emit/Encoder.fs" />
-    <Compile Include="Emit/Wat.fs" />
+    <!-- <Compile Include="Emit/ModuleInterface.fs" /> -->
+    <!-- <Compile Include="Emit/Linker.fs" /> -->
+    <!-- <Compile Include="Emit/Optimize.fs" /> -->
+    <!-- <Compile Include="Emit/Emit.fs" /> -->
+    <!-- <Compile Include="Emit/Encoder.fs" /> -->
+    <!-- <Compile Include="Emit/Wat.fs" /> -->
 
     <!-- Runtime -->
     <Compile Include="Runtime/FreeVars.fs" />
-    <Compile Include="Runtime/ListShape.fs" />
     <Compile Include="Runtime/LoopPrimitives.fs" />
-    <Compile Include="Runtime/ArrayOps.fs" />
-    <Compile Include="Runtime/ListOps.fs" />
     <Compile Include="Runtime/VTable.fs" />
     <Compile Include="Runtime/LoopHelpers.fs" />
     <Compile Include="Runtime/Runtime.fs" />
 
     <!-- Pipeline -->
-    <Compile Include="Pipeline/MultiProject.fs" />
+    <!-- <Compile Include="Pipeline/MultiProject.fs" /> -->
+
     <Compile Include="Pipeline/TypeResolver.fs" />
     <Compile Include="Pipeline/ScopeAnalyzer.fs" />
     <Compile Include="Pipeline/Normalizer.fs" />

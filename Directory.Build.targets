@@ -1,0 +1,25 @@
+<Project>
+
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);NU1900</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+        <!--
+            FSharp.Core is transitively brought in by FSharp.Compiler.Service.
+            We keep it explicit so we control the version and can set
+            DisableImplicitFSharpCoreReference above.
+        -->
+        <!-- <PackageReference Update="FSharp.Core"             Version="10.1.203" /> -->
+        <PackageReference Update="FSharp.Core"             Version="10.0.203" />
+        <!--
+            The main FCS package.  Includes the compiler, symbol APIs, and the
+            FSharpChecker public surface that InteractiveChecker.fs now uses.
+        -->
+        <PackageReference Update="FSharp.Compiler.Service" Version="43.12.203" />
+        <!--
+            DependencyManager is a separate package in recent FCS releases.
+            It is still needed for script resolution inside FSharpChecker.
+        -->
+        <PackageReference Update="FSharp.DependencyManager.Nuget" Version="37.0.0" />
+  </ItemGroup>
+</Project>

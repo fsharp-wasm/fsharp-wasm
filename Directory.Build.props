@@ -19,6 +19,8 @@
     <DefineConstants>$(DefineConstants);FABLE_CORE_NET10</DefineConstants>
 
     <FableCoreVersion>net10.0</FableCoreVersion>
+
+    <FSharpNetCoreProductTargetFramework>net10.0</FSharpNetCoreProductTargetFramework>
   </PropertyGroup>
 
   <!--

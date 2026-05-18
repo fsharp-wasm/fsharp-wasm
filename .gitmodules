@@ -24,6 +24,3 @@
 	path = fsharp-wasmecto
 	url = ../fsharp-wasmecto/
 	branch = develop
-[submodule "vendor/fsharp-fable"]
-	path = vendor/fsharp-fable
-	url = ../fsharp-ncave-fable/

@@ -10,7 +10,8 @@ open WasmGc.Builder
 open WasmGc.Builder.Core
 
 
-open WasmGc.Runtime.ListShape
+open WasmGc.Patterns.ListShape
+
 open WasmGc.Builder.Operators
 
 // ─────────────────────────────────────────────────────────────────────────────

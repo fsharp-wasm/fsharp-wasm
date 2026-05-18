@@ -13,9 +13,11 @@ open WasmGc.Runtime.Equality
 
 open WasmGc.Runtime.Runtime
 open WasmGc.Runtime.LoopHelpers
-open WasmGc.Runtime.ListShape
-open WasmGc.Runtime.ListOps
 open WasmGc.Runtime.LoopPrimitives
+
+open WasmGc.Patterns.ListShape
+open WasmGc.Patterns.ListOps
+
 open WasmGc.Util.FableQuery   // ← all DSL patterns
 
 // ─────────────────────────────────────────────────────────────────
