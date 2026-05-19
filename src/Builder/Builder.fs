@@ -9,10 +9,10 @@
 ///   Layer 3  WasmDsl infix operators + WasmPatterns active patterns
 ///
 /// CE notes (patched F# compiler — vendor/fsharp):
-///   `while! guard do body`  → builder.WhileBang(guard, body)       [WExpr guard, no bool]
-///   `while  guard do body`  → builder.WhileExpr(guard, body)       [same, non-bang form]
-///   `if     guard then b`   → builder.IfExpr(guard, thenB, elseB)  [WExpr guard]
-///   `for x in col do body`  → builder.ForExpr(col, fun x -> body)  [WExpr collection]
+///   `while! guard do body`  → builder.WhileBang(guard, body)             [WExpr guard, no bool]
+///   `while  guard do body`  → builder.WhileExprDirect(guard, body)       [same, non-bang form]
+///   `if     guard then b`   → builder.IfExprDirect(guard, thenB, elseB)  [WExpr guard]
+///   `for x in col do body`  → builder.ForExpr(col, fun x -> body)        [WExpr collection]
 ///
 /// Without the patch, `while!` falls back to Bind(WExpr, bool→WExpr) + While stack hack.
 module WasmGc.Builder.Core
@@ -70,8 +70,8 @@ let inline i32Const (n: int)     = WExpr.Const(WConst.I32 n)
 let inline i64Const (n: int64)   = WExpr.Const(WConst.I64 n)
 let inline f32Const (v: float32) = WExpr.Const(WConst.F32 v)
 let inline f64Const (v: float)   = WExpr.Const(WConst.F64 v)
-let i32Zero               = WExpr.Const(WConst.I32 0)
-let i32One                = WExpr.Const(WConst.I32 1)
+let i32Zero                      = WExpr.Const(WConst.I32 0)
+let i32One                       = WExpr.Const(WConst.I32 1)
 let inline nullConst (ty: WType) = WExpr.Const(WConst.Null ty)
 
 // ── Locals / Globals ─────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ let makeIf guard thenBr elseBr retTy =
 // ── While loop ────────────────────────────────────────────────────────────────
 
 /// Block/loop/if/break pattern for an arbitrary WExpr guard.
-/// This is what WhileExpr and WhileBang dispatch to.
+/// This is what WhileExprDirect and WhileBang dispatch to.
 let makeWhileLoop (guard: WExpr) (body: WExpr) : WExpr =
     let gen = LabelGen("while")
     WExpr.Block(gen.Exit,
@@ -357,7 +357,7 @@ let tryFirst (fns: (unit -> WExpr option) list) = fns |> List.tryPick (fun f -> 
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Stack for while! guard — only used by the STANDARD (unpatched) compiler path.
-/// The patched compiler calls WhileBang/WhileExpr directly.
+/// The patched compiler calls WhileBang/WhileExprDirect directly.
 let private _whileBangGuards = System.Collections.Generic.Stack<WExpr>()
 
 type WasmBuilder() =
@@ -436,15 +436,15 @@ type WasmBuilder() =
         then makeWhileLoop (_whileBangGuards.Pop()) body
         else body   // guard() is a bool — not reachable in WasmGC context
 
-    // ── while (non-bang) — patched compiler (WhileExpr) ──────────────────────
-    // RFC weakness-3 note: WhileExpr and WhileBang have identical bodies;
+    // ── while (non-bang) — patched compiler (WhileExprDirect) ────────────────
+    // RFC weakness-3 note: WhileExprDirect and WhileBang have identical bodies;
     // we keep both so the patched compiler can dispatch either form.
 
     [<System.Runtime.CompilerServices.MethodImpl(
         System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
-    member _.WhileExpr(guard: WExpr, body: WExpr) = makeWhileLoop guard body
+    member _.WhileExprDirect(guard: WExpr, body: WExpr) = makeWhileLoop guard body
 
-    // ── if — patched compiler (IfExpr) ───────────────────────────────────────
+    // ── if — patched compiler (IfExprDirect) ─────────────────────────────────
     // RFC weakness-1 fix: branches are raw WExpr (not Delayed) after the
     //   CheckComputationExpressions.fs change — no trailing Nop from Combine.
     // RFC weakness-2 fix: bool overload handles plain `if cond then` in wasm {}.
@@ -453,7 +453,7 @@ type WasmBuilder() =
 
     [<System.Runtime.CompilerServices.MethodImpl(
         System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)>]
-    member _.IfExpr(guard: WExpr, thenBr: WExpr, elseBr: WExpr) =
+    member _.IfExprDirect(guard: WExpr, thenBr: WExpr, elseBr: WExpr) =
         let ty = if isDivergingExpr thenBr then exprWType elseBr else exprWType thenBr
         makeIf guard thenBr elseBr ty
 

@@ -449,9 +449,16 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         w $"return_call {watId func}"
 
     | WExpr.CallIndirect(funcRef, args, _) ->
+        // Lower.fs should have converted CallIndirect → CallRef before emit.
+        // If we reach here, fall back to inferring the functype from the ref type of funcRef.
+        let ftName =
+            match exprWType funcRef with
+            | WType.Ref(idx, _) ->
+                typeNames |> Map.tryFind idx |> Option.defaultValue $"type{idx}"
+            | _ -> "0"  // unknown — WAT will reject at validation; signals a compiler bug
         for a in args do emit a
-        emit funcRef
-        w "call_ref 0 ;; TODO: resolve functype"
+        emitD depth funcRef
+        w $"call_ref {watId ftName}"
 
     | WExpr.CallVirtual(box, boxTypeIdx, vtableTypeIdx, methodIdx, funcTypeIdx, args, _) ->
         // Vtable dispatch — correct call_ref stack order: [self, args..., funcref]

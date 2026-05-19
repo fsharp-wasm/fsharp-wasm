@@ -12,15 +12,14 @@
 ///   // 2. Compose the operation declaratively
 ///   listFold gen s wList (i32Const 0) WType.I32
 ///       (fun acc elem -> add acc elem)
-module WasmGc.Patterns.ListOps
+module WasmGc.Patterns.ListPatterns
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder.Core
 
-open WasmGc.Runtime.LoopPrimitives
-
 open WasmGc.Patterns.ListShape
+open WasmGc.Runtime.LoopPrimitives
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listFold — fundamental traversal
