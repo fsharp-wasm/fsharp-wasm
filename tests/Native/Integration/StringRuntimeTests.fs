@@ -9,9 +9,9 @@ open WasmGc.Core.AST
 open WasmGc
 open WasmGc.Runtime.Locals
 open WasmGc.Runtime.Types
-open WasmGc.Runtime.Runtime
+open WasmGc.Bcl.StringHelpers
 
-module RT = WasmGc.Runtime.Runtime
+module RT = WasmGc.Bcl.StringHelpers
 
 open Tests.WasmTestHelper
 

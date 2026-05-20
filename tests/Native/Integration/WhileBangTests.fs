@@ -10,7 +10,7 @@ open WasmGc.Builder.Core
 open WasmGc.Builder.Core
 
 open WasmGc.Patterns.ListShape
-open WasmGc.Patterns.ListOps
+open WasmGc.Patterns.ListPatterns
 
 open Tests.WasmTestHelper
 

@@ -25,9 +25,13 @@ open WasmGc.Builder                   // WasmBuilder, WVar, MutRef
 // Layer 2: Ir — no Fable
 open WasmGc.Util.WExprQuery           // WExprQuery.exists
 open WasmGc.Util.IrDump               // dumpExpr
+module WExprQuery = WasmGc.Util.WExprQuery  // avoid Fable leak through type alias
+
 
 // Layer 3: Patterns — no Fable
-open WasmGc.Patterns                  // Array.*, List.*, Closure.*
+// open WasmGc.Patterns                  // Array.*, List.*, Closure.*
+// Note: Don't use "open WasmGc.Patterns" directly because it shadows the built-in Array module
+// Instead, use fully qualified names like WasmGc.Patterns.Array.map, etc.
 
 // Layer 5: Emit — no Fable
 open WasmGc.Emit.Optimize             // optimizeFuncBody
@@ -75,9 +79,10 @@ let boundaryTests = testList "Architecture / boundary" [
 
     test "Patterns.Array: filter produces two ArrayNew (tmp + trimmed)" {
         let src = i32Const 0
-        let result = WasmGc.Patterns.Array.filter 1 (WType.Ref(1,false)) WType.I32
-                         (i32Const 0) src (fun e -> ne e (i32Const 0))
-        let news = WExprQuery.collect (function WExpr.ArrayNew _ -> Some() | _ -> None) result
+        let (result: WExpr) = 
+            WasmGc.Patterns.Array.filter 1 (WType.Ref(1,false)) WType.I32
+                (i32Const 0) src (fun e -> ne e (i32Const 0))
+        let news = WExprQuery.collect (function WExpr.ArrayNew _ -> true | _ -> false) result
         Expect.isGreaterThanOrEqual news.Length 2 "filter allocates tmp + result"
     }
 
@@ -113,7 +118,7 @@ let boundaryTests = testList "Architecture / boundary" [
     test "Closure.allocClosure builds StructNew without Fable" {
         let def = WasmGc.Patterns.Closure.allocClosure 0 (WType.Ref(0,false)) "$myFn" [i32Const 42]
         match def with
-        | WExpr.StructNew(0, [WExpr.RefFunc _; WExpr.Const(WConst.I32 42)], _) -> ()
+        | WExpr.StructNew(0, [WExpr.FuncRef _; WExpr.Const(WConst.I32 42)], _) -> ()
         | other -> failtestf "Expected StructNew, got %A" other
     }
 

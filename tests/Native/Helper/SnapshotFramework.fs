@@ -29,7 +29,13 @@ open Tests.WasmTestHelper
 let private snapshotDir =
     let here = Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
     // Walk up to tests/Native/Snapshots/
-    let root = DirectoryInfo(here).Parent.Parent.Parent.Parent.FullName
+    let root = 
+        let mutable current : DirectoryInfo | null = DirectoryInfo(here)
+        for _ in 1..3 do
+            if current <> null then current <- current.Parent
+        match current with
+        | null -> here
+        | d -> d.FullName
     Path.Combine(root, "tests", "Native", "Snapshots")
 
 let private updateSnapshots =

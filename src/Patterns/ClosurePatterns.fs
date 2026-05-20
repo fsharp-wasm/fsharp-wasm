@@ -31,7 +31,7 @@ let baseClosureTypeDef (baseName: string) (codeFieldTy: WType) (anyFnIdx: int) :
 
 /// Emit a `struct.new $closureType (ref.func $fn, cap0, cap1, ...)`.
 let allocClosure (typeIdx: int) (codeTy: WType) (funcName: string) (captures: WExpr list) : WExpr =
-    let codePtr = WExpr.RefFunc(funcName, codeTy)
+    let codePtr = WExpr.FuncRef funcName
     WExpr.StructNew(typeIdx, codePtr :: captures, WType.Ref(typeIdx, false))
 
 // ── Capture extraction (reading captures from a closed-over struct) ──────────

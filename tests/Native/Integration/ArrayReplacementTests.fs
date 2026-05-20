@@ -37,7 +37,7 @@ let private tryArr ctx sel fableArgs resultFableType =
             | IdentExpr id -> Some (id.Name, WType.Ref(200, false)) // Inject dummy types
             | _ -> None)
         |> Map.ofList
-    let ctx' = { ctx with Locals = Map.fold (fun acc k v -> Map.add k v acc) ctx.Locals locals }
+    let ctx' : Ctx = { ctx with Locals = Map.fold (fun acc k v -> Map.add k v acc) ctx.Locals locals }
     let wArgs = fableArgs |> List.map (transformExpr ctx')
     tryArrayInline transformExpr ctx' sel fableArgs wArgs resultFableType
 

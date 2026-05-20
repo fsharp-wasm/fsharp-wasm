@@ -99,7 +99,7 @@
 
     <!-- Runtime -->
     <Compile Include="Runtime/FreeVars.fs" />
-    <Compile Include="Runtime/LoopPrimitives.fs" />
+    <!-- <Compile Include="Runtime/LoopPrimitives.fs" /> -->
     <Compile Include="Runtime/VTable.fs" />
     <Compile Include="Runtime/LoopHelpers.fs" />
     <Compile Include="Runtime/Runtime.fs" />
@@ -144,6 +144,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="Runtime.Abstractions/WasmGc.Runtime.Abstractions.fsproj" />
+    <ProjectReference Include="Runtime.Quotations/WasmGc.Quotations.fsproj" />
   </ItemGroup>
 </Project>

@@ -10,6 +10,8 @@ module WasmGc.Emit.Wat
 
 open System.Text
 open WasmGc.Core.AST
+open WasmGc.Runtime.Types
+
 
 // ─────────────────────────────────────────────────────────────────
 // WAT identifier helpers
