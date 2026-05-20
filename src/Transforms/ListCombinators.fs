@@ -847,13 +847,10 @@ let tryListInline
         (fableArgs       : Fable.Expr list)
         (resultFableType : Fable.Type)
         : WExpr option =
-    let try_ f = f transform ctx selector fableArgs resultFableType
-    // Priority order matters: fold before map, map before iter, etc.
-    try_ tryListFoldInline
-    |> Option.orElseWith (fun () -> try_ tryListMapInline)
-    |> Option.orElseWith (fun () -> try_ tryListCollectInline)
-    |> Option.orElseWith (fun () -> try_ tryListFilterInline)
-    |> Option.orElseWith (fun () -> try_ tryListIterInline)
-    |> Option.orElseWith (fun () -> try_ tryListSortInline)
-    |> Option.orElseWith (fun () -> try_ tryListQueryInline)
-    |> Option.orElseWith (fun () -> try_ tryListUtilInline)
+    // Some functions take resultFableType, others don't. Adapt each call.
+    tryListFoldInline transform ctx selector fableArgs
+    |> Option.orElseWith (fun () -> tryListMapInline transform ctx selector fableArgs resultFableType)
+    |> Option.orElseWith (fun () -> tryListCollectInline transform ctx selector fableArgs resultFableType)
+    |> Option.orElseWith (fun () -> tryListFilterInline transform ctx selector fableArgs)
+    |> Option.orElseWith (fun () -> tryListIterInline transform ctx selector fableArgs)
+    // TODO: tryListSortInline, tryListQueryInline, tryListUtilInline not yet implemented

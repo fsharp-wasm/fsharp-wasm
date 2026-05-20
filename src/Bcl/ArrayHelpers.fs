@@ -12,9 +12,6 @@ open WasmGc.Builder.Core
 open WasmGc.Runtime.LoopPrimitives
 open WasmGc.Runtime.QuotationWalker
 
-let private q name body =
-    translateReflected name body runtimeTypeMap runtimeIntrinsics |> resolveLocals
-
 /// $arraySortWith(arr: ref $AnyArray, cmp: ref $AnyFn, n: i32) → void
 /// Insertion sort in place using the comparison closure.
 /// Shared helper: one copy per module regardless of how many Array.sortWith call sites exist.

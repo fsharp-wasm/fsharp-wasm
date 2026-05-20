@@ -49,6 +49,8 @@ type PipelineOptions = {
     StrictValidation : bool
     /// Log phase timings to stderr.
     Timings       : bool
+    /// Suppress progress/debug logging.
+    Quiet         : bool
 }
 
 let defaultOptions : PipelineOptions = {
@@ -56,6 +58,7 @@ let defaultOptions : PipelineOptions = {
     DumpDir          = "."
     StrictValidation = true
     Timings          = false
+    Quiet            = false
 }
 
 /// Construct options from a comma-separated phase list string (e.g. "0,3,8").
@@ -84,10 +87,11 @@ let optionsFromDumpFlag (flag: string) (dir: string) : PipelineOptions =
 // Set WASMGC_QUIET=1 or pass PipelineOptions.Quiet=true to suppress.
 // ─────────────────────────────────────────────────────────────────────────────
 let private log (opts: PipelineOptions) fmt =
-    if not opts.Quiet then
-        Printf.eprintfn fmt
+    if opts.Quiet then
+        let nullWriter = new System.IO.StringWriter()
+        Printf.fprintfn (nullWriter :> System.IO.TextWriter) fmt
     else
-        Printf.ksprintf ignore fmt
+        Printf.eprintfn fmt
 
 let private timed (opts: PipelineOptions) (label: string) (f: unit -> 'a) : 'a =
     if opts.Timings then
