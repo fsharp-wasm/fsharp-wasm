@@ -1029,3 +1029,4 @@ let moduleToWat (wmod: WModule) : string =
 
     sb.AppendLine(")") |> ignore
     sb.ToString()
+

@@ -5,7 +5,7 @@
 ///
 /// Key design: `sortWith` calls a shared $arraySortWith BCL helper instead of
 /// inlining insertion sort at every call site.
-module WasmGc.Patterns.Array
+module WasmGc.Patterns.ArrayPatterns
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types

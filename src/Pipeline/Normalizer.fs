@@ -200,5 +200,5 @@ let normalizeModule (wmod: WModule) : WModule =
     let normalized =
         wmod.Functions
         |> List.map normalizeFuncDecl
-        // |> ResizeArray // TODO: needed?
+        // Note: |> ResizeArray conversion is NOT needed — collectLocals already returns list.
     { wmod with Functions = normalized }

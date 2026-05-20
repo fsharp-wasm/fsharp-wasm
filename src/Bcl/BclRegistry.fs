@@ -18,6 +18,7 @@ open WasmGc.Runtime.Types
 
 /// Static inter-helper dependencies.  Key uses all names listed as values.
 let private deps : (string * string list) list = [
+    "$arraySortWith", []  // self-contained
     "$floatToStr",   ["$intToStr"; "$strConcat"]
     "$strSplit",     ["$strIndexOf"; "$strSubstring"]
     "$strJoin",      ["$strConcat"]
@@ -70,14 +71,14 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$parseInt",          StringHelpers.makeIntParseHelper
         "$parseFloat",        StringHelpers.makeFloatParseHelper
         // ── Char ──────────────────────────────────────────────────────────
-        "$charIsDigit",       CharHelpers.makeCharIsDigitHelper
-        "$charIsLetter",      CharHelpers.makeCharIsLetterHelper
-        "$charIsUpper",       CharHelpers.makeCharIsUpperHelper
-        "$charIsLower",       CharHelpers.makeCharIsLowerHelper
-        "$charIsWhitespace",  CharHelpers.makeCharIsWhitespaceHelper
-        "$charToLower",       CharHelpers.makeCharToLowerHelper
-        "$charToUpper",       CharHelpers.makeCharToUpperHelper
-        "$charIsLetterOrDigit", CharHelpers.makeCharIsLetterOrDigitHelper
+        "$charIsDigit",          CharHelpers.makeCharIsDigitHelper
+        "$charIsLetter",         CharHelpers.makeCharIsLetterHelper
+        "$charIsUpper",          CharHelpers.makeCharIsUpperHelper
+        "$charIsLower",          CharHelpers.makeCharIsLowerHelper
+        "$charIsWhitespace",     CharHelpers.makeCharIsWhitespaceHelper
+        "$charToLower",          CharHelpers.makeCharToLowerHelper
+        "$charToUpper",          CharHelpers.makeCharToUpperHelper
+        "$charIsLetterOrDigit",  CharHelpers.makeCharIsLetterOrDigitHelper
         // ── Math ──────────────────────────────────────────────────────────
         "$pown",              MathHelpers.makePownHelper
         "$powF64",            MathHelpers.makePowF64Helper
@@ -91,6 +92,8 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$sbCreate",          StringBuilderHelpers.makeStringBuilderCreateHelper
         "$sbAppend",          StringBuilderHelpers.makeStringBuilderAppendHelper
         "$sbToString",        StringBuilderHelpers.makeStringBuilderToStringHelper
+        // ── Array ────────────────────────────────────────────────────────────
+        "$arraySortWith", ArrayHelpers.makeArraySortWithHelper
     ]
 
 /// Build and return all helpers that are in `ctx.UsedHelpers`,

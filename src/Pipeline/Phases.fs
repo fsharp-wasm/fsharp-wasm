@@ -78,12 +78,23 @@ let optionsFromDumpFlag (flag: string) (dir: string) : PipelineOptions =
 // Helpers
 // ─────────────────────────────────────────────────────────────────
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pipeline logger — wraps eprintfn so tests can silence progress output.
+// Set WASMGC_QUIET=1 or pass PipelineOptions.Quiet=true to suppress.
+// ─────────────────────────────────────────────────────────────────────────────
+let private log (opts: PipelineOptions) fmt =
+    if not opts.Quiet then
+        Printf.eprintfn fmt
+    else
+        Printf.ksprintf ignore fmt
+
 let private timed (opts: PipelineOptions) (label: string) (f: unit -> 'a) : 'a =
     if opts.Timings then
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let result = f ()
         sw.Stop()
-        eprintfn "  [%s] %.1f ms" label sw.Elapsed.TotalMilliseconds
+        log opts "  [%s] %.1f ms" label sw.Elapsed.TotalMilliseconds
         result
     else f ()
 
@@ -108,7 +119,7 @@ let phase0_Input (opts: PipelineOptions) (decls: Declaration list) =
         dumpIf opts 0 (fun dir ->
             let p = Path.Combine(dir, "dump-phase0-fable.fs")
             WasmGc.Util.FableAstDump.dumpToFile p decls
-            eprintfn "  [Phase 0] %s" p)
+            log opts "  [Phase 0] %s" p)
         decls)
 
 // ─────────────────────────────────────────────────────────────────
@@ -129,7 +140,7 @@ let phase1_ScopeAnalysis
     timed opts "Phase1-Scope" (fun () ->
         let maps = analyzeModuleScope ctx decls
         if opts.Timings || opts.DumpPhases.Contains 1 then
-            eprintfn "  [Phase 1] %d functions analyzed" maps.Count
+            log opts "  [Phase 1] %d functions analyzed" maps.Count
         maps)
 
 // ─────────────────────────────────────────────────────────────────
@@ -175,7 +186,7 @@ let phase3_Transform
         dumpIf opts 3 (fun dir ->
             let p = Path.Combine(dir, "dump-phase3-raw-ir.sexp")
             WasmGc.Util.IrDump.dumpToFile p raw
-            eprintfn "  [Phase 3] %s" p)
+            log opts "  [Phase 3] %s" p)
         raw)
 
 // ─────────────────────────────────────────────────────────────────
@@ -199,7 +210,7 @@ let phase4_Normalize (opts: PipelineOptions) (wmod: WModule) : WModule =
         dumpIf opts 4 (fun dir ->
             let p = Path.Combine(dir, "dump-phase4-normalized.sexp")
             WasmGc.Util.IrDump.dumpToFile p norm
-            eprintfn "  [Phase 4] Normalized IR → %s" p)
+            log opts "  [Phase 4] Normalized IR → %s" p)
         norm)
 
 // ─────────────────────────────────────────────────────────────────
@@ -215,7 +226,7 @@ let phase4b_Lower (opts: PipelineOptions) (wmod: WModule) =
         dumpIf opts 42 (fun dir ->
             let p = Path.Combine(dir, "dump-phase4b-lir.sexp")
             WasmGc.Util.IrDump.dumpToFile p low
-            eprintfn "  [Phase 4b] %s" p)
+            log opts "  [Phase 4b] %s" p)
         low)
 
 // ─────────────────────────────────────────────────────────────────
@@ -256,7 +267,7 @@ let phase6_Validate (opts: PipelineOptions) (wmod: WModule) =
         if errors.IsEmpty then Ok wmod
         else
             errors |> List.iter (fun e ->
-                eprintfn "  ✗ [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
+                log opts "  ✗ [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
             if opts.StrictValidation
             then Error errors
             else
@@ -338,3 +349,4 @@ let runPipelineStrict (ctx: Ctx) (decls: Declaration list) (opts: PipelineOption
         |> List.map (fun e -> sprintf "  [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
         |> String.concat "\n"
         |> failwithf "Pipeline validation failed:\n%s"
+

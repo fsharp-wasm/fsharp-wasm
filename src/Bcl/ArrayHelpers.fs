@@ -5,6 +5,9 @@ module WasmGc.Bcl.ArrayHelpers
 
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
+
+open WasmGc.Bcl.Helpers
+
 open WasmGc.Builder.Core
 open WasmGc.Runtime.LoopPrimitives
 open WasmGc.Runtime.QuotationWalker

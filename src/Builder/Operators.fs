@@ -77,7 +77,8 @@ module Operators =
         /// Unwrap
         let value (WVal e) = e
         // Local custom operators used to build IR comparisons without returning F# bools
-        // TODO: duplicate to Buillder.fs right? 
+        // Note: Builder.fs also re-exports these as module-level functions.
+        // Keep here for `open WasmGc.Builder.Operators` usage in non-CE contexts. 
         let ( <? ) (WVal a) (WVal b) = WVal (WExpr.Compare(WCompareOp.LtS, a, b))
         let ( >? ) (WVal a) (WVal b) = WVal (WExpr.Compare(WCompareOp.GtS, a, b))
         let ( -? ) (WVal a) (WVal b) = WVal (WExpr.Binary(WBinaryOp.Sub, a, b, exprWType a))
@@ -90,3 +91,4 @@ module Operators =
     /// Ternary comparator operator for WExprs: returns {-1,0,1}
     let ( <=> ) (a: WExpr) (b: WExpr) : WExpr =
         WVal.cmp a b
+

@@ -55,7 +55,8 @@ let arrayReplacementTests = testList "Array replacements" [
     test "Array.get (indexing) → ArrayGet" {
         let ctx    = makeTestCtx()
         let arrArg = IdentExpr(mkParam "xs" (intArrT 0))
-        let idxArg = Value(NumberConstant(NumberValue.Int32 0, NumberInfo.Empty), None)
+        // let idxArg = Value(NumberConstant(NumberValue.Int32 0, NumberInfo.Empty), None)
+        let idxArg = mkIntLit 0
         let result = tryArr ctx "get" [arrArg; idxArg] (Type.Number(Int32, NumberInfo.Empty))
         Expect.isSome result "Array.get should produce Some"
         match result.Value with

@@ -832,3 +832,28 @@ let tryListUnzipInline
             | _ -> None
         | _ -> None
     | _ -> None
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unified entry point — chains all List.* dispatch functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Primary dispatch: routes any List.* selector to the correct handler.
+/// Returns None if the selector is not handled by any combinator.
+let tryListInline
+        (transform       : TransformFn)
+        (ctx             : Ctx)
+        (selector        : string)
+        (fableArgs       : Fable.Expr list)
+        (resultFableType : Fable.Type)
+        : WExpr option =
+    let try_ f = f transform ctx selector fableArgs resultFableType
+    // Priority order matters: fold before map, map before iter, etc.
+    try_ tryListFoldInline
+    |> Option.orElseWith (fun () -> try_ tryListMapInline)
+    |> Option.orElseWith (fun () -> try_ tryListCollectInline)
+    |> Option.orElseWith (fun () -> try_ tryListFilterInline)
+    |> Option.orElseWith (fun () -> try_ tryListIterInline)
+    |> Option.orElseWith (fun () -> try_ tryListSortInline)
+    |> Option.orElseWith (fun () -> try_ tryListQueryInline)
+    |> Option.orElseWith (fun () -> try_ tryListUtilInline)

@@ -125,6 +125,9 @@ type Ctx =
         /// Key: fully-qualified F# function name (e.g. "MyModule.swap")
         /// Value: (per-file Compiler instance, Fable MemberDecl as obj)
         /// The per-file Compiler is needed for cross-file entity lookups during specialization.
+        // NOTE: Ctx must reference ICompiler for `com.GetImportedModule` and error reporting.
+// To reduce this coupling, extract a minimal ICompilerServices interface from ICompiler
+// and depend on that instead. Track in issue: decouple-ctx-from-compiler.
         // TODO: we shouldn't reference the full Compiler
         GenericFuncRegistry: System.Collections.Generic.Dictionary<string, Compiler * obj>
 
@@ -371,7 +374,8 @@ let getOrAddArrayType (ctx: Ctx) (elemT: WType) : int =
         ctx.ArrayRegistry.[key] <- idx
         idx
 
-// TODO: docstring
+/// Resolve a generic DU instance key to its registered GC type index.
+/// Key format: "FullName<wTypeKey1,wTypeKey2,...>" — built in mapTypeKnown for generic args.
 let getOrAddOptionType (ctx: Ctx) (elemT: WType) =
     let key = wTypeKey elemT
     match ctx.OptionRegistry.TryGetValue(key) with
@@ -575,3 +579,4 @@ let rec exprWType (expr: WExpr) : WType =
 /// Function type alias used to pass `transformExpr` into replacement modules.
 /// Breaking the mutual recursion via higher-order parameter.
 type TransformFn = Ctx -> Fable.Expr -> WExpr
+

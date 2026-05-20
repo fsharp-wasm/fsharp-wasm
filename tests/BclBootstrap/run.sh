@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Compile fsharp-wasm-core/Exception.fs through our WasmGC backend and run tests.
+
+set -x 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

@@ -15,7 +15,7 @@ open WasmGc.Runtime.Locals
 
 /// Type-map used when translating runtime quotations: strings map to StringTypeIdx,
 /// StringBuilder struct maps to StringBuilderTypeIdx.
-let private runtimeTypeMap () : QTypeMap =
+let (* private *) runtimeTypeMap () : QTypeMap =
     { StrTypeIdx = StringTypeIdx
       SbTypeIdx  = StringBuilderTypeIdx
       ResolveCustom = fun _ -> None }

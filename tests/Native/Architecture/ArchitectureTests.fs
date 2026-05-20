@@ -31,7 +31,7 @@ module WExprQuery = WasmGc.Util.WExprQuery  // avoid Fable leak through type ali
 // Layer 3: Patterns — no Fable
 // open WasmGc.Patterns                  // Array.*, List.*, Closure.*
 // Note: Don't use "open WasmGc.Patterns" directly because it shadows the built-in Array module
-// Instead, use fully qualified names like WasmGc.Patterns.Array.map, etc.
+// Instead, use fully qualified names like WasmGc.Patterns.ArrayPatterns.map, etc.
 
 // Layer 5: Emit — no Fable
 open WasmGc.Emit.Optimize             // optimizeFuncBody
@@ -69,7 +69,7 @@ let boundaryTests = testList "Architecture / boundary" [
 
     test "Patterns.Array: map produces ArrayNew + loop without Fable" {
         let src = i32Const 0  // placeholder — type shape drives the algorithm
-        let result = WasmGc.Patterns.Array.map 1 (WType.Ref(1,false)) WType.I32
+        let result = WasmGc.Patterns.ArrayPatterns.map 1 (WType.Ref(1,false)) WType.I32
                          (i32Const 0) src (fun e -> add e (i32Const 1))
         let hasNew  = WExprQuery.exists (function WExpr.ArrayNew _ -> true | _ -> false) result
         let hasLoop = WExprQuery.exists (function WExpr.Loop _ -> true | _ -> false) result
@@ -80,7 +80,7 @@ let boundaryTests = testList "Architecture / boundary" [
     test "Patterns.Array: filter produces two ArrayNew (tmp + trimmed)" {
         let src = i32Const 0
         let (result: WExpr) = 
-            WasmGc.Patterns.Array.filter 1 (WType.Ref(1,false)) WType.I32
+            WasmGc.Patterns.ArrayPatterns.filter 1 (WType.Ref(1,false)) WType.I32
                 (i32Const 0) src (fun e -> ne e (i32Const 0))
         let news = WExprQuery.collect (function WExpr.ArrayNew _ -> true | _ -> false) result
         Expect.isGreaterThanOrEqual news.Length 2 "filter allocates tmp + result"
@@ -89,7 +89,7 @@ let boundaryTests = testList "Architecture / boundary" [
     test "Patterns.Array: sortWith emits Call to $arraySortWith (not inline loop)" {
         let src = i32Const 0
         let cmp = WExpr.LocalGet("cmp", WType.Ref(0, false))
-        let result = WasmGc.Patterns.Array.sortWith 1 (WType.Ref(1,false))
+        let result = WasmGc.Patterns.ArrayPatterns.sortWith 1 (WType.Ref(1,false))
                          (i32Const 0) src cmp
         // Must contain a Call to $arraySortWith
         let hasCall = WExprQuery.exists

@@ -155,7 +155,9 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         // Emit args + funcRef for side-effects then trap so the developer sees
         // a runtime panic rather than a silent wrong-answer or stack corruption.
         eprintfn "[WasmGc] WARNING: WExpr.CallIndirect reached binary emitter — emitting unreachable trap. Use WExpr.TailCallRef for closure dispatch."
+        // CallIndirect reaching binary emitter = a bug (Lower.fs should have converted it to CallRef).
         // TODO: implement call_ref in the binary emitter and remove this trap.  For now, this is a safety net to catch any unexpected CallIndirect nodes that weren't transformed to TailCallRef by Lower.fs.
+        // Emit args for side-effects then trap — visible at runtime, not silent corruption.
         let argInstrs = args |> List.collect (emitExpr ctx)
         let funcRefInstrs = emitExpr ctx funcRef
         argInstrs @ funcRefInstrs @ [Instr.Unreachable]
@@ -375,9 +377,7 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
 
         // Sort cases by tag for deterministic output.
         // Correct: br_table requires cases in index order [0, 1, 2, ...]
-        // without sorting, br_table depth calculation would be wrong.
-        // TODO: again - why sort - we cannot create a correct br_table without sorting, so this is not just for deterministic output, it's a correctness requirement. Maybe we should enforce this invariant in the IR instead of sorting here? Maybe
-        let sortedCases  = cases |> List.sortBy fst
+        // without sorting, br_table depth calculation would be wrong.        let sortedCases  = cases |> List.sortBy fst
         let caseCodes    = sortedCases |> List.map (fun (_, body) -> emitExpr ctx body)
         let defaultCode  = emitExpr ctx default_
 
@@ -576,38 +576,38 @@ and emitUnaryOp (op: WUnaryOp) (ty: WType) : Instr =
     // TODO: But, what is with the other cases here?
     | WUnaryOp.Neg, WType.I32 ->
         failwith "Emit: WUnaryOp.Neg/I32 must be handled by the emitExpr Unary match arm"
-    | WUnaryOp.Neg, WType.F64 -> Instr.F64Neg
-    | WUnaryOp.Neg, WType.F32 -> Instr.F32Neg
-    | WUnaryOp.Abs, WType.F64 -> Instr.F64Abs
-    | WUnaryOp.Abs, WType.F32 -> Instr.F32Abs
-    | WUnaryOp.Sqrt, WType.F64 -> Instr.F64Sqrt
-    | WUnaryOp.Sqrt, WType.F32 -> Instr.F32Sqrt
-    | WUnaryOp.Ceil, WType.F64 -> Instr.F64Ceil
-    | WUnaryOp.Ceil, WType.F32 -> Instr.F32Ceil
-    | WUnaryOp.Floor, WType.F64 -> Instr.F64Floor
-    | WUnaryOp.Floor, WType.F32 -> Instr.F32Floor
-    | WUnaryOp.Trunc, WType.F64 -> Instr.F64Trunc
-    | WUnaryOp.Trunc, WType.F32 -> Instr.F32Trunc
-    | WUnaryOp.Nearest, WType.F64 -> Instr.F64Nearest
-    | WUnaryOp.Nearest, WType.F32 -> Instr.F32Nearest
-    | WUnaryOp.Not, WType.I32 -> Instr.I32Eqz
-    | WUnaryOp.Eqz, WType.I32 -> Instr.I32Eqz
-    | WUnaryOp.Eqz, WType.I64 -> Instr.I64Eqz
-    | WUnaryOp.Clz, WType.I32 -> Instr.I32Clz
-    | WUnaryOp.Ctz, WType.I32 -> Instr.I32Ctz
-    | WUnaryOp.Popcnt, WType.I32 -> Instr.I32Popcnt
-    | WUnaryOp.WrapI64, _ -> Instr.I32WrapI64
-    | WUnaryOp.ExtendI32S, _ -> Instr.I64ExtendI32S
-    | WUnaryOp.ExtendI32U, _ -> Instr.I64ExtendI32U
-    | WUnaryOp.TruncF64S, WType.I32 -> Instr.I32TruncF64S
-    | WUnaryOp.TruncF64S, WType.I64 -> Instr.I64TruncF64S
-    | WUnaryOp.TruncF32S, WType.I32 -> Instr.I32TruncF32S
+    | WUnaryOp.Neg, WType.F64         -> Instr.F64Neg
+    | WUnaryOp.Neg, WType.F32         -> Instr.F32Neg
+    | WUnaryOp.Abs, WType.F64         -> Instr.F64Abs
+    | WUnaryOp.Abs, WType.F32         -> Instr.F32Abs
+    | WUnaryOp.Sqrt, WType.F64        -> Instr.F64Sqrt
+    | WUnaryOp.Sqrt, WType.F32        -> Instr.F32Sqrt
+    | WUnaryOp.Ceil, WType.F64        -> Instr.F64Ceil
+    | WUnaryOp.Ceil, WType.F32        -> Instr.F32Ceil
+    | WUnaryOp.Floor, WType.F64       -> Instr.F64Floor
+    | WUnaryOp.Floor, WType.F32       -> Instr.F32Floor
+    | WUnaryOp.Trunc, WType.F64       -> Instr.F64Trunc
+    | WUnaryOp.Trunc, WType.F32       -> Instr.F32Trunc
+    | WUnaryOp.Nearest, WType.F64     -> Instr.F64Nearest
+    | WUnaryOp.Nearest, WType.F32     -> Instr.F32Nearest
+    | WUnaryOp.Not, WType.I32         -> Instr.I32Eqz
+    | WUnaryOp.Eqz, WType.I32         -> Instr.I32Eqz
+    | WUnaryOp.Eqz, WType.I64         -> Instr.I64Eqz
+    | WUnaryOp.Clz, WType.I32         -> Instr.I32Clz
+    | WUnaryOp.Ctz, WType.I32         -> Instr.I32Ctz
+    | WUnaryOp.Popcnt, WType.I32      -> Instr.I32Popcnt
+    | WUnaryOp.WrapI64, _             -> Instr.I32WrapI64
+    | WUnaryOp.ExtendI32S, _          -> Instr.I64ExtendI32S
+    | WUnaryOp.ExtendI32U, _          -> Instr.I64ExtendI32U
+    | WUnaryOp.TruncF64S, WType.I32   -> Instr.I32TruncF64S
+    | WUnaryOp.TruncF64S, WType.I64   -> Instr.I64TruncF64S
+    | WUnaryOp.TruncF32S, WType.I32   -> Instr.I32TruncF32S
     | WUnaryOp.ConvertI32S, WType.F64 -> Instr.F64ConvertI32S
     | WUnaryOp.ConvertI32S, WType.F32 -> Instr.F32ConvertI32S
     | WUnaryOp.ConvertI64S, WType.F64 -> Instr.F64ConvertI64S
     | WUnaryOp.ConvertI64S, WType.F32 -> Instr.F32ConvertI64S
-    | WUnaryOp.PromoteF32, _ -> Instr.F64PromoteF32
-    | WUnaryOp.DemoteF64, _ -> Instr.F32DemoteF64
+    | WUnaryOp.PromoteF32, _          -> Instr.F64PromoteF32
+    | WUnaryOp.DemoteF64, _           -> Instr.F32DemoteF64
     | WUnaryOp.ReinterpretI32ToF32, _ -> Instr.F32ReinterpretI32
     | WUnaryOp.ReinterpretF32ToI32, _ -> Instr.I32ReinterpretF32
     | WUnaryOp.ReinterpretI64ToF64, _ -> Instr.F64ReinterpretI64
@@ -617,94 +617,94 @@ and emitUnaryOp (op: WUnaryOp) (ty: WType) : Instr =
 and emitBinaryOp (op: WBinaryOp) (ty: WType) : Instr =
     match op, ty with
     // i32 operations
-    | WBinaryOp.Add, WType.I32 -> Instr.I32Add
-    | WBinaryOp.Sub, WType.I32 -> Instr.I32Sub
-    | WBinaryOp.Mul, WType.I32 -> Instr.I32Mul
+    | WBinaryOp.Add, WType.I32  -> Instr.I32Add
+    | WBinaryOp.Sub, WType.I32  -> Instr.I32Sub
+    | WBinaryOp.Mul, WType.I32  -> Instr.I32Mul
     | WBinaryOp.DivS, WType.I32 -> Instr.I32DivS
     | WBinaryOp.DivU, WType.I32 -> Instr.I32DivU
     | WBinaryOp.RemS, WType.I32 -> Instr.I32RemS
     | WBinaryOp.RemU, WType.I32 -> Instr.I32RemU
-    | WBinaryOp.And, WType.I32 -> Instr.I32And
-    | WBinaryOp.Or, WType.I32 -> Instr.I32Or
-    | WBinaryOp.Xor, WType.I32 -> Instr.I32Xor
-    | WBinaryOp.Shl, WType.I32 -> Instr.I32Shl
+    | WBinaryOp.And, WType.I32  -> Instr.I32And
+    | WBinaryOp.Or, WType.I32   -> Instr.I32Or
+    | WBinaryOp.Xor, WType.I32  -> Instr.I32Xor
+    | WBinaryOp.Shl, WType.I32  -> Instr.I32Shl
     | WBinaryOp.ShrS, WType.I32 -> Instr.I32ShrS
     | WBinaryOp.ShrU, WType.I32 -> Instr.I32ShrU
     | WBinaryOp.Rotl, WType.I32 -> Instr.I32Rotl
     | WBinaryOp.Rotr, WType.I32 -> Instr.I32Rotr
     // i64 operations
-    | WBinaryOp.Add, WType.I64 -> Instr.I64Add
-    | WBinaryOp.Sub, WType.I64 -> Instr.I64Sub
-    | WBinaryOp.Mul, WType.I64 -> Instr.I64Mul
+    | WBinaryOp.Add, WType.I64  -> Instr.I64Add
+    | WBinaryOp.Sub, WType.I64  -> Instr.I64Sub
+    | WBinaryOp.Mul, WType.I64  -> Instr.I64Mul
     | WBinaryOp.DivS, WType.I64 -> Instr.I64DivS
     | WBinaryOp.DivU, WType.I64 -> Instr.I64DivU
     | WBinaryOp.RemS, WType.I64 -> Instr.I64RemS
     | WBinaryOp.RemU, WType.I64 -> Instr.I64RemU
-    | WBinaryOp.And, WType.I64 -> Instr.I64And
-    | WBinaryOp.Or, WType.I64 -> Instr.I64Or
-    | WBinaryOp.Xor, WType.I64 -> Instr.I64Xor
-    | WBinaryOp.Shl, WType.I64 -> Instr.I64Shl
+    | WBinaryOp.And, WType.I64  -> Instr.I64And
+    | WBinaryOp.Or, WType.I64   -> Instr.I64Or
+    | WBinaryOp.Xor, WType.I64  -> Instr.I64Xor
+    | WBinaryOp.Shl, WType.I64  -> Instr.I64Shl
     | WBinaryOp.ShrS, WType.I64 -> Instr.I64ShrS
     | WBinaryOp.ShrU, WType.I64 -> Instr.I64ShrU
     | WBinaryOp.Rotl, WType.I64 -> Instr.I64Rotl
     | WBinaryOp.Rotr, WType.I64 -> Instr.I64Rotr
     // f32 operations
-    | WBinaryOp.Add, WType.F32 -> Instr.F32Add
-    | WBinaryOp.Sub, WType.F32 -> Instr.F32Sub
-    | WBinaryOp.Mul, WType.F32 -> Instr.F32Mul
+    | WBinaryOp.Add, WType.F32  -> Instr.F32Add
+    | WBinaryOp.Sub, WType.F32  -> Instr.F32Sub
+    | WBinaryOp.Mul, WType.F32  -> Instr.F32Mul
     | WBinaryOp.DivS, WType.F32 -> Instr.F32Div
     | WBinaryOp.DivU, WType.F32 -> Instr.F32Div
     // f64 operations
-    | WBinaryOp.Add, WType.F64 -> Instr.F64Add
-    | WBinaryOp.Sub, WType.F64 -> Instr.F64Sub
-    | WBinaryOp.Mul, WType.F64 -> Instr.F64Mul
+    | WBinaryOp.Add, WType.F64  -> Instr.F64Add
+    | WBinaryOp.Sub, WType.F64  -> Instr.F64Sub
+    | WBinaryOp.Mul, WType.F64  -> Instr.F64Mul
     | WBinaryOp.DivS, WType.F64 -> Instr.F64Div
     | WBinaryOp.DivU, WType.F64 -> Instr.F64Div
     // f32/f64 min, max, copysign
-    | WBinaryOp.Min, WType.F32 -> Instr.F32Min
-    | WBinaryOp.Max, WType.F32 -> Instr.F32Max
+    | WBinaryOp.Min, WType.F32      -> Instr.F32Min
+    | WBinaryOp.Max, WType.F32      -> Instr.F32Max
     | WBinaryOp.CopySign, WType.F32 -> Instr.F32CopySign
-    | WBinaryOp.Min, WType.F64 -> Instr.F64Min
-    | WBinaryOp.Max, WType.F64 -> Instr.F64Max
+    | WBinaryOp.Min, WType.F64      -> Instr.F64Min
+    | WBinaryOp.Max, WType.F64      -> Instr.F64Max
     | WBinaryOp.CopySign, WType.F64 -> Instr.F64CopySign
     | _ -> Instr.Unreachable // fallback
 
 and emitCompareOp (op: WCompareOp) (ty: WType) : Instr =
     match op, ty with
-    | WCompareOp.Eq, WType.I32 -> Instr.I32Eq
-    | WCompareOp.Ne, WType.I32 -> Instr.I32Ne
-    | WCompareOp.LtS, WType.I32 -> Instr.I32LtS
-    | WCompareOp.LtU, WType.I32 -> Instr.I32LtU
-    | WCompareOp.GtS, WType.I32 -> Instr.I32GtS
-    | WCompareOp.GtU, WType.I32 -> Instr.I32GtU
-    | WCompareOp.LeS, WType.I32 -> Instr.I32LeS
-    | WCompareOp.LeU, WType.I32 -> Instr.I32LeU
-    | WCompareOp.GeS, WType.I32 -> Instr.I32GeS
-    | WCompareOp.GeU, WType.I32 -> Instr.I32GeU
-    | WCompareOp.Eq, WType.I64 -> Instr.I64Eq
-    | WCompareOp.Ne, WType.I64 -> Instr.I64Ne
-    | WCompareOp.LtS, WType.I64 -> Instr.I64LtS
-    | WCompareOp.GtS, WType.I64 -> Instr.I64GtS
-    | WCompareOp.LeS, WType.I64 -> Instr.I64LeS
-    | WCompareOp.GeS, WType.I64 -> Instr.I64GeS
-    | WCompareOp.Eq, WType.F32 -> Instr.F32Eq
-    | WCompareOp.Ne, WType.F32 -> Instr.F32Ne
-    | WCompareOp.LtS, WType.F32 -> Instr.F32Lt
-    | WCompareOp.GtS, WType.F32 -> Instr.F32Gt
-    | WCompareOp.LeS, WType.F32 -> Instr.F32Le
-    | WCompareOp.GeS, WType.F32 -> Instr.F32Ge
-    | WCompareOp.Eq, WType.F64 -> Instr.F64Eq
-    | WCompareOp.Ne, WType.F64 -> Instr.F64Ne
-    | WCompareOp.LtS, WType.F64 -> Instr.F64Lt
-    | WCompareOp.GtS, WType.F64 -> Instr.F64Gt
-    | WCompareOp.LeS, WType.F64 -> Instr.F64Le
-    | WCompareOp.GeS, WType.F64 -> Instr.F64Ge
-    | WCompareOp.RefEq, _ -> Instr.RefEq
-    | WCompareOp.Eq, WType.Ref _ -> Instr.RefEq
+    | WCompareOp.Eq,  WType.I32   -> Instr.I32Eq
+    | WCompareOp.Ne,  WType.I32   -> Instr.I32Ne
+    | WCompareOp.LtS, WType.I32   -> Instr.I32LtS
+    | WCompareOp.LtU, WType.I32   -> Instr.I32LtU
+    | WCompareOp.GtS, WType.I32   -> Instr.I32GtS
+    | WCompareOp.GtU, WType.I32   -> Instr.I32GtU
+    | WCompareOp.LeS, WType.I32   -> Instr.I32LeS
+    | WCompareOp.LeU, WType.I32   -> Instr.I32LeU
+    | WCompareOp.GeS, WType.I32   -> Instr.I32GeS
+    | WCompareOp.GeU, WType.I32   -> Instr.I32GeU
+    | WCompareOp.Eq,  WType.I64   -> Instr.I64Eq
+    | WCompareOp.Ne,  WType.I64   -> Instr.I64Ne
+    | WCompareOp.LtS, WType.I64   -> Instr.I64LtS
+    | WCompareOp.GtS, WType.I64   -> Instr.I64GtS
+    | WCompareOp.LeS, WType.I64   -> Instr.I64LeS
+    | WCompareOp.GeS, WType.I64   -> Instr.I64GeS
+    | WCompareOp.Eq,  WType.F32   -> Instr.F32Eq
+    | WCompareOp.Ne,  WType.F32   -> Instr.F32Ne
+    | WCompareOp.LtS, WType.F32   -> Instr.F32Lt
+    | WCompareOp.GtS, WType.F32   -> Instr.F32Gt
+    | WCompareOp.LeS, WType.F32   -> Instr.F32Le
+    | WCompareOp.GeS, WType.F32   -> Instr.F32Ge
+    | WCompareOp.Eq,  WType.F64   -> Instr.F64Eq
+    | WCompareOp.Ne,  WType.F64   -> Instr.F64Ne
+    | WCompareOp.LtS, WType.F64   -> Instr.F64Lt
+    | WCompareOp.GtS, WType.F64   -> Instr.F64Gt
+    | WCompareOp.LeS, WType.F64   -> Instr.F64Le
+    | WCompareOp.GeS, WType.F64   -> Instr.F64Ge
+    | WCompareOp.RefEq, _         -> Instr.RefEq
+    | WCompareOp.Eq,  WType.Ref _ -> Instr.RefEq
     // Ne on Ref — handled in emitExpr as [RefEq; I32Eqz]; should not reach here
     // | WCompareOp.Ne, WType.Ref _ -> Instr.RefEq
     | WCompareOp.Ne, WType.Ref _ ->
-    failwith "Emit: Compare(Ne, Ref) must be handled in emitExpr, not emitCompareOp"
+        failwith "Emit: Compare(Ne, Ref) must be handled in emitExpr, not emitCompareOp"
     | _ -> Instr.I32Eq // fallback
 
 // ─────────────────────────────────────────────────────────────────
@@ -854,9 +854,10 @@ let emitModule (wmod: WModule) : WasmModule =
     // Ensure the exception carrier global exists, or create a dummy if missing
     let globalIndex =
         wmod.Globals |> List.mapi (fun i g -> g.Name, i) |> Map.ofList
-        // TODO: this guard shouldn't be necessary once the frontend always emits the carrier global, but we add it defensively for now to avoid crashes if it's missing.
+        // TODO: this guard shouldn't be necessary.
+        // Guard: older pipeline paths may omit GlobalSet for $fsharp_exn_carrier.
+        // Once all paths are validated (regression tests green), this guard can be removed., but we add it defensively for now to avoid crashes if it's missing.
         // let baseMap = wmod.Globals |> List.mapi (fun i g -> g.Name, i) |> Map.ofList
-        // // TODO: this guard shouldn't be necessary once the frontend always emits the carrier global, but we add it defensively for now to avoid crashes if it's missing.
         // if not (Map.containsKey "$fsharp_exn_carrier" baseMap) then
         //     // If the frontend forgot it, we assign it the next available global index to avoid crashes
         //     Map.add "$fsharp_exn_carrier" (wmod.Globals.Length) baseMap
@@ -888,7 +889,8 @@ let emitModule (wmod: WModule) : WasmModule =
     let funcTypeIndices =
         wmod.Functions
         |> List.map (fun f ->
-            // Filter Void params — WASM has no void value type // TODO: for real? is this true?
+            // Filter Void params: WASM call instructions cannot accept void-typed arguments. WASM has no void value type
+            // Void results from e.g. unit-returning functions produce no stack value.
             let paramTypes = f.Params |> List.map snd |> List.filter (fun t -> t <> WType.Void)
             let resultTypes =
                 match f.Result with
@@ -1024,3 +1026,4 @@ let emitModule (wmod: WModule) : WasmModule =
         Tags = tagTypeIndices
         HasLinearMemory = wmod.HasLinearMemory
     }
+
