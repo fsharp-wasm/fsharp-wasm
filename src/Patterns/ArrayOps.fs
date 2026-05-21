@@ -247,7 +247,7 @@ let arraySortWith (a: ArrayShape) (src: WExpr) (cmpClosure: WExpr) : WExpr =
     let gen = LabelGen "sortw"
     wasm {
         let! n   = a.Len src
-        let! res = a.New(n, makeNumericZero a.ElemTy)
+        let! (res: WExpr) = a.New(n, makeNumericZero a.ElemTy)
         do! WExpr.ArrayCopy(localGet gen.Acc a.ArrRefTy, i32Const 0, src, i32Const 0, n)
         do! WExpr.Call("$arraySortWith", [localGet gen.Acc a.ArrRefTy; cmpClosure; n], WType.Void)
         return localGet gen.Acc a.ArrRefTy

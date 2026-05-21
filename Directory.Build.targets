@@ -10,12 +10,12 @@
             DisableImplicitFSharpCoreReference above.
         -->
         <!-- <PackageReference Update="FSharp.Core"             Version="10.1.203" /> -->
-        <PackageReference Update="FSharp.Core"             Version="10.0.203" />
+        <PackageReference Update="FSharp.Core"             Version="10.1.204" />
         <!--
             The main FCS package.  Includes the compiler, symbol APIs, and the
             FSharpChecker public surface that InteractiveChecker.fs now uses.
         -->
-        <PackageReference Update="FSharp.Compiler.Service" Version="43.12.203" />
+        <PackageReference Update="FSharp.Compiler.Service" Version="43.12.204" />
         <!--
             DependencyManager is a separate package in recent FCS releases.
             It is still needed for script resolution inside FSharpChecker.

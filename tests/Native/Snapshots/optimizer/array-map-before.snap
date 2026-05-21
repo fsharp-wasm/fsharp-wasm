@@ -1,0 +1,53 @@
+(let n
+  (array.len
+    (local.get arr : i32)
+  )
+  (let res
+    (array.new t1 : (ref t1)
+      (local.get n : i32)
+      (i32.const 0)
+    )
+    (let-mut i
+      (i32.const 0)
+      (seq
+        (add : i32
+          (i32.const 0)
+          (i32.const 0)
+        )
+        (block exit : void
+          (loop lp : void
+            (if : void
+              (lt_s
+                (local.get i : i32)
+                (local.get n : i32)
+              )
+              (seq
+                (array.set
+                  (local.get res : i32)
+                  (local.get i : i32)
+                  (mul : i32
+                    (array.get : i32
+                      (local.get arr : i32)
+                      (local.get i : i32)
+                    )
+                    (i32.const 2)
+                  )
+                )
+                (set i
+                  (add : i32
+                    (local.get i : i32)
+                    (i32.const 1)
+                  )
+                )
+                (continue lp
+                )
+              )
+              (break exit)
+            )
+          )
+        )
+        (local.get res : i32)
+      )
+    )
+  )
+)

@@ -377,7 +377,8 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
 
         // Sort cases by tag for deterministic output.
         // Correct: br_table requires cases in index order [0, 1, 2, ...]
-        // without sorting, br_table depth calculation would be wrong.        let sortedCases  = cases |> List.sortBy fst
+        // without sorting, br_table depth calculation would be wrong.
+        let sortedCases  = cases |> List.sortBy fst
         let caseCodes    = sortedCases |> List.map (fun (_, body) -> emitExpr ctx body)
         let defaultCode  = emitExpr ctx default_
 
