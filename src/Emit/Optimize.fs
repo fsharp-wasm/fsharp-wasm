@@ -227,6 +227,13 @@ let private eliminateDeadCode (expr: WExpr) : WExpr =
         // Drop pure unused immutable let-bindings
         | WExpr.Let(name, value, body) when isPure value && not (usesLocal name body) ->
             Some body
+        // Single-use let elimination: Let("x", v, LocalGet("x")) → v
+        // Handles the common CE pattern: let! x = expr; return x
+        | WExpr.Let(name, value, WExpr.LocalGet(n, _)) when n = name -> Some value
+        // Let("x", const, expr using x once) → substitute and drop binding
+        | WExpr.Let(name, (WExpr.Const _ as c), body)
+              when not (exists (function WExpr.Assign(n,_) -> n = name | _ -> false) body) ->
+            Some(substituteLocal name c body)
         // Drop pure unused mutable let-bindings (no writes in body either)
         | WExpr.LetMut(name, value, body) when isPure value && not (usesLocal name body) ->
             Some body

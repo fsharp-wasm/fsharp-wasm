@@ -3,24 +3,29 @@
     <!-- <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference> -->
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>WasmGc.Core</AssemblyName>
+    <Nullable>enable</Nullable> <!-- TODO: we should fix this ? -->
+    <LangVersion>preview</LangVersion>
+    <!--
+      WasmGc.Core MUST NOT reference Fable.AST.
+      It contains only the WExpr/WType/WModule IR and the DiagnosticBag.
+      Types.fs (Ctx) lives in Fable.WasmGc.fsproj — it needs ICompiler.
+      Verify: src/Core/bin/.../WasmGc.Core.dll must not list Fable.AST
+      in its referenced assemblies. The ArchitectureTests check this at runtime.
+    -->
   </PropertyGroup>
   <ItemGroup>
-    <!-- <PackageReference Include="FSharp.Core"             Version="10.1.203" /> -->
-    <!-- <ProjectReference Include="../Core/WasmGc.Core.fsproj" /> -->
-
-
     <!-- TODO: do we really need the compiler or transform here? -->
     <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Global/Fable.Transforms.Global.fsproj" />
-    <!-- <Compile Include="../../vendor/Fable/src/Fable.Transforms/Global/Compiler.fs" /> -->
-    <!-- <ProjectReference Include="../../vendor/Fable/src/Fable.Compiler/Fable.Compiler.fsproj" /> -->
     <ProjectReference Include="../../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" PrivateAssets="all" />
-    <!-- <ProjectReference Include="../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" /> -->
   </ItemGroup>
-  <ItemGroup> 
+  <ItemGroup>
     <Compile Include="AST.fs" />
     <Compile Include="Diagnostics.fs" />
-    <!-- TODO: Interop.fs - is in core lib? or goes to other? -->
+    <!-- TODO: Interop.fs should go to one of our BCLs -->
     <!-- <Compile Include="Interop.fs" /> -->
+
+    <!-- TODO: -->
+    <!-- Types.fs is NOT here — it lives in Fable.WasmGc.fsproj (Fable-dependent) -->
     <Compile Include="Types.fs" />
   </ItemGroup>
 </Project>

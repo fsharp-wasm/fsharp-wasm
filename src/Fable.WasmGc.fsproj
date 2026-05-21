@@ -74,6 +74,7 @@
     <!-- Core -->
     <!-- <Compile Include="Core/AST.fs" /> -->
     <!-- <Compile Include="Core/Diagnostics.fs" /> -->
+    <!-- TODO: Types.fs is still here because Fable-dependent — should go to Core  -->
     <!-- <Compile Include="Core/Types.fs" /> -->
     <!-- <Compile Include="Bcl/BclRegistry.fs" /> -->
 

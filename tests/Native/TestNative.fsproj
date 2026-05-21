@@ -11,15 +11,17 @@
   <ItemGroup>
     <ProjectReference Include="../../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" />
     <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
+    <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Global/Fable.Transforms.Global.fsproj" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="Helper/FableAstHelpers.fs" />
     <Compile Include="Helper/WasmTestHelper.fs" />
     <!-- <Compile Include="Helper/PipelineHelper.fs" /> -->
+    <Compile Include="Helper/RealFSharpHelpers.fs" />
     <Compile Include="Helper/SnapshotFramework.fs" />
 
-  <Compile Include="Architecture/ArchitectureTests.fs" />
+    <Compile Include="Architecture/ArchitectureTests.fs" />
 
     <Compile Include="Integration/ArrayReplacementTests.fs" />
     <Compile Include="Integration/ClosureCallTests.fs" />

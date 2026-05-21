@@ -126,8 +126,8 @@ type Ctx =
         /// Value: (per-file Compiler instance, Fable MemberDecl as obj)
         /// The per-file Compiler is needed for cross-file entity lookups during specialization.
         // NOTE: Ctx must reference ICompiler for `com.GetImportedModule` and error reporting.
-// To reduce this coupling, extract a minimal ICompilerServices interface from ICompiler
-// and depend on that instead. Track in issue: decouple-ctx-from-compiler.
+        // To reduce this coupling, extract a minimal ICompilerServices interface from ICompiler
+        // and depend on that instead. Track in issue: decouple-ctx-from-compiler.
         // TODO: we shouldn't reference the full Compiler
         GenericFuncRegistry: System.Collections.Generic.Dictionary<string, Compiler * obj>
 

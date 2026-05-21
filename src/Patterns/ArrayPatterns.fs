@@ -1,5 +1,11 @@
 /// WasmGC array algorithm library — pure WExpr, NO Fable.AST dependency.
 ///
+/// IMPORTANT: All wasm { } blocks must use variables bound by let!/mut
+/// directly — DO NOT use gen.Acc/gen.Tmp/gen.Idx as local names.
+/// Those LabelGen helpers name BLOCK labels, not locals.
+/// Locals are named by freshName() when let!/Bind runs; capture the
+/// returned WExpr handle and reuse it.
+///
 /// The Fable dispatch layer (Transforms/ArrayReplacements.fs) extracts typed
 /// arguments from Fable.Expr and delegates here.
 ///
@@ -14,6 +20,8 @@ open WasmGc.Builder.Core
 open WasmGc.Builder.Operators
 open WasmGc.Runtime.LoopPrimitives
 
+let private zero32 = i32Const 0
+
 let private allocArr arrTypeIdx len zero ty = WExpr.ArrayNew(arrTypeIdx, len, zero, ty)
 
 // ── map / mapi ──────────────────────────────────────────────────────────────
@@ -22,31 +30,30 @@ let map arrTypeIdx arrRefTy elemTy zero src (f: WExpr -> WExpr) : WExpr =
     let gen = LabelGen "map"
     wasm {
         let! (n: WExpr)   = arrayLen src
-        let! (res: WExpr) = allocArr arrTypeIdx n zero arrRefTy
+        let! (res: WExpr) = WExpr.ArrayNew(arrTypeIdx, n, zero, arrRefTy)
         do! indexedLoop gen n (fun i ->
-            arraySet (localGet gen.Acc arrRefTy) i (f (arrayGet src i elemTy)))
-        return localGet gen.Acc arrRefTy
+            arraySet res i (f (arrayGet src i elemTy)))
+        return res
     }
 
-let mapi arrTypeIdx arrRefTy elemTy zero src (f: WExpr -> WExpr -> WExpr) : WExpr =
+let mapi arrTypeIdx arrRefTy elemTy zeroElem src (f: WExpr -> WExpr -> WExpr) : WExpr =
     let gen = LabelGen "mapi"
     wasm {
         let! (n: WExpr)   = arrayLen src
-        let! (res: WExpr) = allocArr arrTypeIdx n zero arrRefTy
+        let! (res: WExpr) = allocArr arrTypeIdx n zeroElem arrRefTy
         do! indexedLoop gen n (fun i ->
-            arraySet (localGet gen.Acc arrRefTy) i (f i (arrayGet src i elemTy)))
-        return localGet gen.Acc arrRefTy
+            arraySet res i (f i (arrayGet src i elemTy)))
+        return res
     }
 
 // ── init / create ───────────────────────────────────────────────────────────
 
-let init arrTypeIdx arrRefTy zero n (f: WExpr -> WExpr) : WExpr =
+let init arrTypeIdx arrRefTy zeroElem n (f: WExpr -> WExpr) : WExpr =
     let gen = LabelGen "init"
     wasm {
-        let! (res: WExpr) = allocArr arrTypeIdx n zero arrRefTy
-        do! indexedLoop gen n (fun i ->
-            arraySet (localGet gen.Acc arrRefTy) i (f i))
-        return localGet gen.Acc arrRefTy
+        let! (res: WExpr) = allocArr arrTypeIdx n zeroElem arrRefTy
+        do! indexedLoop gen n (fun i -> arraySet res i (f i))
+        return res
     }
 
 let create arrTypeIdx arrRefTy n value : WExpr =
@@ -66,36 +73,37 @@ let fold elemTy accTy src initVal (f: WExpr -> WExpr -> WExpr) : WExpr =
 let scan arrTypeIdx arrRefTy elemTy zeroElem src initVal (f: WExpr -> WExpr -> WExpr) : WExpr =
     let gen = LabelGen "scan"
     wasm {
-        let! n   = arrayLen src
+        let! n            = arrayLen src
         let! (res: WExpr) = WExpr.ArrayNew(arrTypeIdx, add n (i32Const 1), zeroElem, arrRefTy)
         let! (acc: WVar)  = mutTy (exprWType initVal) initVal
-        do! arraySet (localGet gen.Acc arrRefTy) (i32Const 0) acc.Val
+        do! arraySet res (i32Const 0) acc.Val
         do! indexedLoop gen n (fun i ->
             wasm {
                 do! acc <== f acc.Val (arrayGet src i elemTy)
-                do! arraySet (localGet gen.Acc arrRefTy) (add i (i32Const 1)) acc.Val
+                do! arraySet res (add i (i32Const 1)) acc.Val
             })
-        return localGet gen.Acc arrRefTy
+        return res
     }
 
 // ── filter ──────────────────────────────────────────────────────────────────
+// Two-pass: collect into worst-case tmp, then copy to exact-size result.
+// Uses bound CE variables (not LabelGen label names) for all local references.
 
-let filter arrTypeIdx arrRefTy elemTy zero src (pred: WExpr -> WExpr) : WExpr =
+let filter arrTypeIdx arrRefTy elemTy zeroElem src (pred: WExpr -> WExpr) : WExpr =
     let gen = LabelGen "filt"
     wasm {
         let! n   = arrayLen src
-        let! (tmp: WExpr) = WExpr.ArrayNew(arrTypeIdx, n, zero, arrRefTy)
+        let! (tmp: WExpr) = WExpr.ArrayNew(arrTypeIdx, n, zeroElem, arrRefTy)
         let! (cnt: WVar)  = mut (i32Const 0)
         do! indexedLoop gen n (fun i ->
             let elem = arrayGet src i elemTy
             wasmWhen (pred elem) (wasm {
-                do! arraySet (localGet gen.Tmp arrRefTy) cnt.Val elem
+                do! arraySet tmp cnt.Val elem
                 do! cnt <== (cnt.Val +. i32Const 1)
             }))
-        let! (res: WExpr) = WExpr.ArrayNew(arrTypeIdx, cnt.Val, zero, arrRefTy)
-        do! WExpr.ArrayCopy(localGet gen.Acc arrRefTy, i32Const 0,
-                            localGet gen.Tmp arrRefTy, i32Const 0, cnt.Val)
-        return localGet gen.Acc arrRefTy
+        let! (res: WExpr) = WExpr.ArrayNew(arrTypeIdx, cnt.Val, zeroElem, arrRefTy)
+        do! WExpr.ArrayCopy(res, i32Const 0, tmp, i32Const 0, cnt.Val)
+        return res
     }
 
 // ── append ──────────────────────────────────────────────────────────────────
@@ -106,19 +114,19 @@ let append arrTypeIdx arrRefTy zero a b : WExpr =
         let! (la: WExpr)  = arrayLen a
         let! (lb: WExpr)  = arrayLen b
         let! (res: WExpr) = WExpr.ArrayNew(arrTypeIdx, add la lb, zero, arrRefTy)
-        do! WExpr.ArrayCopy(localGet gen.Acc arrRefTy, i32Const 0, a, i32Const 0, la)
-        do! WExpr.ArrayCopy(localGet gen.Acc arrRefTy, la, b, i32Const 0, lb)
-        return localGet gen.Acc arrRefTy
+        do! WExpr.ArrayCopy(res, i32Const 0, a, i32Const 0, la)
+        do! WExpr.ArrayCopy(res, la, b, i32Const 0, lb)
+        return res
     }
 
-// ── fill (mutates target) ────────────────────────────────────────────────────
+// ── fill (mutates target in place) ──────────────────────────────────────────
 
 let fill target start count value : WExpr =
     let gen = LabelGen "fill"
     wasm {
-        let! (lim: WExpr) = add start count
         let! (i: WVar)    = mut start
-        while (i.Val <. localGet gen.Acc WType.I32) do
+        let! (lim: WExpr) = add start count
+        while (i.Val <. lim) do
             do! arraySet target i.Val value
             do! i <== (i.Val +. i32Const 1)
     }
@@ -133,10 +141,9 @@ let sortWith arrTypeIdx arrRefTy zero src cmpClosure : WExpr =
     wasm {
         let! n   = arrayLen src
         let! (res: WExpr) = allocArr arrTypeIdx n zero arrRefTy
-        do! WExpr.ArrayCopy(localGet gen.Acc arrRefTy, i32Const 0, src, i32Const 0, n)
-        do! WExpr.Call("$arraySortWith",
-                [localGet gen.Acc arrRefTy; cmpClosure; n], WType.Void)
-        return localGet gen.Acc arrRefTy
+        do! WExpr.ArrayCopy(res, i32Const 0, src, i32Const 0, n)
+        do! WExpr.Call("$arraySortWith", [res; cmpClosure; n], WType.Void)
+        return res
     }
 
 /// sortBy — inline insertion sort keyed by a pure function (typically tiny arrays).
@@ -144,22 +151,21 @@ let sortBy arrTypeIdx arrRefTy elemTy keyTy zero src (keyFn: WExpr -> WExpr) : W
     let gen = LabelGen "sortb"
     let cmp a b =
         match keyTy with
-        | WType.I32 -> sub (keyFn a) (keyFn b)
+        // | WType.I32 -> sub (keyFn a) (keyFn b)
         | WType.F64 ->
             WExpr.If(WExpr.Compare(WCompareOp.LtS, keyFn a, keyFn b), i32Const -1,
                 WExpr.If(WExpr.Compare(WCompareOp.GtS, keyFn a, keyFn b), i32Const 1,
-                     i32Const 0, WType.I32), WType.I32)
+                         i32Const 0, WType.I32), WType.I32)
         | _         -> sub (keyFn a) (keyFn b)
     wasm {
         let! (n: WExpr)   = arrayLen src
         let! (res: WExpr) = WExpr.ArrayNew(arrTypeIdx, n, zero, arrRefTy)
-        do! WExpr.ArrayCopy(localGet gen.Acc arrRefTy, i32Const 0, src, i32Const 0, n)
-        do! insertionSortInPlace gen
-                (localGet gen.Acc arrRefTy) n elemTy
+        do! WExpr.ArrayCopy(res, i32Const 0, src, i32Const 0, n)
+        do! insertionSortInPlace gen res n elemTy
                 (fun a i -> arrayGet a i elemTy)
                 (fun a i v -> arraySet a i v)
                 cmp
-        return localGet gen.Acc arrRefTy
+        return res
     }
 
 // ── iter / exists / forall / tryFindIndex ────────────────────────────────────
@@ -208,7 +214,7 @@ let map2 arrTypeIdx arrRefTy elemATy elemBTy zero a b (f: WExpr -> WExpr -> WExp
         let! (n: WExpr)   = arrayLen a
         let! (res: WExpr) = WExpr.ArrayNew(arrTypeIdx, n, zero, arrRefTy)
         do! indexedLoop gen n (fun i ->
-            arraySet (localGet gen.Acc arrRefTy) i
+            arraySet res i
                 (f (arrayGet a i elemATy) (arrayGet b i elemBTy)))
-        return localGet gen.Acc arrRefTy
+        return res
     }
