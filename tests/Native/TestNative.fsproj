@@ -20,6 +20,7 @@
     <!-- <Compile Include="Helper/PipelineHelper.fs" /> -->
     <Compile Include="Helper/RealFSharpHelpers.fs" />
     <Compile Include="Helper/SnapshotFramework.fs" />
+    <Compile Include="Helper/CompilerHelper.fs" />
 
     <Compile Include="Architecture/ArchitectureTests.fs" />
 
@@ -27,8 +28,6 @@
     <Compile Include="Integration/ClosureCallTests.fs" />
     <Compile Include="Integration/CurriedApplyTests.fs" />
     <Compile Include="Integration/ElmishTests.fs" />
-    
-    
 
     <Compile Include="Integration/FableQueryTests.fs" />
     <!-- TODO: FutureTests early impl from RealFSharpTests -->
@@ -39,6 +38,7 @@
     <Compile Include="Integration/RealFSharpTests.fs" />
     <Compile Include="Integration/StringRuntimeTests.fs" />
     <Compile Include="Integration/WhileBangTests.fs" />
+    <Compile Include="Integration/RealFSharpTests_InMemory.fs" />
 
 
     <Compile Include="Unit/CaptureTests.fs" />
