@@ -24,6 +24,8 @@
 
     <Compile Include="Architecture/ArchitectureTests.fs" />
 
+    <Compile Include="e2e/RealFSharpTests_e2e.fs" />
+
     <Compile Include="Integration/ArrayReplacementTests.fs" />
     <Compile Include="Integration/ClosureCallTests.fs" />
     <Compile Include="Integration/CurriedApplyTests.fs" />
@@ -39,7 +41,6 @@
     <Compile Include="Integration/StringRuntimeTests.fs" />
     <Compile Include="Integration/WhileBangTests.fs" />
     <Compile Include="Integration/RealFSharpTests_InMemory.fs" />
-
 
     <Compile Include="Unit/CaptureTests.fs" />
     <Compile Include="Unit/CEBuilderTests.fs" />

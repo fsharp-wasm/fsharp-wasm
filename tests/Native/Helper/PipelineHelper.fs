@@ -1,9 +1,21 @@
 /// Full-pipeline test helper — compiles real F# source strings through the
 /// complete WasmGC pipeline: FCS → Fable AST → WExpr → WModule.
 ///
-/// This is the replacement for hand-crafted Fable AST in tests.
-/// The Fable compilation step requires the Fable CLI to be accessible;
-/// tests gracefully skip if the runner binary is not on PATH.
+/// STRATEGY: Uses in-memory compilation (InMemoryPipelineHelper) as the primary path.
+/// The CLI-based approach is now OBSOLETE (see below) and kept only for E2E testing.
+///
+/// Why in-memory is better:
+///   - 10-100x faster (no process startup/process overhead)
+///   - Debuggable (can set breakpoints in compiler phases)
+///   - Testable in isolation (each phase can be verified separately)
+///   - No file I/O
+///
+/// [OBSOLETE] CLI-based compilation:
+///   The old approach of shelling out to FSharp.Wasm.Cli is preserved below for
+///   occasional E2E tests, but new tests should use the in-memory pipeline.
+///   To migrate from CLI: replace PipelineHelper.compileToWasm with
+///   InMemoryPipelineHelper.compileSource or InMemoryPipelineHelper.tryCompileToWModule.
+///
 namespace Tests
 
 open System
@@ -14,8 +26,9 @@ open WasmGc.Runtime.Types
 
 module PipelineHelper =
 
-    // ── Fable CLI runner ──────────────────────────────────────────────────────
+    // ── [OBSOLETE] Fable CLI runner ──────────────────────────────────────────
 
+    [<System.Obsolete("Use InMemoryPipelineHelper.compileSource instead. CLI shelling is 10-100x slower and less debuggable.")>]
     let private fableCli =
         // Prefer a local path (dev scenario); fall back to PATH
         let candidates = [
@@ -24,6 +37,7 @@ module PipelineHelper =
         ]
         candidates |> List.tryFind File.Exists
 
+    [<System.Obsolete("Use InMemoryPipelineHelper instead.")>]
     let private isFableAvailable () = fableCli.IsSome
 
     /// Run the Fable CLI on a temporary .fsproj wrapping `source`,
