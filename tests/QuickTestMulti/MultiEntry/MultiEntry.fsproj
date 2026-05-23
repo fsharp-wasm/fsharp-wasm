@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Multi-fsproj entry: links all domain modules into one WasmGC binary.
+    Compilation: fable MultiEntry.fsproj \-\-lang wasmgc
+    This exercises our static linker (WasmGc.Emit.Linker.linkModules).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="../../../fable-library-wasmgc/Collections/Map.fs" />
+    <Compile Include="../../../fable-library-wasmgc/Collections/Set.fs" />
+    <Compile Include="../Preamble.fs" />
+        <Compile Include='../TestsArray.fs' />
+    <Compile Include='../TestsBitwise.fs' />
+    <Compile Include='../TestsClosures.fs' />
+    <Compile Include='../TestsDU.fs' />
+    <Compile Include='../TestsExceptions.fs' />
+    <Compile Include='../TestsInterop.fs' />
+    <Compile Include='../TestsList.fs' />
+    <Compile Include='../TestsMap.fs' />
+    <Compile Include='../TestsMath.fs' />
+    <Compile Include='../TestsOption.fs' />
+    <Compile Include='../TestsPrimitives.fs' />
+    <Compile Include='../TestsPrintf.fs' />
+    <Compile Include='../TestsResult.fs' />
+    <Compile Include='../TestsSeq.fs' />
+    <Compile Include='../TestsSet.fs' />
+    <Compile Include='../TestsStringBuilder.fs' />
+    <Compile Include='../TestsStrings.fs' />
+    <Compile Include="../Runner.fs" />
+  </ItemGroup>
+</Project>

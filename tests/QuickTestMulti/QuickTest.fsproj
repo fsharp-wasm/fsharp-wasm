@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);NU1900;NETSDK1188</NoWarn>
+    <!--
+      All-in-one QuickTest: all 498 tests in one WasmGC binary.
+      Each domain module is independently reviewable / compilable.
+
+      To run a single domain only:
+        Comment out unwanted <Compile> entries below and rebuild.
+
+      Multi-fsproj mode:
+        See tests/QuickTest/Multi/ — one .fsproj per domain,
+        linked statically at compile time via the Linker.
+    -->
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- BCL source — compiled by our WasmGC backend -->
+    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="../../fable-library-wasmgc/Collections/Map.fs" />
+    <Compile Include="../../fable-library-wasmgc/Collections/Set.fs" />
+    <!-- Shared types, opens, helpers -->
+    <Compile Include="Preamble.fs" />
+    <!-- Domain test modules (17 suites, 498 tests total) -->
+    <Compile Include="TestsArray.fs" />
+    <Compile Include="TestsBitwise.fs" />
+    <Compile Include="TestsClosures.fs" />
+    <Compile Include="TestsDU.fs" />
+    <Compile Include="TestsExceptions.fs" />
+    <Compile Include="TestsInterop.fs" />
+    <Compile Include="TestsList.fs" />
+    <Compile Include="TestsMap.fs" />
+    <Compile Include="TestsMath.fs" />
+    <Compile Include="TestsOption.fs" />
+    <Compile Include="TestsPrimitives.fs" />
+    <Compile Include="TestsPrintf.fs" />
+    <Compile Include="TestsResult.fs" />
+    <Compile Include="TestsSeq.fs" />
+    <Compile Include="TestsSet.fs" />
+    <Compile Include="TestsStringBuilder.fs" />
+    <Compile Include="TestsStrings.fs" />
+    <!-- Aggregating entry point -->
+    <Compile Include="Runner.fs" />
+  </ItemGroup>
+</Project>

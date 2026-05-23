@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Standalone domain project: Array (55 tests).
+    Compile with:  dotnet fable Multi/Array.fsproj \-\-lang wasmgc
+    Link with others: use Linker.linkModules in the build script.
+  -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <AssemblyName>QuickTest.Array</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="../Preamble.fs" />
+    <Compile Include="../TestsArray.fs" />
+  </ItemGroup>
+</Project>
