@@ -11,53 +11,46 @@
 ///   - Forces the full Fable parsing + type-check path, catching edge cases early
 ///   - Newcomers can read and write tests without understanding Fable.AST
 ///
-/// Today this module uses PipelineHelper (the F#→WModule bridge).
-/// Uncomment `<Compile Include="Helper/PipelineHelper.fs" />` in TestNative.fsproj
-/// once MockCompiler is wired to the real Fable CLI runner.
+/// This module uses InMemoryPipelineHelper for fast in-process compilation.
+/// The old CLI-based PipelineHelper is now OBSOLETE; use In-Memory for new tests.
 module Tests.Integration.RealFSharpTests
 
 open Expecto
 open WasmGc.Core.AST
-open WasmGc.Builder.Core
 open WasmGc.Util.WExprQuery
+open Tests
+open Tests.RealFSharpHelpers
 
-// TODO: this should be a helper in Compiler not in Tests. So for now it's here
-// Collect values by mapping nodes to option 'a and accumulating matches.
-let collectAll (picker: WExpr -> 'a option) (expr: WExpr) : 'a list =
-    WasmGc.Util.WExprQuery.fold (fun acc e ->
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared test helper functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+//TODO: this are helpers - move - and organize.
+
+/// Collect values by mapping nodes to option 'a and accumulating matches.
+let private collectAll (picker: WExpr -> 'a option) (expr: WExpr) : 'a list =
+    fold (fun acc e ->
         match picker e with
         | Some v -> v :: acc
         | None -> acc) [] expr
     |> List.rev
-open Tests.WasmTestHelper
-open Tests.Snapshot.Framework
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared F# fixture snippets
-// ─────────────────────────────────────────────────────────────────────────────
+/// Find a function by name (handles name mangling)
+let private findFunc (name: string) (m: WModule) : WFunc option =
+    m.Functions 
+    |> List.tryFind (fun f -> 
+        f.Name.Contains(name) || 
+        f.Name.EndsWith("/" + name))
 
-/// Minimal prelude needed for any test module compiled through our backend.
-/// This mirrors what QuickTest.fsproj includes.
-let private prelude = """
-module Fixture
+/// Assert that a WExpr tree contains at least one node matching a predicate
+let private assertContains (predicate: WExpr -> bool) (msg: string) (expr: WExpr) : unit =
+    let found = exists predicate expr
+    Expect.isTrue found msg
 
-open Fable.Core
-"""
-
-/// Compile a complete F# source module to a WModule using PipelineHelper.
-/// Returns None if the pipeline helper is not yet wired (graceful skip).
-let private tryCompile (src: string) : WModule option =
-    // TODO: wire to real Fable CLI when PipelineHelper.compileToWasm is ready
-    // For now return None so these tests are skipped gracefully.
-    // When wired:
-    //   try Some(PipelineHelper.compileToWasm (prelude + src))
-    //   with ex -> failwithf "Compilation failed:\n%s\n\nSource:\n%s" ex.Message src
-    None
-
-let private skipIfNotWired (f: WModule -> unit) (m: WModule option) =
-    match m with
-    | None -> ()  // skip — pipeline not yet wired
-    | Some wm -> f wm
+/// Assert that a WExpr tree does NOT contain any node matching a predicate
+let private assertAbsent (predicate: WExpr -> bool) (msg: string) (expr: WExpr) : unit =
+    let found = exists predicate expr
+    Expect.isFalse found msg
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests — arithmetic and locals

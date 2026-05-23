@@ -15,12 +15,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="Helper/FableAstHelpers.fs" />
     <Compile Include="Helper/WasmTestHelper.fs" />
     <!-- <Compile Include="Helper/PipelineHelper.fs" /> -->
     <Compile Include="Helper/RealFSharpHelpers.fs" />
     <Compile Include="Helper/SnapshotFramework.fs" />
     <Compile Include="Helper/CompilerHelper.fs" />
+    <Compile Include="Helper\InMemoryPipelineHelper.fs" />
+    <Compile Include="Helper\PipelineHelper.fs" />
 
     <Compile Include="Architecture/ArchitectureTests.fs" />
 
