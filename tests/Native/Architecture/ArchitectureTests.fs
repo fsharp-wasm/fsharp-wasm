@@ -52,6 +52,7 @@ let boundaryTests = testList "Architecture / boundary" [
     }
 
     test "Builder: WasmBuilder is usable without Fable" {
+        // CE produces a Let binding; run optimizer to fold constants.
         let raw = wasm {
             let! x = i32Const 5
             return add x (i32Const 3)
@@ -152,20 +153,15 @@ let dependencyGraphTests = testList "Architecture / dependency graph" [
             Set.intersect (refsOf asm) fableAssemblyNames |> Set.isEmpty |> not
         with _ -> false  // assembly not loaded → not in build graph → OK
 
-    // TODO: not possible yet - we have to enable it later
-    // test "WasmGc.Core has no Fable dependency" {
-    //     // Types.fs has been moved OUT of WasmGc.Core.fsproj.
-    //     // Re-run `dotnet build` after this change — then this test verifies the wall.
-    //     // If the check still fails, Types.fs has leaked back into Core.
-    //     let hasDep = hasFableDep "WasmGc.Core"
-    //     if hasDep then
-    //         // Fail with actionable message (not just true/false)
-    //         failtest "WasmGc.Core must not reference Fable.AST. \
-    //                   Ensure Types.fs is NOT compiled into WasmGc.Core.fsproj. \
-    //                   Fix: remove Types.fs from src/Core/WasmGc.Core.fsproj and \
-    //                   add it to src/Fable.WasmGc.fsproj instead."
-    //     Expect.isFalse (hasFableDep "WasmGc.Core") "WasmGc.Core must not reference Fable.AST"
-    // }
+    test "WasmGc.Core has no Fable dependency" {
+        // Types.fs has been moved OUT of WasmGc.Core.fsproj.
+        // Re-run `dotnet build` after this change — then this test verifies the wall.
+        // If the check still fails, Types.fs has leaked back into Core.
+        let hasDep = hasFableDep "WasmGc.Core"
+        if hasDep then
+            // Fail with actionable message (not just true/false)
+            failtest "WasmGc.Core must not reference Fable.AST.                       Ensure Types.fs is NOT compiled into WasmGc.Core.fsproj.                       Fix: remove Types.fs from src/Core/WasmGc.Core.fsproj and                       add it to src/Fable.WasmGc.fsproj instead."
+    }
 
     test "WasmGc.Builder has no Fable dependency" {
         Expect.isFalse (hasFableDep "WasmGc.Builder") "WasmGc.Builder must not reference Fable.AST"
@@ -187,3 +183,4 @@ let dependencyGraphTests = testList "Architecture / dependency graph" [
         Expect.isFalse (hasFableDep "WasmGc.Emit") "WasmGc.Emit must not reference Fable.AST"
     }
 ]
+

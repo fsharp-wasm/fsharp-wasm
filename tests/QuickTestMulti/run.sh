@@ -10,7 +10,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OUT="$SCRIPT_DIR/output"
-FABLE="${FABLE:-dotnet fable}"
+# FABLE="${FABLE:-dotnet fable --lang wasmgc}"
+FABLE="dotnet run --project ${ROOT}/tools/FSharp.Wasm.Cli"
 NODE="${NODE:-node}"
 
 DOMAINS=(Array Bitwise Closures DU Exceptions Interop List Map Math Option \
@@ -32,7 +33,7 @@ case "${1:-}" in
     WASM_FILES=()
     for d in "${DOMAINS[@]}"; do
       echo "  Compiling $d..."
-      $FABLE "Multi/$d.fsproj" --lang wasmgc --outDir "$OUT/modules/$d" --noCache 2>&1 | tail -3
+      $FABLE "Multi/$d.fsproj" --outDir "$OUT/modules/$d" --noCache 2>&1 | tail -3
       WASM_FILES+=("$OUT/modules/$d/${d}.wasm")
     done
 
@@ -50,7 +51,7 @@ case "${1:-}" in
   "")
     # ── All-in-one mode (default) ───────────────────────────────────────────
     echo "=== QuickTest: all-in-one (498 tests) ==="
-    $FABLE QuickTest.fsproj --lang wasmgc --outDir "$OUT" --noCache 2>&1 \
+    $FABLE QuickTest.fsproj --outDir "$OUT" --noCache 2>&1 \
       | grep -E 'Compiled|error|warning\[WGC' || true
 
     WASM="$OUT/QuickTestWasmGc.wasm"
@@ -93,7 +94,7 @@ case "${1:-}" in
 </Project>
 FSPROJEOF
 
-    $FABLE "$TMP_FSPROJ" --lang wasmgc --outDir "$OUT" --noCache 2>&1 | tail -5
+    $FABLE "$TMP_FSPROJ" --outDir "$OUT" --noCache 2>&1 | tail -5
     WASM="$OUT/QuickTest_${DOMAIN}.wasm"
     [ -f "$WASM" ] && $NODE --experimental-wasm-gc "$WASM" || echo "Build failed"
     rm -f "$TMP_FSPROJ"

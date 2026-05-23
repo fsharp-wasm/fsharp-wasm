@@ -79,6 +79,29 @@ let partial = add 10 // Erzeugt eine partielle Anwendung
     //         failtestf "Expected WExpr.Closure, got %A" other
     // }
 
+    test "Lambda capturing a free variable produces a Closure (classic v2)" {
+        // Tests that a lambda which closes over a local variable produces
+        // a WExpr.Closure with that variable in its capture list.
+        // This is the real invariant — partial application is a higher-level concern.
+        let ctx = { makeTestCtx() with Locals = Map.ofList [("captured", WType.I32)] }
+        let intType = Type.Number(NumberKind.Int32, NumberInfo.Empty)
+        let param   = mkParam "x" intType
+        // fun x -> x + captured   (captured is a free variable → must be in closure)
+        let body = Expr.Operation(
+            OperationKind.Binary(BinaryOperator.Add),
+            [Expr.IdentExpr(mkParam "x" intType); Expr.IdentExpr(mkParam "captured" intType)],
+            intType, None)
+        let lambda  = Expr.Lambda(param, body, None)
+        let result  = transformExpr ctx lambda
+        match result with
+        | WExpr.Closure(_, captures, _) ->
+            let hasCaptured = captures |> List.exists (function
+                | WExpr.LocalGet("captured", _) -> true | _ -> false)
+            Expect.isTrue hasCaptured "Free variable 'captured' must appear in closure captures"
+        | other ->
+            failtestf "Expected WExpr.Closure, got %A" other
+    }
+
 
     test "Lambda capturing a free variable produces a Closure" {
         """
@@ -104,7 +127,6 @@ let makeClosure (captured: int) =
                 f.Body)
     }
 
-
     test "Full application of curried function → optimized Call" {
         let ctx = makeTestCtx()
         // (add 10) 20
@@ -112,3 +134,4 @@ let makeClosure (captured: int) =
         ()
     }
 ]
+

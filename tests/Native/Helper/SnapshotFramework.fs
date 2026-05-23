@@ -27,21 +27,9 @@ open Tests.WasmTestHelper
 // ─────────────────────────────────────────────────────────────────────────────
 
 let private snapshotDir =
-    // __SOURCE_DIRECTORY__ = tests/Native/Helper at compile time
-    // Go up one level to tests/Native/, then into Snapshots/
+    // __SOURCE_DIRECTORY__ is resolved at compile time to the .fs file's directory.
+    // SnapshotFramework.fs lives in tests/Native/Helper/ → go one level up.
     Path.Combine(__SOURCE_DIRECTORY__, "..", "Snapshots")
-
-// let private snapshotDir =
-//     let here = Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
-//     // Walk up to tests/Native/Snapshots/
-//     let root = 
-//         let mutable current : DirectoryInfo | null = DirectoryInfo(here)
-//         for _ in 1..3 do
-//             if current <> null then current <- current.Parent
-//         match current with
-//         | null -> here
-//         | d -> d.FullName
-//     Path.Combine(root, "tests", "Native", "Snapshots")
 
 let private updateSnapshots =
     Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") = "1"
@@ -162,3 +150,4 @@ let assertCount (pred: WExpr -> bool) (expected: int) (msg: string) (expr: WExpr
     // let n = WExprQuery.collect (fun e -> if (pred e) then Some e else None) expr |> List.length
     let n = WExprQuery.collect pred expr |> List.length
     Expect.equal n expected msg
+
