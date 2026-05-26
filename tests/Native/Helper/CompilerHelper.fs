@@ -50,7 +50,7 @@ let parseFSharpString (code: string) : Result<FSharp.Compiler.Symbols.FSharpImpl
                     Error("Type checking succeeded but no ImplementationFile was produced")
             | FSharpCheckFileAnswer.Aborted -> 
                 let errors = 
-                    parseResults.Errors 
+                    parseResults.Diagnostics 
                     |> Array.map (fun e -> e.Message) 
                     |> String.concat "\n"
                 Error($"Type checking aborted:\n{errors}")
@@ -101,12 +101,12 @@ type MockCompiler (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementation
         
         member _.GetImplementationFile(_fileName) = 
             // Return the in-memory FCS declarations instead of reading from disk
-            Some fcsDeclarations
+            fcsDeclarations
         
         member _.GetRootModule(_fileName) = 
             // Extract root module from FCS declarations using Fable's helper
             try
-                Fable.Transforms.FSharp2Fable.Compiler.getRootModule fcsDeclarations |> fst
+                Fable.Transforms.FSharp2Fable.Compiler.getRootModule fcsDeclarations
             with ex ->
                 failwith $"Failed to extract root module from FCS declarations: {ex.Message}"
         
@@ -116,7 +116,13 @@ type MockCompiler (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementation
         
         member _.GetInlineExpr(_entityRef) = 
             // Inline expressions not used in in-memory tests
-            None
+            {
+                Args = []
+                Body = Fable.AST.Fable.Expr.Value(Fable.AST.Fable.ValueKind.Null Fable.AST.Fable.Type.Any, None)
+                FileName = ""
+                GenericArgs = []
+                ScopeIdents = Set.empty
+            }
         
         member _.AddWatchDependency(_file) = 
             // No file watching in tests
@@ -126,6 +132,17 @@ type MockCompiler (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementation
             // Log compiler messages (particularly errors)
             if severity = Severity.Error then
                 printfn "[Fable Error] %s" msg
+                
+        // TODO: Added these missing members for Fable 5
+        member _.IncrementCounter() = 0
+        member this.WillPrecompileInlineFunction(file: string) = this
+        member _.IsPrecompilingInlineFunction = false
+        member _.OutputDir = None
+        member _.OutputType = Fable.OutputType.Exe // or Library, depending on your test
+        member _.Plugins = { MemberDeclarationPlugins = Map.empty } // TODO: Adjust based on your imports
+        member _.ProjectFile = ""
+        member _.ProjectOptions = obj() :?> FSharp.Compiler.CodeAnalysis.FSharpProjectOptions // Or mock/null if not used
+        member _.SourceFiles = [||]
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Public API

@@ -26,7 +26,7 @@ open Tests
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Find a function by name in the WModule, handling name mangling
-let private findFunc (name: string) (m: WModule) : WFunc option =
+let private findFunc (name: string) (m: WModule) : WFuncDecl option =
     m.Functions 
     |> List.tryFind (fun f -> 
         f.Name.Contains(name) || 

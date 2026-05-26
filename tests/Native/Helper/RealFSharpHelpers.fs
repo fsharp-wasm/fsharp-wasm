@@ -38,7 +38,7 @@ let trimIndent (str: string) =
         lines
 
         |> Array.map (fun line ->
-            if line.Length >= minIndent && String.IsNullOrWhiteSpace(line.[0..minIndent-1]) then
+            if line.Length >= minIndent && String.IsNullOrWhiteSpace(line[0..minIndent-1]) then
                 line.Substring(minIndent)
             else
                 line.TrimStart())

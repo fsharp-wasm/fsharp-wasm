@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/Native/TestNative.fsproj" />
+  </Folder>
   <Folder Name="/vendor/" />
   <Folder Name="/vendor/Fable/">
     <Project Path="vendor/Fable/src/Fable.AST/Fable.AST.fsproj" />
@@ -24,13 +27,4 @@
   <Project Path="tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj" />
   <Project Path="src/Ir/WasmGc.Ir.fsproj" />
   <Project Path="src/Patterns/WasmGc.Patterns.fsproj" />
-  <!--
-  <Project Path="tests/QuickTest/QuickTest.fsproj">
-    <BuildType Solution="Release|*" Project="?" />
-    <Platform Solution="Release|*" Project="?" />
-    <Build Solution="Release|*" Project="false" />
-  </Project>
-  -->
-
-  <Project Path="tests/Native/TestNative.fsproj" />
 </Solution>

@@ -18,7 +18,7 @@ module Tests.Integration.RealFSharpTests
 open Expecto
 open WasmGc.Core.AST
 open WasmGc.Util.WExprQuery
-open Tests
+// open Tests
 open Tests.RealFSharpHelpers
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ let private collectAll (picker: WExpr -> 'a option) (expr: WExpr) : 'a list =
     |> List.rev
 
 /// Find a function by name (handles name mangling)
-let private findFunc (name: string) (m: WModule) : WFunc option =
+let private findFunc (name: string) (m: WModule) : WFuncDecl option =
     m.Functions 
     |> List.tryFind (fun f -> 
         f.Name.Contains(name) || 
@@ -111,7 +111,6 @@ let helper (x: int) = x + 1
 let useHelper (xs: int list) =
     xs |> List.map helper
         """ |> tryCompile |> skipIfNotWired (fun m ->
-            let closures = collectAll (function WExpr.Closure(_, caps, _) -> Some caps | _ -> None)
             // Every closure in the module must not capture 'helper' directly
             // (it's a KnownFunc, emitted as a Call, not a LocalGet)
             m.Functions |> List.iter (fun f ->
@@ -120,7 +119,7 @@ let useHelper (xs: int list) =
                     for cap in capList do
                         match cap with
                         | WExpr.LocalGet(name, _) when name.Contains "helper" ->
-                            failtestf "Module-level 'helper' must not be captured; got LocalGet(%s)" name
+                            failtestf $"Module-level 'helper' must not be captured; got LocalGet(%s{name})"
                         | _ -> ()))
     }
 ]
