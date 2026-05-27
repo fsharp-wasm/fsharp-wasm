@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsClosures
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Closures (10 tests) ───────────────────────────────────────
 
@@ -82,13 +82,13 @@ let testClosureNestedCapture () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runClosuresTests (check: string -> (unit -> unit) -> unit) =
-    check "testHOFSimple" testHOFSimple
-    check "testCapture" testCapture
-    check "testApplyTwice" testApplyTwice
-    check "testLetCapture" testLetCapture
-    check "testClosureCapMap" testClosureCapMap
-    check "testClosureCapFilter" testClosureCapFilter
-    check "testClosureCapFold" testClosureCapFold
-    check "testClosureHigherOrder" testClosureHigherOrder
-    check "testClosureCapRef" testClosureCapRef
-    check "testClosureNestedCapture" testClosureNestedCapture
+    check "testHOFSimple" (fun () -> ignore (testHOFSimple ()))
+    check "testCapture" (fun () -> ignore (testCapture ()))
+    check "testApplyTwice" (fun () -> ignore (testApplyTwice ()))
+    check "testLetCapture" (fun () -> ignore (testLetCapture ()))
+    check "testClosureCapMap" (fun () -> ignore (testClosureCapMap ()))
+    check "testClosureCapFilter" (fun () -> ignore (testClosureCapFilter ()))
+    check "testClosureCapFold" (fun () -> ignore (testClosureCapFold ()))
+    check "testClosureHigherOrder" (fun () -> ignore (testClosureHigherOrder ()))
+    check "testClosureCapRef" (fun () -> ignore (testClosureCapRef ()))
+    check "testClosureNestedCapture" (fun () -> ignore (testClosureNestedCapture ()))

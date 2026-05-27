@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsMap
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Map (25 tests) ───────────────────────────────────────
 
@@ -191,28 +191,28 @@ let testMapModuleRemove () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runMapTests (check: string -> (unit -> unit) -> unit) =
-    check "testMapAddFind" testMapAddFind
-    check "testMapFindMissing" testMapFindMissing
-    check "testMapCount" testMapCount
-    check "testMapContainsKey" testMapContainsKey
-    check "testMapContainsKeyMissing" testMapContainsKeyMissing
-    check "testMapAddReplace" testMapAddReplace
-    check "testStdMapFind" testStdMapFind
-    check "testStdMapTryFind" testStdMapTryFind
-    check "testStdMapTryFindMissing" testStdMapTryFindMissing
-    check "testStdMapContainsKey" testStdMapContainsKey
-    check "testStdMapAdd" testStdMapAdd
-    check "testMapIsEmpty" testMapIsEmpty
-    check "testMapRemove" testMapRemove
-    check "testMapLargeAddFind" testMapLargeAddFind
-    check "testMapFindRaises" testMapFindRaises
-    check "testMapFold" testMapFold
-    check "testMapIter" testMapIter
-    check "testMapFilter" testMapFilter
-    check "testMapExists" testMapExists
-    check "testMapForall" testMapForall
-    check "testMapMap" testMapMap
-    check "testMapCustomCmpReverse" testMapCustomCmpReverse
-    check "testMapModuleContainsKey" testMapModuleContainsKey
-    check "testMapModuleFindRoundTrip" testMapModuleFindRoundTrip
-    check "testMapModuleRemove" testMapModuleRemove
+    check "testMapAddFind" (fun () -> ignore (testMapAddFind ()))
+    check "testMapFindMissing" (fun () -> ignore (testMapFindMissing ()))
+    check "testMapCount" (fun () -> ignore (testMapCount ()))
+    check "testMapContainsKey" (fun () -> ignore (testMapContainsKey ()))
+    check "testMapContainsKeyMissing" (fun () -> ignore (testMapContainsKeyMissing ()))
+    check "testMapAddReplace" (fun () -> ignore (testMapAddReplace ()))
+    check "testStdMapFind" (fun () -> ignore (testStdMapFind ()))
+    check "testStdMapTryFind" (fun () -> ignore (testStdMapTryFind ()))
+    check "testStdMapTryFindMissing" (fun () -> ignore (testStdMapTryFindMissing ()))
+    check "testStdMapContainsKey" (fun () -> ignore (testStdMapContainsKey ()))
+    check "testStdMapAdd" (fun () -> ignore (testStdMapAdd ()))
+    check "testMapIsEmpty" (fun () -> ignore (testMapIsEmpty ()))
+    check "testMapRemove" (fun () -> ignore (testMapRemove ()))
+    check "testMapLargeAddFind" (fun () -> ignore (testMapLargeAddFind ()))
+    check "testMapFindRaises" (fun () -> ignore (testMapFindRaises ()))
+    check "testMapFold" (fun () -> ignore (testMapFold ()))
+    check "testMapIter" (fun () -> ignore (testMapIter ()))
+    check "testMapFilter" (fun () -> ignore (testMapFilter ()))
+    check "testMapExists" (fun () -> ignore (testMapExists ()))
+    check "testMapForall" (fun () -> ignore (testMapForall ()))
+    check "testMapMap" (fun () -> ignore (testMapMap ()))
+    check "testMapCustomCmpReverse" (fun () -> ignore (testMapCustomCmpReverse ()))
+    check "testMapModuleContainsKey" (fun () -> ignore (testMapModuleContainsKey ()))
+    check "testMapModuleFindRoundTrip" (fun () -> ignore (testMapModuleFindRoundTrip ()))
+    check "testMapModuleRemove" (fun () -> ignore (testMapModuleRemove ()))

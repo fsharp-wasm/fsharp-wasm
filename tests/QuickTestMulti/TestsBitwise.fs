@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsBitwise
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Bitwise (12 tests) ───────────────────────────────────────
 
@@ -61,15 +61,15 @@ let testNegation () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runBitwiseTests (check: string -> (unit -> unit) -> unit) =
-    check "testBitwiseAnd" testBitwiseAnd
-    check "testBitwiseOr" testBitwiseOr
-    check "testBitwiseXor" testBitwiseXor
-    check "testShiftLeft" testShiftLeft
-    check "testShiftRight" testShiftRight
-    check "testIntDiv" testIntDiv
-    check "testIntMod" testIntMod
-    check "testAbsNeg" testAbsNeg
-    check "testAbsPos" testAbsPos
-    check "testMinScalar" testMinScalar
-    check "testMaxScalar" testMaxScalar
-    check "testNegation" testNegation
+    check "testBitwiseAnd" (fun () -> ignore (testBitwiseAnd ()))
+    check "testBitwiseOr" (fun () -> ignore (testBitwiseOr ()))
+    check "testBitwiseXor" (fun () -> ignore (testBitwiseXor ()))
+    check "testShiftLeft" (fun () -> ignore (testShiftLeft ()))
+    check "testShiftRight" (fun () -> ignore (testShiftRight ()))
+    check "testIntDiv" (fun () -> ignore (testIntDiv ()))
+    check "testIntMod" (fun () -> ignore (testIntMod ()))
+    check "testAbsNeg" (fun () -> ignore (testAbsNeg ()))
+    check "testAbsPos" (fun () -> ignore (testAbsPos ()))
+    check "testMinScalar" (fun () -> ignore (testMinScalar ()))
+    check "testMaxScalar" (fun () -> ignore (testMaxScalar ()))
+    check "testNegation" (fun () -> ignore (testNegation ()))

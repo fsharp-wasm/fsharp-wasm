@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsSeq
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Seq (26 tests) ───────────────────────────────────────
 
@@ -151,29 +151,29 @@ let testSeqGroupByCount () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runSeqTests (check: string -> (unit -> unit) -> unit) =
-    check "testSeqMap" testSeqMap
-    check "testSeqFilter" testSeqFilter
-    check "testSeqFold" testSeqFold
-    check "testSeqExists" testSeqExists
-    check "testSeqSumBy" testSeqSumBy
-    check "testSeqInit" testSeqInit
-    check "testSeqPairwise" testSeqPairwise
-    check "testSeqCountBy" testSeqCountBy
-    check "testSeqDistinct" testSeqDistinct
-    check "testSeqChoose" testSeqChoose
-    check "testSeqCollect" testSeqCollect
-    check "testSeqReduce" testSeqReduce
-    check "testSeqMapIndexed" testSeqMapIndexed
-    check "testSeqForall" testSeqForall
-    check "testSeqHead" testSeqHead
-    check "testSeqTryHead" testSeqTryHead
-    check "testSeqTryHeadEmpty" testSeqTryHeadEmpty
-    check "testSeqIsEmpty" testSeqIsEmpty
-    check "testSeqLength" testSeqLength
-    check "testSeqItem" testSeqItem
-    check "testSeqMinMax" testSeqMinMax
-    check "testSeqSortBy" testSeqSortBy
-    check "testSeqRev" testSeqRev
-    check "testSeqFindIndex" testSeqFindIndex
-    check "testSeqSkipTake" testSeqSkipTake
-    check "testSeqGroupByCount" testSeqGroupByCount
+    check "testSeqMap" (fun () -> ignore (testSeqMap ()))
+    check "testSeqFilter" (fun () -> ignore (testSeqFilter ()))
+    check "testSeqFold" (fun () -> ignore (testSeqFold ()))
+    check "testSeqExists" (fun () -> ignore (testSeqExists ()))
+    check "testSeqSumBy" (fun () -> ignore (testSeqSumBy ()))
+    check "testSeqInit" (fun () -> ignore (testSeqInit ()))
+    check "testSeqPairwise" (fun () -> ignore (testSeqPairwise ()))
+    check "testSeqCountBy" (fun () -> ignore (testSeqCountBy ()))
+    check "testSeqDistinct" (fun () -> ignore (testSeqDistinct ()))
+    check "testSeqChoose" (fun () -> ignore (testSeqChoose ()))
+    check "testSeqCollect" (fun () -> ignore (testSeqCollect ()))
+    check "testSeqReduce" (fun () -> ignore (testSeqReduce ()))
+    check "testSeqMapIndexed" (fun () -> ignore (testSeqMapIndexed ()))
+    check "testSeqForall" (fun () -> ignore (testSeqForall ()))
+    check "testSeqHead" (fun () -> ignore (testSeqHead ()))
+    check "testSeqTryHead" (fun () -> ignore (testSeqTryHead ()))
+    check "testSeqTryHeadEmpty" (fun () -> ignore (testSeqTryHeadEmpty ()))
+    check "testSeqIsEmpty" (fun () -> ignore (testSeqIsEmpty ()))
+    check "testSeqLength" (fun () -> ignore (testSeqLength ()))
+    check "testSeqItem" (fun () -> ignore (testSeqItem ()))
+    check "testSeqMinMax" (fun () -> ignore (testSeqMinMax ()))
+    check "testSeqSortBy" (fun () -> ignore (testSeqSortBy ()))
+    check "testSeqRev" (fun () -> ignore (testSeqRev ()))
+    check "testSeqFindIndex" (fun () -> ignore (testSeqFindIndex ()))
+    check "testSeqSkipTake" (fun () -> ignore (testSeqSkipTake ()))
+    check "testSeqGroupByCount" (fun () -> ignore (testSeqGroupByCount ()))

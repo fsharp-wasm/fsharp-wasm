@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsStringBuilder
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── StringBuilder (4 tests) ───────────────────────────────────────
 
@@ -43,7 +43,7 @@ let private roundTo6 (x: float) : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runStringBuilderTests (check: string -> (unit -> unit) -> unit) =
-    check "testSbLength" testSbLength
-    check "testSbAppendTwo" testSbAppendTwo
-    check "testSbGrow" testSbGrow
-    check "testSbChained" testSbChained
+    check "testSbLength" (fun () -> ignore (testSbLength ()))
+    check "testSbAppendTwo" (fun () -> ignore (testSbAppendTwo ()))
+    check "testSbGrow" (fun () -> ignore (testSbGrow ()))
+    check "testSbChained" (fun () -> ignore (testSbChained ()))

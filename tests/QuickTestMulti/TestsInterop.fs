@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsInterop
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Interop (6 tests) ───────────────────────────────────────
 
@@ -43,9 +43,9 @@ let testLetMutableLoop () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runInteropTests (check: string -> (unit -> unit) -> unit) =
-    check "testExternAdd" testExternAdd
-    check "testExternAddNeg" testExternAddNeg
-    check "testExternMul" testExternMul
-    check "testExternChain" testExternChain
-    check "testLetMutable" testLetMutable
-    check "testLetMutableLoop" testLetMutableLoop
+    check "testExternAdd" (fun () -> ignore (testExternAdd ()))
+    check "testExternAddNeg" (fun () -> ignore (testExternAddNeg ()))
+    check "testExternMul" (fun () -> ignore (testExternMul ()))
+    check "testExternChain" (fun () -> ignore (testExternChain ()))
+    check "testLetMutable" (fun () -> ignore (testLetMutable ()))
+    check "testLetMutableLoop" (fun () -> ignore (testLetMutableLoop ()))

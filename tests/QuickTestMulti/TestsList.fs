@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsList
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── List (74 tests) ───────────────────────────────────────
 
@@ -493,77 +493,77 @@ let testMapModuleToList () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runListTests (check: string -> (unit -> unit) -> unit) =
-    check "testListHead" testListHead
-    check "testListEmpty" testListEmpty
-    check "testListMatch" testListMatch
-    check "testListFoldSum" testListFoldSum
-    check "testListMapSum" testListMapSum
-    check "testListFilterSum" testListFilterSum
-    check "testListRevHead" testListRevHead
-    check "testListAppendLen" testListAppendLen
-    check "testListIter" testListIter
-    check "testListIterEmpty" testListIterEmpty
-    check "testListExists" testListExists
-    check "testListExistsFalse" testListExistsFalse
-    check "testListForAll" testListForAll
-    check "testListForAllFalse" testListForAllFalse
-    check "testListSum" testListSum
-    check "testListSumEmpty" testListSumEmpty
-    check "testListTryFindSome" testListTryFindSome
-    check "testListTryFindNone" testListTryFindNone
-    check "testListTryHeadSome" testListTryHeadSome
-    check "testListTryHeadNone" testListTryHeadNone
-    check "testListMapi" testListMapi
-    check "testListIteri" testListIteri
-    check "testListCollect" testListCollect
-    check "testListCollectOrder" testListCollectOrder
-    check "testListChoose" testListChoose
-    check "testListChooseSum" testListChooseSum
-    check "testListFoldBack" testListFoldBack
-    check "testListFoldBackOrder" testListFoldBackOrder
-    check "testListSumBy" testListSumBy
-    check "testListMinBy" testListMinBy
-    check "testListMaxBy" testListMaxBy
-    check "testListMin" testListMin
-    check "testListMax" testListMax
-    check "testListContains" testListContains
-    check "testListContainsFalse" testListContainsFalse
-    check "testListInit" testListInit
-    check "testListReplicate" testListReplicate
-    check "testListTake" testListTake
-    check "testListSkip" testListSkip
-    check "testListSort" testListSort
-    check "testListFindIndex" testListFindIndex
-    check "testListTryFindIndex" testListTryFindIndex
-    check "testListItem" testListItem
-    check "testListTailHead" testListTailHead
-    check "testListLength" testListLength
-    check "testListReduce" testListReduce
-    check "testListReduceMax" testListReduceMax
-    check "testListLast" testListLast
-    check "testListLastSingle" testListLastSingle
-    check "testListSortDesc" testListSortDesc
-    check "testListSortBy" testListSortBy
-    check "testListFlatten" testListFlatten
-    check "testListZip" testListZip
-    check "testListZipLen" testListZipLen
-    check "testListMap2Sum" testListMap2Sum
-    check "testListMap2Head" testListMap2Head
-    check "testListPartitionCounts" testListPartitionCounts
-    check "testListPartitionEvens" testListPartitionEvens
-    check "testListPartitionOdds" testListPartitionOdds
-    check "testListPartitionEmpty" testListPartitionEmpty
-    check "testListPartitionAllTrue" testListPartitionAllTrue
-    check "testListPartitionOrder" testListPartitionOrder
-    check "testListSortIntAsc" testListSortIntAsc
-    check "testListSortStrAsc" testListSortStrAsc
-    check "testSeqToList" testSeqToList
-    check "testListUnzip" testListUnzip
-    check "testListGroupBy" testListGroupBy
-    check "testListDistinctBy" testListDistinctBy
-    check "testMapToList" testMapToList
-    check "testSetOfListCount" testSetOfListCount
-    check "testSetToList" testSetToList
-    check "testClosureCapListExists" testClosureCapListExists
-    check "testClosureCapListForAll" testClosureCapListForAll
-    check "testMapModuleToList" testMapModuleToList
+    check "testListHead" (fun () -> ignore (testListHead ()))
+    check "testListEmpty" (fun () -> ignore (testListEmpty ()))
+    check "testListMatch" (fun () -> ignore (testListMatch ()))
+    check "testListFoldSum" (fun () -> ignore (testListFoldSum ()))
+    check "testListMapSum" (fun () -> ignore (testListMapSum ()))
+    check "testListFilterSum" (fun () -> ignore (testListFilterSum ()))
+    check "testListRevHead" (fun () -> ignore (testListRevHead ()))
+    check "testListAppendLen" (fun () -> ignore (testListAppendLen ()))
+    check "testListIter" (fun () -> ignore (testListIter ()))
+    check "testListIterEmpty" (fun () -> ignore (testListIterEmpty ()))
+    check "testListExists" (fun () -> ignore (testListExists ()))
+    check "testListExistsFalse" (fun () -> ignore (testListExistsFalse ()))
+    check "testListForAll" (fun () -> ignore (testListForAll ()))
+    check "testListForAllFalse" (fun () -> ignore (testListForAllFalse ()))
+    check "testListSum" (fun () -> ignore (testListSum ()))
+    check "testListSumEmpty" (fun () -> ignore (testListSumEmpty ()))
+    check "testListTryFindSome" (fun () -> ignore (testListTryFindSome ()))
+    check "testListTryFindNone" (fun () -> ignore (testListTryFindNone ()))
+    check "testListTryHeadSome" (fun () -> ignore (testListTryHeadSome ()))
+    check "testListTryHeadNone" (fun () -> ignore (testListTryHeadNone ()))
+    check "testListMapi" (fun () -> ignore (testListMapi ()))
+    check "testListIteri" (fun () -> ignore (testListIteri ()))
+    check "testListCollect" (fun () -> ignore (testListCollect ()))
+    check "testListCollectOrder" (fun () -> ignore (testListCollectOrder ()))
+    check "testListChoose" (fun () -> ignore (testListChoose ()))
+    check "testListChooseSum" (fun () -> ignore (testListChooseSum ()))
+    check "testListFoldBack" (fun () -> ignore (testListFoldBack ()))
+    check "testListFoldBackOrder" (fun () -> ignore (testListFoldBackOrder ()))
+    check "testListSumBy" (fun () -> ignore (testListSumBy ()))
+    check "testListMinBy" (fun () -> ignore (testListMinBy ()))
+    check "testListMaxBy" (fun () -> ignore (testListMaxBy ()))
+    check "testListMin" (fun () -> ignore (testListMin ()))
+    check "testListMax" (fun () -> ignore (testListMax ()))
+    check "testListContains" (fun () -> ignore (testListContains ()))
+    check "testListContainsFalse" (fun () -> ignore (testListContainsFalse ()))
+    check "testListInit" (fun () -> ignore (testListInit ()))
+    check "testListReplicate" (fun () -> ignore (testListReplicate ()))
+    check "testListTake" (fun () -> ignore (testListTake ()))
+    check "testListSkip" (fun () -> ignore (testListSkip ()))
+    check "testListSort" (fun () -> ignore (testListSort ()))
+    check "testListFindIndex" (fun () -> ignore (testListFindIndex ()))
+    check "testListTryFindIndex" (fun () -> ignore (testListTryFindIndex ()))
+    check "testListItem" (fun () -> ignore (testListItem ()))
+    check "testListTailHead" (fun () -> ignore (testListTailHead ()))
+    check "testListLength" (fun () -> ignore (testListLength ()))
+    check "testListReduce" (fun () -> ignore (testListReduce ()))
+    check "testListReduceMax" (fun () -> ignore (testListReduceMax ()))
+    check "testListLast" (fun () -> ignore (testListLast ()))
+    check "testListLastSingle" (fun () -> ignore (testListLastSingle ()))
+    check "testListSortDesc" (fun () -> ignore (testListSortDesc ()))
+    check "testListSortBy" (fun () -> ignore (testListSortBy ()))
+    check "testListFlatten" (fun () -> ignore (testListFlatten ()))
+    check "testListZip" (fun () -> ignore (testListZip ()))
+    check "testListZipLen" (fun () -> ignore (testListZipLen ()))
+    check "testListMap2Sum" (fun () -> ignore (testListMap2Sum ()))
+    check "testListMap2Head" (fun () -> ignore (testListMap2Head ()))
+    check "testListPartitionCounts" (fun () -> ignore (testListPartitionCounts ()))
+    check "testListPartitionEvens" (fun () -> ignore (testListPartitionEvens ()))
+    check "testListPartitionOdds" (fun () -> ignore (testListPartitionOdds ()))
+    check "testListPartitionEmpty" (fun () -> ignore (testListPartitionEmpty ()))
+    check "testListPartitionAllTrue" (fun () -> ignore (testListPartitionAllTrue ()))
+    check "testListPartitionOrder" (fun () -> ignore (testListPartitionOrder ()))
+    check "testListSortIntAsc" (fun () -> ignore (testListSortIntAsc ()))
+    check "testListSortStrAsc" (fun () -> ignore (testListSortStrAsc ()))
+    check "testSeqToList" (fun () -> ignore (testSeqToList ()))
+    check "testListUnzip" (fun () -> ignore (testListUnzip ()))
+    check "testListGroupBy" (fun () -> ignore (testListGroupBy ()))
+    check "testListDistinctBy" (fun () -> ignore (testListDistinctBy ()))
+    check "testMapToList" (fun () -> ignore (testMapToList ()))
+    check "testSetOfListCount" (fun () -> ignore (testSetOfListCount ()))
+    check "testSetToList" (fun () -> ignore (testSetToList ()))
+    check "testClosureCapListExists" (fun () -> ignore (testClosureCapListExists ()))
+    check "testClosureCapListForAll" (fun () -> ignore (testClosureCapListForAll ()))
+    check "testMapModuleToList" (fun () -> ignore (testMapModuleToList ()))

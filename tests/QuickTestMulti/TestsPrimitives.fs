@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsPrimitives
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Primitives (28 tests) ───────────────────────────────────────
 
@@ -210,31 +210,31 @@ let testSumMultiples35 () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runPrimitivesTests (check: string -> (unit -> unit) -> unit) =
-    check "testSwapPairFst" testSwapPairFst
-    check "testSwapPairSnd" testSwapPairSnd
-    check "testMinMaxFirst" testMinMaxFirst
-    check "testMinMaxSecond" testMinMaxSecond
-    check "testTripleSum" testTripleSum
-    check "testIntOfFloat" testIntOfFloat
-    check "testIntOfNegFloat" testIntOfNegFloat
-    check "testFloatOfInt" testFloatOfInt
-    check "testInt64OfInt" testInt64OfInt
-    check "testIsDigit" testIsDigit
-    check "testIsDigitFalse" testIsDigitFalse
-    check "testIsLetter" testIsLetter
-    check "testIsLetterFalse" testIsLetterFalse
-    check "testIsWhiteSpace" testIsWhiteSpace
-    check "testIsLetterOrDigit" testIsLetterOrDigit
-    check "testFloatMul" testFloatMul
-    check "testIdentityInt" testIdentityInt
-    check "testIdentityFloat" testIdentityFloat
-    check "testConst2IntFloat" testConst2IntFloat
-    check "testConst2IntInt" testConst2IntInt
-    check "testConst2FloatInt" testConst2FloatInt
-    check "testIntParse" testIntParse
-    check "testIntParseNeg" testIntParseNeg
-    check "testIntParseZero" testIntParseZero
-    check "testFloatParse" testFloatParse
-    check "testFloatParseNeg" testFloatParseNeg
-    check "testFloatParseInt" testFloatParseInt
-    check "testSumMultiples35" testSumMultiples35
+    check "testSwapPairFst" (fun () -> ignore (testSwapPairFst ()))
+    check "testSwapPairSnd" (fun () -> ignore (testSwapPairSnd ()))
+    check "testMinMaxFirst" (fun () -> ignore (testMinMaxFirst ()))
+    check "testMinMaxSecond" (fun () -> ignore (testMinMaxSecond ()))
+    check "testTripleSum" (fun () -> ignore (testTripleSum ()))
+    check "testIntOfFloat" (fun () -> ignore (testIntOfFloat ()))
+    check "testIntOfNegFloat" (fun () -> ignore (testIntOfNegFloat ()))
+    check "testFloatOfInt" (fun () -> ignore (testFloatOfInt ()))
+    check "testInt64OfInt" (fun () -> ignore (testInt64OfInt ()))
+    check "testIsDigit" (fun () -> ignore (testIsDigit ()))
+    check "testIsDigitFalse" (fun () -> ignore (testIsDigitFalse ()))
+    check "testIsLetter" (fun () -> ignore (testIsLetter ()))
+    check "testIsLetterFalse" (fun () -> ignore (testIsLetterFalse ()))
+    check "testIsWhiteSpace" (fun () -> ignore (testIsWhiteSpace ()))
+    check "testIsLetterOrDigit" (fun () -> ignore (testIsLetterOrDigit ()))
+    check "testFloatMul" (fun () -> ignore (testFloatMul ()))
+    check "testIdentityInt" (fun () -> ignore (testIdentityInt ()))
+    check "testIdentityFloat" (fun () -> ignore (testIdentityFloat ()))
+    check "testConst2IntFloat" (fun () -> ignore (testConst2IntFloat ()))
+    check "testConst2IntInt" (fun () -> ignore (testConst2IntInt ()))
+    check "testConst2FloatInt" (fun () -> ignore (testConst2FloatInt ()))
+    check "testIntParse" (fun () -> ignore (testIntParse ()))
+    check "testIntParseNeg" (fun () -> ignore (testIntParseNeg ()))
+    check "testIntParseZero" (fun () -> ignore (testIntParseZero ()))
+    check "testFloatParse" (fun () -> ignore (testFloatParse ()))
+    check "testFloatParseNeg" (fun () -> ignore (testFloatParseNeg ()))
+    check "testFloatParseInt" (fun () -> ignore (testFloatParseInt ()))
+    check "testSumMultiples35" (fun () -> ignore (testSumMultiples35 ()))

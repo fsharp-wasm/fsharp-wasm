@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsDU
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── DU (32 tests) ───────────────────────────────────────
 
@@ -255,35 +255,35 @@ exception MyTypedException of Value: int
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runDUTests (check: string -> (unit -> unit) -> unit) =
-    check "testShapeAreaCircle" testShapeAreaCircle
-    check "testShapeAreaSquare" testShapeAreaSquare
-    check "testShapeAreaRect" testShapeAreaRect
-    check "testShapePerimCircle" testShapePerimCircle
-    check "testShapePerimSquare" testShapePerimSquare
-    check "testShapePerimRect" testShapePerimRect
-    check "testTreeSum" testTreeSum
-    check "testTreeSum2" testTreeSum2
-    check "testMutualTailCall" testMutualTailCall
-    check "testMutualTailCall2" testMutualTailCall2
-    check "testDuEnumEqTrue" testDuEnumEqTrue
-    check "testDuEnumEqFalse" testDuEnumEqFalse
-    check "testDuDataEqTrue" testDuDataEqTrue
-    check "testDuDataEqFalse" testDuDataEqFalse
-    check "testDuDataEqDiffCtor" testDuDataEqDiffCtor
-    check "testTupleEqTrue" testTupleEqTrue
-    check "testTupleEqFalse" testTupleEqFalse
-    check "testTupleNeq" testTupleNeq
-    check "testInterfaceDispatch" testInterfaceDispatch
-    check "testInterfacePolymorphism" testInterfacePolymorphism
-    check "testDuInterfaceCircle" testDuInterfaceCircle
-    check "testDuInterfaceRect" testDuInterfaceRect
-    check "testDuInterfacePoly" testDuInterfacePoly
-    check "testClassCircleArea" testClassCircleArea
-    check "testClassRectArea" testClassRectArea
-    check "testMixedShapes" testMixedShapes
-    check "testSortWith" testSortWith
-    check "testSortWithDesc" testSortWithDesc
-    check "testSortWithInts" testSortWithInts
-    check "testActivePattern" testActivePattern
-    check "testMutualLetRec" testMutualLetRec
-    check "testMutualLetRecPingPong" testMutualLetRecPingPong
+    check "testShapeAreaCircle" (fun () -> ignore (testShapeAreaCircle ()))
+    check "testShapeAreaSquare" (fun () -> ignore (testShapeAreaSquare ()))
+    check "testShapeAreaRect" (fun () -> ignore (testShapeAreaRect ()))
+    check "testShapePerimCircle" (fun () -> ignore (testShapePerimCircle ()))
+    check "testShapePerimSquare" (fun () -> ignore (testShapePerimSquare ()))
+    check "testShapePerimRect" (fun () -> ignore (testShapePerimRect ()))
+    check "testTreeSum" (fun () -> ignore (testTreeSum ()))
+    check "testTreeSum2" (fun () -> ignore (testTreeSum2 ()))
+    check "testMutualTailCall" (fun () -> ignore (testMutualTailCall ()))
+    check "testMutualTailCall2" (fun () -> ignore (testMutualTailCall2 ()))
+    check "testDuEnumEqTrue" (fun () -> ignore (testDuEnumEqTrue ()))
+    check "testDuEnumEqFalse" (fun () -> ignore (testDuEnumEqFalse ()))
+    check "testDuDataEqTrue" (fun () -> ignore (testDuDataEqTrue ()))
+    check "testDuDataEqFalse" (fun () -> ignore (testDuDataEqFalse ()))
+    check "testDuDataEqDiffCtor" (fun () -> ignore (testDuDataEqDiffCtor ()))
+    check "testTupleEqTrue" (fun () -> ignore (testTupleEqTrue ()))
+    check "testTupleEqFalse" (fun () -> ignore (testTupleEqFalse ()))
+    check "testTupleNeq" (fun () -> ignore (testTupleNeq ()))
+    check "testInterfaceDispatch" (fun () -> ignore (testInterfaceDispatch ()))
+    check "testInterfacePolymorphism" (fun () -> ignore (testInterfacePolymorphism ()))
+    check "testDuInterfaceCircle" (fun () -> ignore (testDuInterfaceCircle ()))
+    check "testDuInterfaceRect" (fun () -> ignore (testDuInterfaceRect ()))
+    check "testDuInterfacePoly" (fun () -> ignore (testDuInterfacePoly ()))
+    check "testClassCircleArea" (fun () -> ignore (testClassCircleArea ()))
+    check "testClassRectArea" (fun () -> ignore (testClassRectArea ()))
+    check "testMixedShapes" (fun () -> ignore (testMixedShapes ()))
+    check "testSortWith" (fun () -> ignore (testSortWith ()))
+    check "testSortWithDesc" (fun () -> ignore (testSortWithDesc ()))
+    check "testSortWithInts" (fun () -> ignore (testSortWithInts ()))
+    check "testActivePattern" (fun () -> ignore (testActivePattern ()))
+    check "testMutualLetRec" (fun () -> ignore (testMutualLetRec ()))
+    check "testMutualLetRecPingPong" (fun () -> ignore (testMutualLetRecPingPong ()))

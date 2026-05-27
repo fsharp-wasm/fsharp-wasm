@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsOption
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Option (25 tests) ───────────────────────────────────────
 
@@ -146,28 +146,28 @@ let testOptionModuleCountSome () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runOptionTests (check: string -> (unit -> unit) -> unit) =
-    check "testOptionSome" testOptionSome
-    check "testOptionNone" testOptionNone
-    check "testOptionDoubleSome" testOptionDoubleSome
-    check "testOptionDoubleNone" testOptionDoubleNone
-    check "testOptionIsSome" testOptionIsSome
-    check "testOptionIsNone" testOptionIsNone
-    check "testOptionNested" testOptionNested
-    check "testOptionMap" testOptionMap
-    check "testOptionBind" testOptionBind
-    check "testOptionValue" testOptionValue
-    check "testOptionMapValue" testOptionMapValue
-    check "testOptionDefaultValue" testOptionDefaultValue
-    check "testOptionDefaultValueNone" testOptionDefaultValueNone
-    check "testOptionDefaultWith" testOptionDefaultWith
-    check "testOptionDefaultWithSome" testOptionDefaultWithSome
-    check "testOptionFilter" testOptionFilter
-    check "testOptionFilterNone" testOptionFilterNone
-    check "testOptionModuleIsSome" testOptionModuleIsSome
-    check "testOptionModuleIsSomeNone" testOptionModuleIsSomeNone
-    check "testOptionModuleIsNone" testOptionModuleIsNone
-    check "testOptionModuleIsNoneSome" testOptionModuleIsNoneSome
-    check "testOptionModuleDefaultValueNone" testOptionModuleDefaultValueNone
-    check "testOptionModuleDefaultValueSome" testOptionModuleDefaultValueSome
-    check "testOptionModuleCountNone" testOptionModuleCountNone
-    check "testOptionModuleCountSome" testOptionModuleCountSome
+    check "testOptionSome" (fun () -> ignore (testOptionSome ()))
+    check "testOptionNone" (fun () -> ignore (testOptionNone ()))
+    check "testOptionDoubleSome" (fun () -> ignore (testOptionDoubleSome ()))
+    check "testOptionDoubleNone" (fun () -> ignore (testOptionDoubleNone ()))
+    check "testOptionIsSome" (fun () -> ignore (testOptionIsSome ()))
+    check "testOptionIsNone" (fun () -> ignore (testOptionIsNone ()))
+    check "testOptionNested" (fun () -> ignore (testOptionNested ()))
+    check "testOptionMap" (fun () -> ignore (testOptionMap ()))
+    check "testOptionBind" (fun () -> ignore (testOptionBind ()))
+    check "testOptionValue" (fun () -> ignore (testOptionValue ()))
+    check "testOptionMapValue" (fun () -> ignore (testOptionMapValue ()))
+    check "testOptionDefaultValue" (fun () -> ignore (testOptionDefaultValue ()))
+    check "testOptionDefaultValueNone" (fun () -> ignore (testOptionDefaultValueNone ()))
+    check "testOptionDefaultWith" (fun () -> ignore (testOptionDefaultWith ()))
+    check "testOptionDefaultWithSome" (fun () -> ignore (testOptionDefaultWithSome ()))
+    check "testOptionFilter" (fun () -> ignore (testOptionFilter ()))
+    check "testOptionFilterNone" (fun () -> ignore (testOptionFilterNone ()))
+    check "testOptionModuleIsSome" (fun () -> ignore (testOptionModuleIsSome ()))
+    check "testOptionModuleIsSomeNone" (fun () -> ignore (testOptionModuleIsSomeNone ()))
+    check "testOptionModuleIsNone" (fun () -> ignore (testOptionModuleIsNone ()))
+    check "testOptionModuleIsNoneSome" (fun () -> ignore (testOptionModuleIsNoneSome ()))
+    check "testOptionModuleDefaultValueNone" (fun () -> ignore (testOptionModuleDefaultValueNone ()))
+    check "testOptionModuleDefaultValueSome" (fun () -> ignore (testOptionModuleDefaultValueSome ()))
+    check "testOptionModuleCountNone" (fun () -> ignore (testOptionModuleCountNone ()))
+    check "testOptionModuleCountSome" (fun () -> ignore (testOptionModuleCountSome ()))

@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsExceptions
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Exceptions (14 tests) ───────────────────────────────────────
 
@@ -153,17 +153,17 @@ let testExnCarrierInt () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runExceptionsTests (check: string -> (unit -> unit) -> unit) =
-    check "testTryCatchBasic" testTryCatchBasic
-    check "testTryCatchNoThrow" testTryCatchNoThrow
-    check "testTryCatchNested" testTryCatchNested
-    check "testTryCatchFallback" testTryCatchFallback
-    check "testExnNestedFailwith" testExnNestedFailwith
-    check "testExnUnit" testExnUnit
-    check "testExnNormalPath" testExnNormalPath
-    check "testExnNestedInnerCatch" testExnNestedInnerCatch
-    check "testExnNestedRethrow" testExnNestedRethrow
-    check "testExnCarrierBasic" testExnCarrierBasic
-    check "testExnTypedPayload" testExnTypedPayload
-    check "testExnTypeTestDiscriminate" testExnTypeTestDiscriminate
-    check "testExnTypeTestMatch" testExnTypeTestMatch
-    check "testExnCarrierInt" testExnCarrierInt
+    check "testTryCatchBasic" (fun () -> ignore (testTryCatchBasic ()))
+    check "testTryCatchNoThrow" (fun () -> ignore (testTryCatchNoThrow ()))
+    check "testTryCatchNested" (fun () -> ignore (testTryCatchNested ()))
+    check "testTryCatchFallback" (fun () -> ignore (testTryCatchFallback ()))
+    check "testExnNestedFailwith" (fun () -> ignore (testExnNestedFailwith ()))
+    check "testExnUnit" (fun () -> ignore (testExnUnit ()))
+    check "testExnNormalPath" (fun () -> ignore (testExnNormalPath ()))
+    check "testExnNestedInnerCatch" (fun () -> ignore (testExnNestedInnerCatch ()))
+    check "testExnNestedRethrow" (fun () -> ignore (testExnNestedRethrow ()))
+    check "testExnCarrierBasic" (fun () -> ignore (testExnCarrierBasic ()))
+    check "testExnTypedPayload" (fun () -> ignore (testExnTypedPayload ()))
+    check "testExnTypeTestDiscriminate" (fun () -> ignore (testExnTypeTestDiscriminate ()))
+    check "testExnTypeTestMatch" (fun () -> ignore (testExnTypeTestMatch ()))
+    check "testExnCarrierInt" (fun () -> ignore (testExnCarrierInt ()))

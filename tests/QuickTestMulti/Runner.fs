@@ -19,7 +19,7 @@ open QuickTestWasmGc.TestsSeq
 open QuickTestWasmGc.TestsSet
 open QuickTestWasmGc.TestsStringBuilder
 open QuickTestWasmGc.TestsStrings
-open WasmGc.Core
+open Fable.Core
 
 let runAllTests (check: string -> (unit -> unit) -> unit) =
     runArrayTests check

@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsPrintf
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Printf (28 tests) ───────────────────────────────────────
 
@@ -165,31 +165,31 @@ let testInterpolationWithSprintf () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runPrintfTests (check: string -> (unit -> unit) -> unit) =
-    check "testStringInterpolation" testStringInterpolation
-    check "testStringInterpolationConcat" testStringInterpolationConcat
-    check "testPrintfnLiteral" testPrintfnLiteral
-    check "testSprintfInt" testSprintfInt
-    check "testSprintfNegInt" testSprintfNegInt
-    check "testSprintfStr" testSprintfStr
-    check "testSprintfIntLiteral" testSprintfIntLiteral
-    check "testSprintfTwoInts" testSprintfTwoInts
-    check "testSprintfTwoStrs" testSprintfTwoStrs
-    check "testSprintfBoolTrue" testSprintfBoolTrue
-    check "testSprintfBoolFalse" testSprintfBoolFalse
-    check "testSprintfMixed" testSprintfMixed
-    check "testSprintfZero" testSprintfZero
-    check "testSprintfPrefix" testSprintfPrefix
-    check "testSprintfFloat" testSprintfFloat
-    check "testSprintfFloatHalf" testSprintfFloatHalf
-    check "testSprintfFloatWhole" testSprintfFloatWhole
-    check "testSprintfFloatNeg" testSprintfFloatNeg
-    check "testSprintfFloatInStr" testSprintfFloatInStr
-    check "testPrintfnInt" testPrintfnInt
-    check "testPrintfnStr" testPrintfnStr
-    check "testPrintfnMulti" testPrintfnMulti
-    check "testSprintfI" testSprintfI
-    check "testSprintfPercent" testSprintfPercent
-    check "testSprintfIntZeroChar" testSprintfIntZeroChar
-    check "testSprintfEmptyStr" testSprintfEmptyStr
-    check "testSprintfIntFirstChar" testSprintfIntFirstChar
-    check "testInterpolationWithSprintf" testInterpolationWithSprintf
+    check "testStringInterpolation" (fun () -> ignore (testStringInterpolation ()))
+    check "testStringInterpolationConcat" (fun () -> ignore (testStringInterpolationConcat ()))
+    check "testPrintfnLiteral" (fun () -> ignore (testPrintfnLiteral ()))
+    check "testSprintfInt" (fun () -> ignore (testSprintfInt ()))
+    check "testSprintfNegInt" (fun () -> ignore (testSprintfNegInt ()))
+    check "testSprintfStr" (fun () -> ignore (testSprintfStr ()))
+    check "testSprintfIntLiteral" (fun () -> ignore (testSprintfIntLiteral ()))
+    check "testSprintfTwoInts" (fun () -> ignore (testSprintfTwoInts ()))
+    check "testSprintfTwoStrs" (fun () -> ignore (testSprintfTwoStrs ()))
+    check "testSprintfBoolTrue" (fun () -> ignore (testSprintfBoolTrue ()))
+    check "testSprintfBoolFalse" (fun () -> ignore (testSprintfBoolFalse ()))
+    check "testSprintfMixed" (fun () -> ignore (testSprintfMixed ()))
+    check "testSprintfZero" (fun () -> ignore (testSprintfZero ()))
+    check "testSprintfPrefix" (fun () -> ignore (testSprintfPrefix ()))
+    check "testSprintfFloat" (fun () -> ignore (testSprintfFloat ()))
+    check "testSprintfFloatHalf" (fun () -> ignore (testSprintfFloatHalf ()))
+    check "testSprintfFloatWhole" (fun () -> ignore (testSprintfFloatWhole ()))
+    check "testSprintfFloatNeg" (fun () -> ignore (testSprintfFloatNeg ()))
+    check "testSprintfFloatInStr" (fun () -> ignore (testSprintfFloatInStr ()))
+    check "testPrintfnInt" (fun () -> ignore (testPrintfnInt ()))
+    check "testPrintfnStr" (fun () -> ignore (testPrintfnStr ()))
+    check "testPrintfnMulti" (fun () -> ignore (testPrintfnMulti ()))
+    check "testSprintfI" (fun () -> ignore (testSprintfI ()))
+    check "testSprintfPercent" (fun () -> ignore (testSprintfPercent ()))
+    check "testSprintfIntZeroChar" (fun () -> ignore (testSprintfIntZeroChar ()))
+    check "testSprintfEmptyStr" (fun () -> ignore (testSprintfEmptyStr ()))
+    check "testSprintfIntFirstChar" (fun () -> ignore (testSprintfIntFirstChar ()))
+    check "testInterpolationWithSprintf" (fun () -> ignore (testInterpolationWithSprintf ()))

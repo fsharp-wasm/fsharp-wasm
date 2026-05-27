@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsStrings
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Strings (83 tests) ───────────────────────────────────────
 
@@ -513,86 +513,86 @@ let testStringInterp () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runStringsTests (check: string -> (unit -> unit) -> unit) =
-    check "testRectWidth" testRectWidth
-    check "testStringLen" testStringLen
-    check "testEmptyStringLen" testEmptyStringLen
-    check "testStringChar" testStringChar
-    check "testStringFirstChar" testStringFirstChar
-    check "testStringLen2" testStringLen2
-    check "testStringConcatLen" testStringConcatLen
-    check "testStringConcatChar" testStringConcatChar
-    check "testStringEqTrue" testStringEqTrue
-    check "testStringEqFalse" testStringEqFalse
-    check "testStringNeq" testStringNeq
-    check "testStringConcatVars" testStringConcatVars
-    check "testRefCell" testRefCell
-    check "testRefCellBool" testRefCellBool
-    check "testStringIndexOf" testStringIndexOf
-    check "testStringIndexOfMiss" testStringIndexOfMiss
-    check "testStringLastIndexOf" testStringLastIndexOf
-    check "testStringLastIndexOfMiss" testStringLastIndexOfMiss
-    check "testStringIndexOfFrom" testStringIndexOfFrom
-    check "testStringStartsWith" testStringStartsWith
-    check "testStringStartsWithFalse" testStringStartsWithFalse
-    check "testStringEndsWith" testStringEndsWith
-    check "testStringEndsWithFalse" testStringEndsWithFalse
-    check "testStringSubstring" testStringSubstring
-    check "testStringSubstringLen" testStringSubstringLen
-    check "testToLowerLength" testToLowerLength
-    check "testToUpperFirstChar" testToUpperFirstChar
-    check "testToLowerChars" testToLowerChars
-    check "testToUpperChars" testToUpperChars
-    check "testTrimBasic" testTrimBasic
-    check "testTrimStart" testTrimStart
-    check "testTrimEnd" testTrimEnd
-    check "testContains" testContains
-    check "testContainsNot" testContainsNot
-    check "testToLowerMixed" testToLowerMixed
-    check "testStringOfInt" testStringOfInt
-    check "testStringOfNegInt" testStringOfNegInt
-    check "testStringOfZero" testStringOfZero
-    check "testStringOfIntChar" testStringOfIntChar
-    check "testPadLeft" testPadLeft
-    check "testPadRight" testPadRight
-    check "testPadLeftNoop" testPadLeftNoop
-    check "testPadLeftChar" testPadLeftChar
-    check "testReplace" testReplace
-    check "testReplaceRemove" testReplaceRemove
-    check "testReplaceNoMatch" testReplaceNoMatch
-    check "testIsUpper" testIsUpper
-    check "testIsLower" testIsLower
-    check "testCharToLower" testCharToLower
-    check "testCharToUpper" testCharToUpper
-    check "testFloatCompare" testFloatCompare
-    check "testRecordEqTrue" testRecordEqTrue
-    check "testRecordEqFalse" testRecordEqFalse
-    check "testRecordNeq" testRecordNeq
-    check "testStrSplitLen" testStrSplitLen
-    check "testStrSplitFirst" testStrSplitFirst
-    check "testStrSplitSecond" testStrSplitSecond
-    check "testStrSplitWords" testStrSplitWords
-    check "testStrSplitNoDelim" testStrSplitNoDelim
-    check "testStrSplitEmpty" testStrSplitEmpty
-    check "testStrSplitMultiChar" testStrSplitMultiChar
-    check "testStrJoinLen" testStrJoinLen
-    check "testStrJoinNoSep" testStrJoinNoSep
-    check "testStrJoinOne" testStrJoinOne
-    check "testStrIsNullOrEmptyTrue" testStrIsNullOrEmptyTrue
-    check "testStrIsNullOrEmptyFalse" testStrIsNullOrEmptyFalse
-    check "testStrCompareEq" testStrCompareEq
-    check "testStrCompareLt" testStrCompareLt
-    check "testStrCompareGt" testStrCompareGt
-    check "testRefTestCircle" testRefTestCircle
-    check "testRefTestRect" testRefTestRect
-    check "testRefTestDot" testRefTestDot
-    check "testSbToStringLength" testSbToStringLength
-    check "testSbToStringContent" testSbToStringContent
-    check "testCompareIntLt" testCompareIntLt
-    check "testCompareIntEq" testCompareIntEq
-    check "testCompareIntGt" testCompareIntGt
-    check "testCompareStrLt" testCompareStrLt
-    check "testCompareStrEq" testCompareStrEq
-    check "testCompareStrGt" testCompareStrGt
-    check "testRecursiveDU" testRecursiveDU
-    check "testStringConcat" testStringConcat
-    check "testStringInterp" testStringInterp
+    check "testRectWidth" (fun () -> ignore (testRectWidth ()))
+    check "testStringLen" (fun () -> ignore (testStringLen ()))
+    check "testEmptyStringLen" (fun () -> ignore (testEmptyStringLen ()))
+    check "testStringChar" (fun () -> ignore (testStringChar ()))
+    check "testStringFirstChar" (fun () -> ignore (testStringFirstChar ()))
+    check "testStringLen2" (fun () -> ignore (testStringLen2 ()))
+    check "testStringConcatLen" (fun () -> ignore (testStringConcatLen ()))
+    check "testStringConcatChar" (fun () -> ignore (testStringConcatChar ()))
+    check "testStringEqTrue" (fun () -> ignore (testStringEqTrue ()))
+    check "testStringEqFalse" (fun () -> ignore (testStringEqFalse ()))
+    check "testStringNeq" (fun () -> ignore (testStringNeq ()))
+    check "testStringConcatVars" (fun () -> ignore (testStringConcatVars ()))
+    check "testRefCell" (fun () -> ignore (testRefCell ()))
+    check "testRefCellBool" (fun () -> ignore (testRefCellBool ()))
+    check "testStringIndexOf" (fun () -> ignore (testStringIndexOf ()))
+    check "testStringIndexOfMiss" (fun () -> ignore (testStringIndexOfMiss ()))
+    check "testStringLastIndexOf" (fun () -> ignore (testStringLastIndexOf ()))
+    check "testStringLastIndexOfMiss" (fun () -> ignore (testStringLastIndexOfMiss ()))
+    check "testStringIndexOfFrom" (fun () -> ignore (testStringIndexOfFrom ()))
+    check "testStringStartsWith" (fun () -> ignore (testStringStartsWith ()))
+    check "testStringStartsWithFalse" (fun () -> ignore (testStringStartsWithFalse ()))
+    check "testStringEndsWith" (fun () -> ignore (testStringEndsWith ()))
+    check "testStringEndsWithFalse" (fun () -> ignore (testStringEndsWithFalse ()))
+    check "testStringSubstring" (fun () -> ignore (testStringSubstring ()))
+    check "testStringSubstringLen" (fun () -> ignore (testStringSubstringLen ()))
+    check "testToLowerLength" (fun () -> ignore (testToLowerLength ()))
+    check "testToUpperFirstChar" (fun () -> ignore (testToUpperFirstChar ()))
+    check "testToLowerChars" (fun () -> ignore (testToLowerChars ()))
+    check "testToUpperChars" (fun () -> ignore (testToUpperChars ()))
+    check "testTrimBasic" (fun () -> ignore (testTrimBasic ()))
+    check "testTrimStart" (fun () -> ignore (testTrimStart ()))
+    check "testTrimEnd" (fun () -> ignore (testTrimEnd ()))
+    check "testContains" (fun () -> ignore (testContains ()))
+    check "testContainsNot" (fun () -> ignore (testContainsNot ()))
+    check "testToLowerMixed" (fun () -> ignore (testToLowerMixed ()))
+    check "testStringOfInt" (fun () -> ignore (testStringOfInt ()))
+    check "testStringOfNegInt" (fun () -> ignore (testStringOfNegInt ()))
+    check "testStringOfZero" (fun () -> ignore (testStringOfZero ()))
+    check "testStringOfIntChar" (fun () -> ignore (testStringOfIntChar ()))
+    check "testPadLeft" (fun () -> ignore (testPadLeft ()))
+    check "testPadRight" (fun () -> ignore (testPadRight ()))
+    check "testPadLeftNoop" (fun () -> ignore (testPadLeftNoop ()))
+    check "testPadLeftChar" (fun () -> ignore (testPadLeftChar ()))
+    check "testReplace" (fun () -> ignore (testReplace ()))
+    check "testReplaceRemove" (fun () -> ignore (testReplaceRemove ()))
+    check "testReplaceNoMatch" (fun () -> ignore (testReplaceNoMatch ()))
+    check "testIsUpper" (fun () -> ignore (testIsUpper ()))
+    check "testIsLower" (fun () -> ignore (testIsLower ()))
+    check "testCharToLower" (fun () -> ignore (testCharToLower ()))
+    check "testCharToUpper" (fun () -> ignore (testCharToUpper ()))
+    check "testFloatCompare" (fun () -> ignore (testFloatCompare ()))
+    check "testRecordEqTrue" (fun () -> ignore (testRecordEqTrue ()))
+    check "testRecordEqFalse" (fun () -> ignore (testRecordEqFalse ()))
+    check "testRecordNeq" (fun () -> ignore (testRecordNeq ()))
+    check "testStrSplitLen" (fun () -> ignore (testStrSplitLen ()))
+    check "testStrSplitFirst" (fun () -> ignore (testStrSplitFirst ()))
+    check "testStrSplitSecond" (fun () -> ignore (testStrSplitSecond ()))
+    check "testStrSplitWords" (fun () -> ignore (testStrSplitWords ()))
+    check "testStrSplitNoDelim" (fun () -> ignore (testStrSplitNoDelim ()))
+    check "testStrSplitEmpty" (fun () -> ignore (testStrSplitEmpty ()))
+    check "testStrSplitMultiChar" (fun () -> ignore (testStrSplitMultiChar ()))
+    check "testStrJoinLen" (fun () -> ignore (testStrJoinLen ()))
+    check "testStrJoinNoSep" (fun () -> ignore (testStrJoinNoSep ()))
+    check "testStrJoinOne" (fun () -> ignore (testStrJoinOne ()))
+    check "testStrIsNullOrEmptyTrue" (fun () -> ignore (testStrIsNullOrEmptyTrue ()))
+    check "testStrIsNullOrEmptyFalse" (fun () -> ignore (testStrIsNullOrEmptyFalse ()))
+    check "testStrCompareEq" (fun () -> ignore (testStrCompareEq ()))
+    check "testStrCompareLt" (fun () -> ignore (testStrCompareLt ()))
+    check "testStrCompareGt" (fun () -> ignore (testStrCompareGt ()))
+    check "testRefTestCircle" (fun () -> ignore (testRefTestCircle ()))
+    check "testRefTestRect" (fun () -> ignore (testRefTestRect ()))
+    check "testRefTestDot" (fun () -> ignore (testRefTestDot ()))
+    check "testSbToStringLength" (fun () -> ignore (testSbToStringLength ()))
+    check "testSbToStringContent" (fun () -> ignore (testSbToStringContent ()))
+    check "testCompareIntLt" (fun () -> ignore (testCompareIntLt ()))
+    check "testCompareIntEq" (fun () -> ignore (testCompareIntEq ()))
+    check "testCompareIntGt" (fun () -> ignore (testCompareIntGt ()))
+    check "testCompareStrLt" (fun () -> ignore (testCompareStrLt ()))
+    check "testCompareStrEq" (fun () -> ignore (testCompareStrEq ()))
+    check "testCompareStrGt" (fun () -> ignore (testCompareStrGt ()))
+    check "testRecursiveDU" (fun () -> ignore (testRecursiveDU ()))
+    check "testStringConcat" (fun () -> ignore (testStringConcat ()))
+    check "testStringInterp" (fun () -> ignore (testStringInterp ()))

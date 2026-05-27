@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsResult
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Result (15 tests) ───────────────────────────────────────
 
@@ -96,18 +96,18 @@ let testResultModuleDefaultErrorError () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runResultTests (check: string -> (unit -> unit) -> unit) =
-    check "testResultMatchOk" testResultMatchOk
-    check "testResultMatchError" testResultMatchError
-    check "testResultIsOk" testResultIsOk
-    check "testResultIsError" testResultIsError
-    check "testResultMap" testResultMap
-    check "testResultBind" testResultBind
-    check "testResultBindError" testResultBindError
-    check "testResultModuleIsOk" testResultModuleIsOk
-    check "testResultModuleIsOkFalse" testResultModuleIsOkFalse
-    check "testResultModuleIsError" testResultModuleIsError
-    check "testResultModuleIsErrorFalse" testResultModuleIsErrorFalse
-    check "testResultModuleDefaultValueError" testResultModuleDefaultValueError
-    check "testResultModuleDefaultValueOk" testResultModuleDefaultValueOk
-    check "testResultModuleDefaultErrorOk" testResultModuleDefaultErrorOk
-    check "testResultModuleDefaultErrorError" testResultModuleDefaultErrorError
+    check "testResultMatchOk" (fun () -> ignore (testResultMatchOk ()))
+    check "testResultMatchError" (fun () -> ignore (testResultMatchError ()))
+    check "testResultIsOk" (fun () -> ignore (testResultIsOk ()))
+    check "testResultIsError" (fun () -> ignore (testResultIsError ()))
+    check "testResultMap" (fun () -> ignore (testResultMap ()))
+    check "testResultBind" (fun () -> ignore (testResultBind ()))
+    check "testResultBindError" (fun () -> ignore (testResultBindError ()))
+    check "testResultModuleIsOk" (fun () -> ignore (testResultModuleIsOk ()))
+    check "testResultModuleIsOkFalse" (fun () -> ignore (testResultModuleIsOkFalse ()))
+    check "testResultModuleIsError" (fun () -> ignore (testResultModuleIsError ()))
+    check "testResultModuleIsErrorFalse" (fun () -> ignore (testResultModuleIsErrorFalse ()))
+    check "testResultModuleDefaultValueError" (fun () -> ignore (testResultModuleDefaultValueError ()))
+    check "testResultModuleDefaultValueOk" (fun () -> ignore (testResultModuleDefaultValueOk ()))
+    check "testResultModuleDefaultErrorOk" (fun () -> ignore (testResultModuleDefaultErrorOk ()))
+    check "testResultModuleDefaultErrorError" (fun () -> ignore (testResultModuleDefaultErrorError ()))

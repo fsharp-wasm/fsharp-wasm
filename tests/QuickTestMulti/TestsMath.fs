@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsMath
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Math (41 tests) ───────────────────────────────────────
 
@@ -222,44 +222,44 @@ let testAtan2Q3 () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runMathTests (check: string -> (unit -> unit) -> unit) =
-    check "testDistanceFromOrigin" testDistanceFromOrigin
-    check "testFib10" testFib10
-    check "testFib15" testFib15
-    check "testIsPrime7" testIsPrime7
-    check "testIsPrime4" testIsPrime4
-    check "testCountPrimesTo50" testCountPrimesTo50
-    check "testCollatz27" testCollatz27
-    check "testPown2_10" testPown2_10
-    check "testPownZero" testPownZero
-    check "testPownCube" testPownCube
-    check "testPownOne" testPownOne
-    check "testPowF64_2_10" testPowF64_2_10
-    check "testPowF64_zero" testPowF64_zero
-    check "testPowF64_cube" testPowF64_cube
-    check "testMathPow" testMathPow
-    check "testMathExp_zero" testMathExp_zero
-    check "testMathExp_one" testMathExp_one
-    check "testMathExp_ten" testMathExp_ten
-    check "testMathExp_neg" testMathExp_neg
-    check "testMathLog_one" testMathLog_one
-    check "testMathLog_e" testMathLog_e
-    check "testMathLog_1024" testMathLog_1024
-    check "testMathExpLogRoundtrip" testMathExpLogRoundtrip
-    check "testMathSin_zero" testMathSin_zero
-    check "testMathSin_90deg" testMathSin_90deg
-    check "testMathCos_zero" testMathCos_zero
-    check "testMathCos_180deg" testMathCos_180deg
-    check "testMathTan_zero" testMathTan_zero
-    check "testMathTan_45deg" testMathTan_45deg
-    check "testClz_one" testClz_one
-    check "testClz_highBit" testClz_highBit
-    check "testCtz_eight" testCtz_eight
-    check "testCtz_one" testCtz_one
-    check "testPopcnt_seven" testPopcnt_seven
-    check "testPopcnt_allOnes" testPopcnt_allOnes
-    check "testAtan2Origin" testAtan2Origin
-    check "testAtan2PosX" testAtan2PosX
-    check "testAtan2NegX" testAtan2NegX
-    check "testAtan2PosY" testAtan2PosY
-    check "testAtan2NegY" testAtan2NegY
-    check "testAtan2Q3" testAtan2Q3
+    check "testDistanceFromOrigin" (fun () -> ignore (testDistanceFromOrigin ()))
+    check "testFib10" (fun () -> ignore (testFib10 ()))
+    check "testFib15" (fun () -> ignore (testFib15 ()))
+    check "testIsPrime7" (fun () -> ignore (testIsPrime7 ()))
+    check "testIsPrime4" (fun () -> ignore (testIsPrime4 ()))
+    check "testCountPrimesTo50" (fun () -> ignore (testCountPrimesTo50 ()))
+    check "testCollatz27" (fun () -> ignore (testCollatz27 ()))
+    check "testPown2_10" (fun () -> ignore (testPown2_10 ()))
+    check "testPownZero" (fun () -> ignore (testPownZero ()))
+    check "testPownCube" (fun () -> ignore (testPownCube ()))
+    check "testPownOne" (fun () -> ignore (testPownOne ()))
+    check "testPowF64_2_10" (fun () -> ignore (testPowF64_2_10 ()))
+    check "testPowF64_zero" (fun () -> ignore (testPowF64_zero ()))
+    check "testPowF64_cube" (fun () -> ignore (testPowF64_cube ()))
+    check "testMathPow" (fun () -> ignore (testMathPow ()))
+    check "testMathExp_zero" (fun () -> ignore (testMathExp_zero ()))
+    check "testMathExp_one" (fun () -> ignore (testMathExp_one ()))
+    check "testMathExp_ten" (fun () -> ignore (testMathExp_ten ()))
+    check "testMathExp_neg" (fun () -> ignore (testMathExp_neg ()))
+    check "testMathLog_one" (fun () -> ignore (testMathLog_one ()))
+    check "testMathLog_e" (fun () -> ignore (testMathLog_e ()))
+    check "testMathLog_1024" (fun () -> ignore (testMathLog_1024 ()))
+    check "testMathExpLogRoundtrip" (fun () -> ignore (testMathExpLogRoundtrip ()))
+    check "testMathSin_zero" (fun () -> ignore (testMathSin_zero ()))
+    check "testMathSin_90deg" (fun () -> ignore (testMathSin_90deg ()))
+    check "testMathCos_zero" (fun () -> ignore (testMathCos_zero ()))
+    check "testMathCos_180deg" (fun () -> ignore (testMathCos_180deg ()))
+    check "testMathTan_zero" (fun () -> ignore (testMathTan_zero ()))
+    check "testMathTan_45deg" (fun () -> ignore (testMathTan_45deg ()))
+    check "testClz_one" (fun () -> ignore (testClz_one ()))
+    check "testClz_highBit" (fun () -> ignore (testClz_highBit ()))
+    check "testCtz_eight" (fun () -> ignore (testCtz_eight ()))
+    check "testCtz_one" (fun () -> ignore (testCtz_one ()))
+    check "testPopcnt_seven" (fun () -> ignore (testPopcnt_seven ()))
+    check "testPopcnt_allOnes" (fun () -> ignore (testPopcnt_allOnes ()))
+    check "testAtan2Origin" (fun () -> ignore (testAtan2Origin ()))
+    check "testAtan2PosX" (fun () -> ignore (testAtan2PosX ()))
+    check "testAtan2NegX" (fun () -> ignore (testAtan2NegX ()))
+    check "testAtan2PosY" (fun () -> ignore (testAtan2PosY ()))
+    check "testAtan2NegY" (fun () -> ignore (testAtan2NegY ()))
+    check "testAtan2Q3" (fun () -> ignore (testAtan2Q3 ()))

@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsSet
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Set (20 tests) ───────────────────────────────────────
 
@@ -145,23 +145,23 @@ let testSetModuleFold () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runSetTests (check: string -> (unit -> unit) -> unit) =
-    check "testSetContains" testSetContains
-    check "testSetAdd" testSetAdd
-    check "testSetRemove" testSetRemove
-    check "testSetIsEmpty" testSetIsEmpty
-    check "testSetFold" testSetFold
-    check "testSetFilter" testSetFilter
-    check "testSetExists" testSetExists
-    check "testSetForall" testSetForall
-    check "testSetUnion" testSetUnion
-    check "testSetIntersect" testSetIntersect
-    check "testSetDifference" testSetDifference
-    check "testSetIsSubset" testSetIsSubset
-    check "testSetMap" testSetMap
-    check "testSetMinMax" testSetMinMax
-    check "testSetSingleton" testSetSingleton
-    check "testClosureCapSetFold" testClosureCapSetFold
-    check "testSetModuleBasic" testSetModuleBasic
-    check "testSetModuleDedup" testSetModuleDedup
-    check "testSetModuleContains" testSetModuleContains
-    check "testSetModuleFold" testSetModuleFold
+    check "testSetContains" (fun () -> ignore (testSetContains ()))
+    check "testSetAdd" (fun () -> ignore (testSetAdd ()))
+    check "testSetRemove" (fun () -> ignore (testSetRemove ()))
+    check "testSetIsEmpty" (fun () -> ignore (testSetIsEmpty ()))
+    check "testSetFold" (fun () -> ignore (testSetFold ()))
+    check "testSetFilter" (fun () -> ignore (testSetFilter ()))
+    check "testSetExists" (fun () -> ignore (testSetExists ()))
+    check "testSetForall" (fun () -> ignore (testSetForall ()))
+    check "testSetUnion" (fun () -> ignore (testSetUnion ()))
+    check "testSetIntersect" (fun () -> ignore (testSetIntersect ()))
+    check "testSetDifference" (fun () -> ignore (testSetDifference ()))
+    check "testSetIsSubset" (fun () -> ignore (testSetIsSubset ()))
+    check "testSetMap" (fun () -> ignore (testSetMap ()))
+    check "testSetMinMax" (fun () -> ignore (testSetMinMax ()))
+    check "testSetSingleton" (fun () -> ignore (testSetSingleton ()))
+    check "testClosureCapSetFold" (fun () -> ignore (testClosureCapSetFold ()))
+    check "testSetModuleBasic" (fun () -> ignore (testSetModuleBasic ()))
+    check "testSetModuleDedup" (fun () -> ignore (testSetModuleDedup ()))
+    check "testSetModuleContains" (fun () -> ignore (testSetModuleContains ()))
+    check "testSetModuleFold" (fun () -> ignore (testSetModuleFold ()))

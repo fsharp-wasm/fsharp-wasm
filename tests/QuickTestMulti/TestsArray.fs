@@ -1,7 +1,7 @@
 module QuickTestWasmGc.TestsArray
 
 open QuickTestWasmGc.Preamble
-open WasmGc.Core
+open Fable.Core
 
 // ── Array (55 tests) ───────────────────────────────────────
 
@@ -360,58 +360,58 @@ let testSetOfArray () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runArrayTests (check: string -> (unit -> unit) -> unit) =
-    check "testArrayLiteral" testArrayLiteral
-    check "testArrayCreate" testArrayCreate
-    check "testArrayZeroCreate" testArrayZeroCreate
-    check "testArrayLength" testArrayLength
-    check "testArraySumLoop" testArraySumLoop
-    check "testArrayFloat" testArrayFloat
-    check "testArrayFold" testArrayFold
-    check "testArrayFoldFloat" testArrayFoldFloat
-    check "testArrayMap" testArrayMap
-    check "testArrayMapStr" testArrayMapStr
-    check "testArrayMapi" testArrayMapi
-    check "testArrayFilter" testArrayFilter
-    check "testArrayFilterAll" testArrayFilterAll
-    check "testArrayFilterNone" testArrayFilterNone
-    check "testArrayExists" testArrayExists
-    check "testArrayExistsFalse" testArrayExistsFalse
-    check "testArrayForAll" testArrayForAll
-    check "testArrayForAllFalse" testArrayForAllFalse
-    check "testArrayInit" testArrayInit
-    check "testArrayInitFold" testArrayInitFold
-    check "testArrayIter" testArrayIter
-    check "testArrayIteri" testArrayIteri
-    check "testArrayReduce" testArrayReduce
-    check "testArraySum" testArraySum
-    check "testArrayMin" testArrayMin
-    check "testArrayMax" testArrayMax
-    check "testArrayRev" testArrayRev
-    check "testArraySort" testArraySort
-    check "testArrayFindIndex" testArrayFindIndex
-    check "testArrayContains" testArrayContains
-    check "testArrayContainsFalse" testArrayContainsFalse
-    check "testArrayScan" testArrayScan
-    check "testArrayScanLen" testArrayScanLen
-    check "testArrayAppend" testArrayAppend
-    check "testArrayAppendLen" testArrayAppendLen
-    check "testArrayToList" testArrayToList
-    check "testListOfArray" testListOfArray
-    check "testArraySortWith" testArraySortWith
-    check "testArraySortWithDesc" testArraySortWithDesc
-    check "testArrayZip" testArrayZip
-    check "testArrayZipLen" testArrayZipLen
-    check "testArrayMap2Sum" testArrayMap2Sum
-    check "testArrayMap2Head" testArrayMap2Head
-    check "testArrayChooseBasic" testArrayChooseBasic
-    check "testArrayChooseLength" testArrayChooseLength
-    check "testArrayChooseEmpty" testArrayChooseEmpty
-    check "testArrayChooseAllSome" testArrayChooseAllSome
-    check "testArrayCollectBasic" testArrayCollectBasic
-    check "testArrayCollectLength" testArrayCollectLength
-    check "testArrayCollectEmpty" testArrayCollectEmpty
-    check "testArrayCollectSingleton" testArrayCollectSingleton
-    check "testResizeArrayBasic" testResizeArrayBasic
-    check "testArrayUnzip" testArrayUnzip
-    check "testResizeArrayIndex" testResizeArrayIndex
-    check "testSetOfArray" testSetOfArray
+    check "testArrayLiteral" (fun () -> ignore (testArrayLiteral ()))
+    check "testArrayCreate" (fun () -> ignore (testArrayCreate ()))
+    check "testArrayZeroCreate" (fun () -> ignore (testArrayZeroCreate ()))
+    check "testArrayLength" (fun () -> ignore (testArrayLength ()))
+    check "testArraySumLoop" (fun () -> ignore (testArraySumLoop ()))
+    check "testArrayFloat" (fun () -> ignore (testArrayFloat ()))
+    check "testArrayFold" (fun () -> ignore (testArrayFold ()))
+    check "testArrayFoldFloat" (fun () -> ignore (testArrayFoldFloat ()))
+    check "testArrayMap" (fun () -> ignore (testArrayMap ()))
+    check "testArrayMapStr" (fun () -> ignore (testArrayMapStr ()))
+    check "testArrayMapi" (fun () -> ignore (testArrayMapi ()))
+    check "testArrayFilter" (fun () -> ignore (testArrayFilter ()))
+    check "testArrayFilterAll" (fun () -> ignore (testArrayFilterAll ()))
+    check "testArrayFilterNone" (fun () -> ignore (testArrayFilterNone ()))
+    check "testArrayExists" (fun () -> ignore (testArrayExists ()))
+    check "testArrayExistsFalse" (fun () -> ignore (testArrayExistsFalse ()))
+    check "testArrayForAll" (fun () -> ignore (testArrayForAll ()))
+    check "testArrayForAllFalse" (fun () -> ignore (testArrayForAllFalse ()))
+    check "testArrayInit" (fun () -> ignore (testArrayInit ()))
+    check "testArrayInitFold" (fun () -> ignore (testArrayInitFold ()))
+    check "testArrayIter" (fun () -> ignore (testArrayIter ()))
+    check "testArrayIteri" (fun () -> ignore (testArrayIteri ()))
+    check "testArrayReduce" (fun () -> ignore (testArrayReduce ()))
+    check "testArraySum" (fun () -> ignore (testArraySum ()))
+    check "testArrayMin" (fun () -> ignore (testArrayMin ()))
+    check "testArrayMax" (fun () -> ignore (testArrayMax ()))
+    check "testArrayRev" (fun () -> ignore (testArrayRev ()))
+    check "testArraySort" (fun () -> ignore (testArraySort ()))
+    check "testArrayFindIndex" (fun () -> ignore (testArrayFindIndex ()))
+    check "testArrayContains" (fun () -> ignore (testArrayContains ()))
+    check "testArrayContainsFalse" (fun () -> ignore (testArrayContainsFalse ()))
+    check "testArrayScan" (fun () -> ignore (testArrayScan ()))
+    check "testArrayScanLen" (fun () -> ignore (testArrayScanLen ()))
+    check "testArrayAppend" (fun () -> ignore (testArrayAppend ()))
+    check "testArrayAppendLen" (fun () -> ignore (testArrayAppendLen ()))
+    check "testArrayToList" (fun () -> ignore (testArrayToList ()))
+    check "testListOfArray" (fun () -> ignore (testListOfArray ()))
+    check "testArraySortWith" (fun () -> ignore (testArraySortWith ()))
+    check "testArraySortWithDesc" (fun () -> ignore (testArraySortWithDesc ()))
+    check "testArrayZip" (fun () -> ignore (testArrayZip ()))
+    check "testArrayZipLen" (fun () -> ignore (testArrayZipLen ()))
+    check "testArrayMap2Sum" (fun () -> ignore (testArrayMap2Sum ()))
+    check "testArrayMap2Head" (fun () -> ignore (testArrayMap2Head ()))
+    check "testArrayChooseBasic" (fun () -> ignore (testArrayChooseBasic ()))
+    check "testArrayChooseLength" (fun () -> ignore (testArrayChooseLength ()))
+    check "testArrayChooseEmpty" (fun () -> ignore (testArrayChooseEmpty ()))
+    check "testArrayChooseAllSome" (fun () -> ignore (testArrayChooseAllSome ()))
+    check "testArrayCollectBasic" (fun () -> ignore (testArrayCollectBasic ()))
+    check "testArrayCollectLength" (fun () -> ignore (testArrayCollectLength ()))
+    check "testArrayCollectEmpty" (fun () -> ignore (testArrayCollectEmpty ()))
+    check "testArrayCollectSingleton" (fun () -> ignore (testArrayCollectSingleton ()))
+    check "testResizeArrayBasic" (fun () -> ignore (testResizeArrayBasic ()))
+    check "testArrayUnzip" (fun () -> ignore (testArrayUnzip ()))
+    check "testResizeArrayIndex" (fun () -> ignore (testResizeArrayIndex ()))
+    check "testSetOfArray" (fun () -> ignore (testSetOfArray ()))

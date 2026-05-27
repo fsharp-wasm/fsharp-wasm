@@ -27,22 +27,33 @@ case "${1:-}" in
     ;;
 
   --multi)
-    # ── Multi-fsproj mode ───────────────────────────────────────────────────
+    # ── Multi-domain mode ───────────────────────────────────────────────────
     # Compile each domain independently, then link via our static linker.
-    echo "=== Multi-fsproj mode: compiling ${#DOMAINS[@]} domains ==="
+    echo ""
+    echo "📦 Multi-domain compilation mode"
+    echo "════════════════════════════════════════════════════════════════"
+    echo "  Compiling ${#DOMAINS[@]} domains separately..."
+    echo ""
     WASM_FILES=()
     for d in "${DOMAINS[@]}"; do
-      echo "  Compiling $d..."
-      $FABLE "Multi/$d.fsproj" --outDir "$OUT/modules/$d" --noCache 2>&1 | tail -3
-      WASM_FILES+=("$OUT/modules/$d/${d}.wasm")
+      echo "  ▶ $d..."
+      $FABLE "$d/$d.fsproj" --outDir "$OUT/modules/$d" --noCache 2>&1 | tail -1
+      if [ -f "$OUT/modules/$d/$d.wasm" ]; then
+        WASM_FILES+=("$OUT/modules/$d/$d.wasm")
+        echo "    ✓ $d.wasm"
+      else
+        echo "    ✗ FAILED: $d.wasm not found"
+      fi
     done
 
+    echo ""
     echo "  Linking ${#WASM_FILES[@]} modules..."
     # Use our WasmGC linker (dotnet tool or inline script)
     dotnet run --project "$ROOT/src/Fable.WasmGc.fsproj" -- \
       link "${WASM_FILES[@]}" --output "$OUT/QuickTestLinked.wasm" \
       2>&1 | tail -5
 
+    echo ""
     echo "=== Running linked binary ==="
     $NODE --experimental-wasm-gc "$OUT/QuickTestLinked.wasm" \
       || echo "Note: use a WASM host (wasmtime/node) that supports WasmGC"
@@ -50,23 +61,27 @@ case "${1:-}" in
 
   "")
     # ── All-in-one mode (default) ───────────────────────────────────────────
-    echo "=== QuickTest: all-in-one (498 tests) ==="
-    $FABLE QuickTest.fsproj --outDir "$OUT" --noCache 2>&1 \
+    echo ""
+    echo "🔗 MultiEntry mode (all tests combined)"
+    echo "════════════════════════════════════════════════════════════════"
+    $FABLE MultiEntry/MultiEntry.fsproj --outDir "$OUT" --noCache 2>&1 \
       | grep -E 'Compiled|error|warning\[WGC' || true
 
-    WASM="$OUT/QuickTestWasmGc.wasm"
+    WASM="$OUT/MultiEntry.wasm"
     if [ ! -f "$WASM" ]; then
       echo "ERROR: $WASM not found after compilation"
       exit 1
     fi
 
+    echo ""
     echo "=== Validating WASM binary ==="
     if command -v wasm-tools &>/dev/null; then
-      wasm-tools validate "$WASM" && echo "✓ WASM binary valid"
+      wasm-tools validate "$WASM" --features gc && echo "✓ WASM binary valid"
     fi
 
+    echo ""
     echo "=== Running tests ==="
-    $NODE --experimental-wasm-gc "$WASM" 2>&1
+    $NODE --experimental-wasm-exnref "$WASM" 2>&1
     ;;
 
   *)
