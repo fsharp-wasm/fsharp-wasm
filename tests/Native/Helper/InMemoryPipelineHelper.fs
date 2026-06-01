@@ -224,12 +224,18 @@ module InMemoryPipelineHelper =
     // Stage 5-7: Fable AST → WasmGC IR (normalized WModule)
     // ──────────────────────────────────────────────────────────────────────────────
 
-    let private fableToWasmIr (fableAst: Fable.AST.Fable.ModuleDecl list)
+    let private fableToWasmIr (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementationFileDeclaration list)
+                              (fableAst: Fable.AST.Fable.ModuleDecl list)
                               : Result<WModule * WModule, string> =
         try
-            // TODO: Wire Fable2Wasm.processFileIntoCtx and Phases.buildRawModule/Normalizer.normalizeModule
-            // For now, return a placeholder error
-            Error("Fable to WasmGC IR transformation not yet wired - requires Fable2Wasm namespace to be imported")
+            let com = MockCompiler(fcsDeclarations) :> Fable.Compiler
+            let fableFile = Fable.File { Path = "InMemoryTest.fs"
+                                         Declarations = fableAst }
+            let ctx = WasmGc.Transforms.Fable2Wasm.Ctx.Create()
+            let finalCtx = WasmGc.Transforms.Fable2Wasm.processFileIntoCtx ctx com fableFile true
+            let wmoduleRaw = WasmGc.Transforms.Fable2Wasm.buildWModule finalCtx
+            let wmoduleNormalized = WasmGc.Pipeline.Phases.phase4_Normalize {Verbosity=Verbosity.Silent} wmoduleRaw
+            Ok(wmoduleRaw, wmoduleNormalized)
         with ex ->
             Error($"WasmGC IR generation failed: {ex.Message}")
 
@@ -297,7 +303,7 @@ module InMemoryPipelineHelper =
             let! fableAstTransformed = transformFableAst fableAstRaw fcsDeclarations
             
             // Stage 5-7: Fable → WasmGC IR (raw + normalized)
-            let! (wmoduleRaw, wmoduleNormalized) = fableToWasmIr fableAstTransformed
+            let! (wmoduleRaw, wmoduleNormalized) = fableToWasmIr fcsDeclarations fableAstTransformed
             
             // Stage 8: WModule → WAT
             let! watText = wmoduleToWat wmoduleNormalized

@@ -56,7 +56,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Fable.WasmGc.fsproj" />
+    <ProjectReference Include="..\..\src\WasmGc.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

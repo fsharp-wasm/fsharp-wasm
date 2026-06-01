@@ -14,7 +14,7 @@
     <Compile Include="../../../fable-library-wasmgc/Collections/Map.fs" />
     <Compile Include="../../../fable-library-wasmgc/Collections/Set.fs" />
     <Compile Include="../Preamble.fs" />
-        <Compile Include='../TestsArray.fs' />
+    <Compile Include='../TestsArray.fs' />
     <Compile Include='../TestsBitwise.fs' />
     <Compile Include='../TestsClosures.fs' />
     <Compile Include='../TestsDU.fs' />

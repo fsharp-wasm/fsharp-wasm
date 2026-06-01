@@ -5,6 +5,7 @@
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
     <NoWarn>$(NoWarn);NU1900;NETSDK1188</NoWarn>
+    <RootNamespace>QuickTest</RootNamespace>
     <!--
       All-in-one QuickTest: all 498 tests in one WasmGC binary.
       Each domain module is independently reviewable / compilable.

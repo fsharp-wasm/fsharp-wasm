@@ -5,6 +5,7 @@ module QuickTest.WasmGc
 // Fable.Core stubs (Import attribute, nativeOnly) are in fable-library-wasmgc/Interop.fs.
 // No NuGet reference needed — we define what we use ourselves.
 open Fable.Core
+// open WasmGc.Core
 
 // Run `dotnet fsi build.fsx quicktest` and then add tests to this file,
 // when you save they will be run automatically with latest changes in compiler.
