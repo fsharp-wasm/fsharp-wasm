@@ -390,7 +390,7 @@ let buildWModule (ctx: Ctx) : WModule =
 /// Returns the updated ctx (KnownFuncs may grow; TypeDefs/Functions mutated in-place).
 /// The com argument ensures GetEntity lookups use the current file's type-checker.
 /// isLastFile controls whether functions get module-qualified names (library files = false).
-let processFileIntoCtx (ctx: Ctx) (com: Compiler) (file: Fable.File) (isLastFile: bool) : Ctx =
+let processFileIntoCtx (ctx: Ctx) (com: ICompilerCore) (file: Fable.File) (isLastFile: bool) : Ctx =
     // Interop.fs is a Fable.Core stub that exists only for FCS type resolution.
     // Skip it entirely — our backend must never emit WasmGC code for it.
     let fileName = System.IO.Path.GetFileName(com.CurrentFile)
@@ -433,7 +433,7 @@ let processFileIntoCtx (ctx: Ctx) (com: Compiler) (file: Fable.File) (isLastFile
 
 /// Compile one file from scratch, producing a WModule. Used for single-file projects
 /// and as the fallback; Pipeline.fs uses processFileIntoCtx for multi-file projects.
-let transformFile (com: Compiler) (file: Fable.File) : WModule =
+let transformFile (com: ICompilerCore) (file: Fable.File) : WModule =
     let ctx = Ctx.Create(com)
     let finalCtx = processFileIntoCtx ctx com file true  // single-file = always the "last" file
     // ── Flush diagnostics before emit ────────────────────────────────────────

@@ -54,7 +54,7 @@
       Reference our WasmGc backend — provides WasmGcPipeline.compileFile.
       PrivateAssets="none" so that this CLI can load it in-process.
     -->
-    <ProjectReference Include="../../src/Fable.WasmGc.fsproj">
+    <ProjectReference Include="..\..\src\WasmGc.fsproj">
       <!-- Verhindert, dass das FSharp.Core von WasmGc in dein Hauptprojekt fließt -->
       <!-- <PrivateAssets>all</PrivateAssets> -->
       <!-- <ExcludeAssets>runtime</ExcludeAssets> -->

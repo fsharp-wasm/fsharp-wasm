@@ -1,16 +1,9 @@
 /// fsharp-wasm — WasmGC compiler driver
 ///
-/// Loads Fable.Compiler and Fable.WasmGc in-process, no subprocess needed.
-/// Fixes the MSBuild/NuGet contamination issue by controlling the environment.
+/// Thin wrapper: cracks the project, runs Fable type-check + our WasmGC backend.
+/// No watch mode, no source maps, no run-process — just compile to .wasm / .wat.
 ///
-/// Usage:
-///   fsharp-wasm <projectDir|.fsproj> [--outDir <dir>] [--noCache] [--verbose] [--silent]
-///
-/// Language is always WasmGc — no need to pass --lang wasmgc.
-///
-/// FSHARP_COMPILER env var:
-///   If set to an fsc.dll path, DotnetFscCompilerPath is set so the patched
-///   compiler is used for MSBuild design-time builds (see Directory.Build.props).
+/// Usage:  fsharp-wasm [<path/to/project.fsproj>] [--outDir <dir>] [--verbose] [--silent]
 module FSharp.Wasm.Cli
 
 open System
@@ -18,171 +11,126 @@ open System.IO
 open Microsoft.Extensions.Logging
 open Fable
 open Fable.Compiler.Util
-open Fable.Cli.CustomLogging  // CustomConsole formatter from Fable.Cli
+open Fable.Cli.CustomLogging
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── arg parsing ──────────────────────────────────────────────────────────────
 
-let private usage () =
-    """fsharp-wasm — WasmGC compiler driver
+let private usage = """fsharp-wasm — WasmGC compiler driver
 
 Usage:
-  fsharp-wasm <projectDir|.fsproj> [options]
+  fsharp-wasm [<project.fsproj|dir>] [options]
 
 Options:
-  --outDir <dir>     Output directory for .wasm / .wat files  (default: <projectDir>/output)
-  --noCache          Recompile all files without cache
-  --verbose          Print verbose compiler output
-  --silent           Suppress all output
-  --help             Show this message
+  --outDir <dir>   Output directory for .wasm/.wat  (default: <projectDir>/output)
+  --noCache        Force full recompile
+  --verbose        Verbose output
+  --silent         Suppress all output
+  --help           Show this message
 """
 
-let private parseArgs (argv: string list) =
-    let rec loop argv outDir noCache verbose silent =
-        match argv with
-        | [] -> Ok (None, outDir, noCache, verbose, silent)
-        | "--help" :: _ | "-h" :: _ -> Error "help"
-        | "--outDir" :: dir :: rest -> loop rest (Some dir) noCache verbose silent
-        | "--noCache" :: rest -> loop rest outDir true verbose silent
-        | "--verbose" :: rest -> loop rest outDir noCache true silent
-        | "--silent" :: rest -> loop rest outDir noCache verbose true
-        | proj :: rest when not (proj.StartsWith("-")) ->
-            // First positional arg is the project
-            match loop rest outDir noCache verbose silent with
-            | Ok (None, od, nc, v, s) -> Ok (Some proj, od, nc, v, s)
-            | Ok (Some _, _, _, _, _) -> Error "Multiple project paths specified"
-            | e -> e
-        | unknown :: _ -> Error $"Unknown argument: {unknown}"
-    loop argv None false false false
+type Args =
+    { Project : string option
+      OutDir  : string option
+      NoCache : bool
+      Verbose : bool
+      Silent  : bool }
 
-// ── entry point ───────────────────────────────────────────────────────────────
+let private parseArgs argv =
+    let rec loop acc = function
+        | [] -> Ok acc
+        | ("--help"|"-h") :: _ -> Error "help"
+        | "--outDir" :: d :: rest -> loop { acc with OutDir  = Some d }   rest
+        | "--noCache"    :: rest  -> loop { acc with NoCache = true }      rest
+        | "--verbose"    :: rest  -> loop { acc with Verbose = true }      rest
+        | "--silent"     :: rest  -> loop { acc with Silent  = true }      rest
+        | p :: rest when not (p.StartsWith("-")) ->
+            match acc.Project with
+            | Some _ -> Error "Multiple project paths"
+            | None   -> loop { acc with Project = Some p } rest
+        | u :: _ -> Error $"Unknown argument: {u}"
+    loop { Project=None; OutDir=None; NoCache=false; Verbose=false; Silent=false } (List.ofArray argv)
+
+let private resolveFsproj (projArg: string option) =
+    let root = Environment.CurrentDirectory
+    let path = projArg |> Option.map Path.GetFullPath |> Option.defaultValue root
+    if   File.Exists path      then Ok path
+    elif Directory.Exists path then
+        match Directory.GetFiles(path, "*.fsproj") with
+        | [| f |] -> Ok f
+        | [||]    -> Error $"No .fsproj found in: {path}"
+        | _       -> Error $"Multiple .fsproj files in: {path} — specify one"
+    else Error $"Path does not exist: {path}"
+
+// ── entry point ──────────────────────────────────────────────────────────────
 
 [<EntryPoint>]
 let main argv =
-    let argv = argv |> List.ofArray
-
     match parseArgs argv with
-    | Error "help" ->
-        printfn "%s" (usage ())
-        0
-    | Error msg ->
-        eprintfn "Error: %s" msg
-        eprintfn "%s" (usage ())
-        1
-    | Ok (projPathOpt, outDirOpt, noCache, verbose, silent) ->
+    | Error "help" -> printfn "%s" usage; 0
+    | Error msg    -> eprintfn "Error: %s\n%s" msg usage; 1
+    | Ok args      ->
 
-    // ── set up logger ────────────────────────────────────────────────────────
-    let verbosity = if verbose then Verbosity.Verbose elif silent then Verbosity.Silent else Verbosity.Normal
-    let logLevel = if verbose then LogLevel.Debug elif silent then LogLevel.None else LogLevel.Information
-
-    let createLogger level =
-        use factory =
-            LoggerFactory.Create(fun builder ->
-                builder
-                    .SetMinimumLevel(level)
-                    .AddCustomConsole(fun opts -> opts.UseNoPrefixMsgStyle <- true)
-                |> ignore
-            )
-        factory.CreateLogger("")
-
-    Fable.Compiler.Util.Log.setLogger verbosity (createLogger logLevel)
-
-    // ── resolve project file ─────────────────────────────────────────────────
-    let rootDir = Environment.CurrentDirectory
-
-    let projPath =
-        match projPathOpt with
-        | None -> rootDir
-        | Some p -> Path.GetFullPath p
-
-    let fsprojPath =
-        if Directory.Exists(projPath) then
-            let candidates = Directory.GetFiles(projPath, "*.fsproj")
-            match candidates with
-            | [| single |] -> Ok single
-            | [||] ->
-                let fsx = Directory.GetFiles(projPath, "*.fsx")
-                match fsx with
-                | [| single |] -> Ok single
-                | _ -> Error $"No .fsproj or .fsx found in: {projPath}"
-            | _ -> Error $"Multiple .fsproj files found in: {projPath} — specify one explicitly"
-        elif File.Exists(projPath) then
-            Ok projPath
-        else
-            Error $"Path does not exist: {projPath}"
-
-    match fsprojPath with
-    | Error msg ->
-        eprintfn "Error: %s" msg
-        1
+    match resolveFsproj args.Project with
+    | Error msg -> eprintfn "Error: %s" msg; 1
     | Ok fsproj ->
 
-    // ── build CliArgs with WasmGc defaults ──────────────────────────────────
-    let projDir = Path.GetDirectoryName(fsproj)
-    let outDir =
-        outDirOpt
-        |> Option.map (fun d -> if Path.IsPathRooted(d) then d else Path.GetFullPath(Path.Combine(rootDir, d)))
+    let verbosity  = if args.Verbose then Verbosity.Verbose elif args.Silent then Verbosity.Silent else Verbosity.Normal
+    let logLevel   = if args.Verbose then LogLevel.Debug  elif args.Silent  then LogLevel.None    else LogLevel.Information
+
+    use factory =
+        LoggerFactory.Create(fun b ->
+            b.SetMinimumLevel(logLevel)
+             .AddCustomConsole(fun o -> o.UseNoPrefixMsgStyle <- true) |> ignore)
+    Fable.Compiler.Util.Log.setLogger verbosity (factory.CreateLogger "")
+
+    let projDir = Path.GetDirectoryName fsproj
+    let outDir  =
+        args.OutDir
+        |> Option.map (fun d -> if Path.IsPathRooted d then d else Path.GetFullPath d)
         |> Option.defaultWith (fun () -> Path.Combine(projDir, "output"))
 
-    let define =
-        [ "FABLE_COMPILER"; "FABLE_COMPILER_5"; "FABLE_COMPILER_WASMGC" ]
+    let cliArgs : CliArgs =
+        { ProjectFile  = Fable.Path.normalizeFullPath fsproj
+          RootDir      = Environment.CurrentDirectory
+          OutDir       = Some outDir
+          IsWatch      = false
+          Precompile   = false
+          PrecompiledLib  = None
+          PrintAst     = false
+          FableLibraryPath = None
+          Configuration = "Release"
+          NoRestore    = false
+          NoCache      = args.NoCache
+          NoParallelTypeCheck = false
+          SourceMaps   = false
+          SourceMapsRoot = None
+          Exclude      = []
+          Replace      = Map.empty
+          RunProcess   = None
+          Verbosity    = verbosity
+          CompilerOptions =
+              CompilerOptionsHelper.Make(
+                  language    = Language.WasmGc,
+                  fileExtension = ".wasm",
+                  define      = [ "FABLE_COMPILER"; "FABLE_COMPILER_5"; "FABLE_COMPILER_WASMGC" ],
+                  debugMode   = false,
+                  optimizeFSharpAst = false,
+                  verbosity   = verbosity) }
 
-    let compilerOptions =
-        CompilerOptionsHelper.Make(
-            language = Language.WasmGc,
-            fileExtension = ".wasm",
-            define = define,
-            debugMode = false,
-            optimizeFSharpAst = false,
-            verbosity = verbosity
-        )
-
-    let cliArgs: CliArgs =
-        {
-            ProjectFile = Fable.Path.normalizeFullPath fsproj
-            RootDir = rootDir
-            OutDir = Some outDir
-            IsWatch = false
-            Precompile = false
-            PrecompiledLib = None
-            PrintAst = false
-            FableLibraryPath = None
-            Configuration = "Release"
-            NoRestore = false
-            NoCache = noCache
-            NoParallelTypeCheck = false
-            SourceMaps = false
-            SourceMapsRoot = None
-            Exclude = []
-            Replace = Map.empty
-            RunProcess = None
-            CompilerOptions = compilerOptions
-            Verbosity = verbosity
-        }
-
-    // ── run Fable compilation via startCompilationAsync ─────────────────────
-    // Delegate to Fable.Cli.Main.State.Create + startCompilationAsync.
-    // This gives us the full pipeline: MSBuildCracker → TypeCheck → WasmGcPipeline.
-    // WasmGc is dispatched by Pipeline.fs which calls WasmGcPipeline.compileFile directly.
     let state = Fable.Cli.Main.State.Create(cliArgs)
 
     try
-        let compilationResult =
-            Fable.Cli.Main.startCompilationAsync state
-            |> Async.RunSynchronously
-
-        match compilationResult with
-        | Ok (_state, logs) ->
-            for (log: Fable.Transforms.State.LogEntry) in logs do
-                if not silent then
-                    Fable.Compiler.Util.Log.log log.Severity log.Message
+        match Fable.Cli.Main.startCompilationAsync state |> Async.RunSynchronously with
+        | Ok (_, logs) ->
+            for l in logs do
+                if not args.Silent then Log.log l.Severity l.Message
             0
         | Error (msg, logs) ->
-            for (log: Fable.Transforms.State.LogEntry) in logs do
-                eprintfn "%s" log.Message
+            for l in logs do eprintfn "%s" l.Message
             eprintfn "Compilation failed: %s" msg
             1
     with ex ->
         eprintfn "Fatal: %s" ex.Message
-        if verbose then eprintfn "%s" ex.StackTrace
+        if args.Verbose then eprintfn "%s" ex.StackTrace
         1
 

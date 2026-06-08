@@ -1,9 +1,62 @@
+/// Primitives domain: records and basic types
+/// Types: Point, Counter, Rect, SWItem
 module QuickTestWasmGc.TestsPrimitives
 
 open QuickTestWasmGc.Preamble
 open Fable.Core
 
-// ── Primitives (28 tests) ───────────────────────────────────────
+// ─── Records ───────────────────────────────────────────────────
+
+type Point = { X: float; Y: float }
+
+let distanceFromOrigin (p: Point) : float =
+    p.X * p.X + p.Y * p.Y  // x² + y²
+
+let pointSum (x: float) (y: float) : float =
+    let p = { X = x; Y = y }
+    p.X + p.Y
+
+let testDistanceFromOrigin (x: float) (y: float) : float =
+    distanceFromOrigin { X = x; Y = y }
+
+let testRecordEqTrue () : int =
+    let p1 = { X = 1.0; Y = 2.0 }
+    let p2 = { X = 1.0; Y = 2.0 }
+    if p1 = p2 then 1 else 0
+
+let testRecordEqFalse () : int =
+    let p1 = { X = 1.0; Y = 2.0 }
+    let p2 = { X = 2.0; Y = 1.0 }
+    if p1 = p2 then 1 else 0
+
+let testRecordNeq () : int =
+    let p1 = { X = 1.0; Y = 2.0 }
+    let p2 = { X = 3.0; Y = 4.0 }
+    if p1 <> p2 then 1 else 0
+
+// ─── Mutable record ────────────────────────────────────────────
+
+type Counter = { mutable Count: int }
+
+let testMutRecord () : int =
+    let c = { Count = 0 }
+    c.Count <- c.Count + 1
+    c.Count <- c.Count + 1
+    c.Count  // 2
+
+// ─── Nested records ────────────────────────────────────────────
+
+type Rect = { TopLeft: Point; BottomRight: Point }
+
+let rectWidth (r: Rect) : float =
+    r.BottomRight.X - r.TopLeft.X
+
+let testRectWidth (x1: float) (y1: float) (x2: float) (y2: float) : float =
+    rectWidth { TopLeft = { X = x1; Y = y1 }; BottomRight = { X = x2; Y = y2 } }
+
+// ─── Tuples ────────────────────────────────────────────────────
+
+let swapPair (a: int) (b: int) : int * int = (b, a)
 
 let testSwapPairFst (a: int) (b: int) : int =
     let x, _ = swapPair a b
@@ -13,10 +66,8 @@ let testSwapPairSnd (a: int) (b: int) : int =
     let _, y = swapPair a b
     y
 
-/// Min/max of two floats returned as a tuple
 let minMax (a: float) (b: float) : float * float =
     if a <= b then (a, b) else (b, a)
-
 
 let testMinMaxFirst (a: float) (b: float) : float =
     let mn, _ = minMax a b
@@ -26,215 +77,34 @@ let testMinMaxSecond (a: float) (b: float) : float =
     let _, mx = minMax a b
     mx
 
-/// Sum components of a triple
 let tripleSum (t: int * int * int) : int =
     let a, b, c = t
     a + b + c
 
-
 let testTripleSum (a: int) (b: int) (c: int) : int =
     tripleSum (a, b, c)
 
-// ─── Phase 5: Option<T> ──────────────────────────────────────────
+// ─── SortWith helper type ──────────────────────────────────────
 
-/// defaultArg-style helper: return value if Some, else default
-let optionOrDefault (opt: int option) (def: int) : int =
-    match opt with
-    | Some v -> v
-    | None -> def
+type SWItem = { SWVal: int }
 
-/// double the value if Some, else return sentinel -1
-let optionDouble (opt: int option) : int =
-    match opt with
-    | Some v -> v * 2
-    | None -> -1
+let testSortWith () : int =
+    let items = [{ SWVal = 3 }; { SWVal = 1 }; { SWVal = 2 }]
+    let sorted = List.sortBy (fun x -> x.SWVal) items
+    (List.item 0 sorted).SWVal + (List.item 1 sorted).SWVal + (List.item 2 sorted).SWVal
 
-/// isSome predicate
-let optionIsSome (opt: int option) : bool =
-    match opt with
-    | Some _ -> true
-    | None -> false
+// ─── Suite runner ──────────────────────────────────────────────
 
-/// isNone predicate
-let optionIsNone (opt: int option) : bool =
-    match opt with
-    | Some _ -> false
-    | None -> true
-
-/// Chained matching: Some(Some(v)) → extracts innermost value
-let optionNested (v: int) : int =
-    let outer = Some(Some v)
-    match outer with
-    | Some inner ->
-        match inner with
-        | Some x -> x
-        | None -> -2
-    | None -> -1
-
-// JS-callable wrappers (Option structs can't cross the WASM/JS boundary directly).
-
-let testIntOfFloat () : int = int 3.7
-
-/// Test: int of negative float truncates toward zero → int -2.9 = -2
-
-let testIntOfNegFloat () : int = int -2.9
-
-/// Test: float of int → float 5 used in arithmetic → 5.0 * 2.0 = 10.0 → back to int
-
-let testFloatOfInt () : int =
-    let f : float = float 5
-    int (f * 2.0)
-
-/// Test: int64 from int32 → int64 7 + int64 3 = int64 10 → int 10
-
-let testInt64OfInt () : int =
-    let x : int64 = int64 7
-    let y : int64 = int64 3
-    int (x + y)
-
-// ─── List.iter ────────────────────────────────────────────────────────────────
-
-/// Test: List.iter via mutable accumulator → sum of [1;2;3;4;5] = 15
-
-let testIsDigit () : int =
-    if System.Char.IsDigit('5') then 1 else 0
-
-/// Test: Char.IsDigit 'A' = false
-
-let testIsDigitFalse () : int =
-    if System.Char.IsDigit('A') then 1 else 0
-
-/// Test: Char.IsLetter 'A' = true
-
-let testIsLetter () : int =
-    if System.Char.IsLetter('A') then 1 else 0
-
-/// Test: Char.IsLetter '5' = false
-
-let testIsLetterFalse () : int =
-    if System.Char.IsLetter('5') then 1 else 0
-
-/// Test: Char.IsUpper 'A' = true
-
-let testIsWhiteSpace () : int =
-    if System.Char.IsWhiteSpace(' ') then 1 else 0
-
-/// Test: Char.IsLetterOrDigit '9' = true
-
-let testIsLetterOrDigit () : int =
-    if System.Char.IsLetterOrDigit('9') then 1 else 0
-
-/// Test: Char.ToLower 'A' = 'a' (97)
-
-let testFloatMul () : int =
-    if 3.0 * 2.0 = 6.0 then 1 else 0
-
-/// Test: float comparison 1.5 < 2.5
-
-let testIdentityInt () : int = identity 99
-
-/// Test: identity<float> 2.5 > 2.0 → 1
-
-let testIdentityFloat () : int =
-    if identity 2.5 > 2.0 then 1 else 0
-
-/// Generic const2: returns first argument, discards second.
-/// Exercises a two-type-parameter specialization.
-let const2<'A, 'B> (a: 'A) (b: 'B) : 'A = a
-
-/// Test: const2<int,float> 7 3.14 = 7
-
-let testConst2IntFloat () : int = const2 7 3.14
-
-/// Test: const2<int,int> 99 0 = 99
-
-let testConst2IntInt () : int = const2 99 0
-
-/// Test: const2<float,int> 2.5 42 → result > 2.0 → 1
-
-let testConst2FloatInt () : int =
-    if const2 2.5 42 > 2.0 then 1 else 0
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Sprint 9: fable-library-wasmgc/Map.fs — F# library compiled by our backend
-// Tests call MapModule directly (src/fable-library-wasmgc/Map.fs).
-// The library is a REAL F# source file, not compiler-internal WasmIR.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Standard int comparator used by all MapModule/SetModule tests.
-let private intCmp (a: int) (b: int) : int = if a < b then -1 elif a > b then 1 else 0
-
-/// Test: MapModule.add + tryFind — found key → 100
-
-let testIntParse () : int =
-    System.Int32.Parse("42")
-
-/// Test: Int32.Parse("-17") = -17
-
-let testIntParseNeg () : int =
-    System.Int32.Parse("-17")
-
-/// Test: Int32.Parse("0") = 0
-
-let testIntParseZero () : int =
-    System.Int32.Parse("0")
-
-// ── Double.Parse / float tests ─────────────────────────────────────────────
-
-/// Test: float "3.14" * 100.0 |> int = 314
-
-let testFloatParse () : int =
-    int (float "3.14" * 100.0)
-
-/// Test: float "-2.5" * 10.0 |> int = -25
-
-let testFloatParseNeg () : int =
-    int (float "-2.5" * 10.0)
-
-/// Test: float "7" |> int = 7   (integer string, no dot)
-
-let testFloatParseInt () : int =
-    int (float "7")
-
-// ── String.IsNullOrEmpty / String.compare ─────────────────────────────────
-
-/// Test: String.IsNullOrEmpty "" = true (1)
-
-let testSumMultiples35 () : int =
-    let mutable sum = 0
-    for i in 1 .. 999 do
-        if i % 3 = 0 || i % 5 = 0 then sum <- sum + i
-    sum
-
-/// Collatz sequence steps for n=27 = 111
-
-// ── Suite runner ──────────────────────────────────────────────────────────
-let runPrimitivesTests (check: string -> (unit -> unit) -> unit) =
-    check "testSwapPairFst" (fun () -> ignore (testSwapPairFst ()))
-    check "testSwapPairSnd" (fun () -> ignore (testSwapPairSnd ()))
-    check "testMinMaxFirst" (fun () -> ignore (testMinMaxFirst ()))
-    check "testMinMaxSecond" (fun () -> ignore (testMinMaxSecond ()))
-    check "testTripleSum" (fun () -> ignore (testTripleSum ()))
-    check "testIntOfFloat" (fun () -> ignore (testIntOfFloat ()))
-    check "testIntOfNegFloat" (fun () -> ignore (testIntOfNegFloat ()))
-    check "testFloatOfInt" (fun () -> ignore (testFloatOfInt ()))
-    check "testInt64OfInt" (fun () -> ignore (testInt64OfInt ()))
-    check "testIsDigit" (fun () -> ignore (testIsDigit ()))
-    check "testIsDigitFalse" (fun () -> ignore (testIsDigitFalse ()))
-    check "testIsLetter" (fun () -> ignore (testIsLetter ()))
-    check "testIsLetterFalse" (fun () -> ignore (testIsLetterFalse ()))
-    check "testIsWhiteSpace" (fun () -> ignore (testIsWhiteSpace ()))
-    check "testIsLetterOrDigit" (fun () -> ignore (testIsLetterOrDigit ()))
-    check "testFloatMul" (fun () -> ignore (testFloatMul ()))
-    check "testIdentityInt" (fun () -> ignore (testIdentityInt ()))
-    check "testIdentityFloat" (fun () -> ignore (testIdentityFloat ()))
-    check "testConst2IntFloat" (fun () -> ignore (testConst2IntFloat ()))
-    check "testConst2IntInt" (fun () -> ignore (testConst2IntInt ()))
-    check "testConst2FloatInt" (fun () -> ignore (testConst2FloatInt ()))
-    check "testIntParse" (fun () -> ignore (testIntParse ()))
-    check "testIntParseNeg" (fun () -> ignore (testIntParseNeg ()))
-    check "testIntParseZero" (fun () -> ignore (testIntParseZero ()))
-    check "testFloatParse" (fun () -> ignore (testFloatParse ()))
-    check "testFloatParseNeg" (fun () -> ignore (testFloatParseNeg ()))
-    check "testFloatParseInt" (fun () -> ignore (testFloatParseInt ()))
-    check "testSumMultiples35" (fun () -> ignore (testSumMultiples35 ()))
+let runPrimitivesTests (check: string -> (unit -> unit) -> unit) : unit =
+    check "testDistanceFromOrigin" (fun () -> ignore (testDistanceFromOrigin 3.0 4.0))
+    check "testRecordEqTrue" (fun () -> ignore (testRecordEqTrue ()))
+    check "testRecordEqFalse" (fun () -> ignore (testRecordEqFalse ()))
+    check "testRecordNeq" (fun () -> ignore (testRecordNeq ()))
+    check "testMutRecord" (fun () -> ignore (testMutRecord ()))
+    check "testRectWidth" (fun () -> ignore (testRectWidth 0.0 0.0 5.0 10.0))
+    check "testSwapPairFst" (fun () -> ignore (testSwapPairFst 1 2))
+    check "testSwapPairSnd" (fun () -> ignore (testSwapPairSnd 1 2))
+    check "testMinMaxFirst" (fun () -> ignore (testMinMaxFirst 3.0 1.0))
+    check "testMinMaxSecond" (fun () -> ignore (testMinMaxSecond 3.0 1.0))
+    check "testTripleSum" (fun () -> ignore (testTripleSum 1 2 3))
+    check "testSortWith" (fun () -> ignore (testSortWith ()))

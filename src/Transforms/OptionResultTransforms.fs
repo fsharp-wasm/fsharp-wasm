@@ -8,7 +8,7 @@
 ///
 /// Compared to the old code (one explicit let-binding + two LocalGet refs
 /// per combinator):  -40 % lines, zero magic string variable names.
-module WasmGc.Transforms.OptionResult
+module WasmGc.Transforms.OptionResultTransforms
 
 open Fable
 open Fable.AST

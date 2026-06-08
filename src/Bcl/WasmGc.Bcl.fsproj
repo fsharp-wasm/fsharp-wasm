@@ -10,6 +10,7 @@
     <ProjectReference Include="../Builder/WasmGc.Builder.fsproj" />
     <ProjectReference Include="../Runtime.Quotations/WasmGc.Quotations.fsproj" />
     <ProjectReference Include="../Patterns/WasmGc.Patterns.fsproj" />
+    <ProjectReference Include="../../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Helpers.fs" />

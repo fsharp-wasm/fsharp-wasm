@@ -437,29 +437,7 @@ let testStrCompareGt () : int =
 let rec fibonacci (n: int) : int =
     if n <= 1 then n else fibonacci (n - 1) + fibonacci (n - 2)
 
-/// Test: fibonacci 10 = 55
-
-let testRefTestCircle () : int =
-    let s = GeoShape.GeoCircle 5.0
-    match s with
-    | GeoShape.GeoCircle r -> int r
-    | _ -> 0
-
-/// Test: ref.test on data-carrying DU — GeoRect branch.
-
-let testRefTestRect () : int =
-    let s = GeoShape.GeoRect(3.0, 4.0)
-    match s with
-    | GeoShape.GeoRect(w, h) -> int (w * h)
-    | _ -> 0
-
-/// Test: ref.test when last case has no fields (not enum-like; still a struct).
-
-let testRefTestDot () : int =
-    let s = GeoShape.GeoDot
-    match s with
-    | GeoShape.GeoDot -> 42
-    | _ -> 0
+// Note: GeoShape tests moved to TestsDU (testRefTestCircle, testRefTestRect, testRefTestDot)
 
 // ─── Math.Exp ────────────────────────────────────────────────────────────────
 
@@ -492,10 +470,7 @@ let testCompareStrEq () : int = compare "abc" "abc"    // 0
 
 let testCompareStrGt () : int = compare "abd" "abc"    // 1
 
-
-let testRecursiveDU () : int =
-    let expr = Mul(Add(Lit 2, Lit 3), Add(Lit 1, Lit 4))
-    evalExpr expr  // (2+3)*(1+4) = 25
+// Note: testRecursiveDU moved to TestsDU
 
 let (|Even|Odd|) n = if n % 2 = 0 then Even else Odd
 
@@ -513,7 +488,6 @@ let testStringInterp () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runStringsTests (check: string -> (unit -> unit) -> unit) =
-    check "testRectWidth" (fun () -> ignore (testRectWidth ()))
     check "testStringLen" (fun () -> ignore (testStringLen ()))
     check "testEmptyStringLen" (fun () -> ignore (testEmptyStringLen ()))
     check "testStringChar" (fun () -> ignore (testStringChar ()))
@@ -582,17 +556,3 @@ let runStringsTests (check: string -> (unit -> unit) -> unit) =
     check "testStrCompareEq" (fun () -> ignore (testStrCompareEq ()))
     check "testStrCompareLt" (fun () -> ignore (testStrCompareLt ()))
     check "testStrCompareGt" (fun () -> ignore (testStrCompareGt ()))
-    check "testRefTestCircle" (fun () -> ignore (testRefTestCircle ()))
-    check "testRefTestRect" (fun () -> ignore (testRefTestRect ()))
-    check "testRefTestDot" (fun () -> ignore (testRefTestDot ()))
-    check "testSbToStringLength" (fun () -> ignore (testSbToStringLength ()))
-    check "testSbToStringContent" (fun () -> ignore (testSbToStringContent ()))
-    check "testCompareIntLt" (fun () -> ignore (testCompareIntLt ()))
-    check "testCompareIntEq" (fun () -> ignore (testCompareIntEq ()))
-    check "testCompareIntGt" (fun () -> ignore (testCompareIntGt ()))
-    check "testCompareStrLt" (fun () -> ignore (testCompareStrLt ()))
-    check "testCompareStrEq" (fun () -> ignore (testCompareStrEq ()))
-    check "testCompareStrGt" (fun () -> ignore (testCompareStrGt ()))
-    check "testRecursiveDU" (fun () -> ignore (testRecursiveDU ()))
-    check "testStringConcat" (fun () -> ignore (testStringConcat ()))
-    check "testStringInterp" (fun () -> ignore (testStringInterp ()))

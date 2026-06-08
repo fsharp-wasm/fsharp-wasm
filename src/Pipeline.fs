@@ -10,14 +10,17 @@ open Fable.AST
 open Fable.Transforms
 open WasmGc.Core.AST
 
-module T = WasmGc.Runtime.Types
-module Lowering = WasmGc.Transforms.Fable2Wasm
-module Opt = WasmGc.Emit.Optimize
-module L = WasmGc.Runtime.Locals
-module W = WasmGc.Emit.Wat
-module E = WasmGc.Emit.Emit
-module Bin = WasmGc.Emit.Encoder
-module Phases = WasmGc.Pipeline.Phases
+module T         = WasmGc.Runtime.Types
+module Lowering  = WasmGc.Transforms.Fable2Wasm
+module WasmXform = WasmGc.Transforms.FableAstGate
+
+// our clean Fable-stage transform
+module Opt       = WasmGc.Emit.Optimize
+module L         = WasmGc.Runtime.Locals
+module W         = WasmGc.Emit.Wat
+module E         = WasmGc.Emit.Emit
+module Bin       = WasmGc.Emit.Encoder
+module Phases    = WasmGc.Pipeline.Phases
 
 // Per-project shared Ctx accumulated across source files.
 // Keyed by project file path; cleared when the last file has been processed.
@@ -44,18 +47,18 @@ let private emitOutPaths = ConcurrentDictionary<string, string>()
 /// Returns None for reference types (structs, closures) that can't cross the component boundary.
 let private witType (ty: WType) : string option =
     match ty with
-    | WType.I32 -> Some "s32"
-    | WType.I64 -> Some "s64"
-    | WType.F32 -> Some "f32"
-    | WType.F64 -> Some "f64"
-    | WType.Void -> Some ""         // unit return (no result type)
-    | _ -> None                     // ref types — not WIT-exportable yet
+    | WType.I32  -> Some "s32"
+    | WType.I64  -> Some "s64"
+    | WType.F32  -> Some "f32"
+    | WType.F64  -> Some "f64"
+    | WType.Void -> Some ""      // unit return (no result type)
+    | _          -> None         // ref types — not WIT-exportable yet
 
 /// Escape a Wasm function name as a WIT identifier.
-/// Valid WIT ids are [a-z][a-z0-9-]* (kebab-case).  Anything else is quoted: %"name".
+/// Valid WIT ids are [a-z][a-z0-9-]* (kebab-case). Anything else is quoted: %"name".
 let private witId (name: string) : string =
-    let valid = name |> Seq.forall (fun c -> System.Char.IsLower(c) || System.Char.IsDigit(c) || c = '-')
-    if valid && name.Length > 0 && System.Char.IsLower(name.[0]) then name
+    let valid = name |> Seq.forall (fun c -> System.Char.IsLower c || System.Char.IsDigit c || c = '-')
+    if valid && name.Length > 0 && System.Char.IsLower name[0] then name
     else sprintf "%%\"%s\"" name
 
 /// Generate a WIT world file describing the primitive-type exports of a WModule.
@@ -70,7 +73,7 @@ let generateWit (wmod: WModule) (packageName: string) (worldName: string) : stri
                 f.Params
                 |> List.choose (fun (pName, ty) ->
                     witType ty |> Option.map (fun wt ->
-                        let pId = pName.TrimStart('$')
+                        let pId = pName.TrimStart '$'
                         if wt = "" then failwith "void param impossible"
                         pId + ": " + wt))
             // All params must be primitive (same count)
@@ -79,21 +82,19 @@ let generateWit (wmod: WModule) (packageName: string) (worldName: string) : stri
             match witType f.Result with
             | None -> None
             | Some retWit ->
-                let exportName = witId (f.Name.TrimStart('$'))
-                let paramStr = paramWit |> String.concat ", "
+                let exportName = witId (f.Name.TrimStart '$')
+                let paramStr   = paramWit |> String.concat ", "
                 let funcLine =
-                    if retWit = "" then
-                        sprintf "  export %s: func(%s);" exportName paramStr
-                    else
-                        sprintf "  export %s: func(%s) -> %s;" exportName paramStr retWit
+                    if retWit = "" then $"  export %s{exportName}: func(%s{paramStr});"
+                    else                $"  export %s{exportName}: func(%s{paramStr}) -> %s{retWit};"
                 Some funcLine)
 
     if witFuncs.IsEmpty then None
     else
         let lines = [
-            sprintf "package %s:%s@0.1.0;" packageName worldName
+            $"package %s{packageName}:%s{worldName}@0.1.0;"
             ""
-            sprintf "world %s {" worldName
+            $"world %s{worldName} {{"
             yield! witFuncs
             "}"
         ]
@@ -103,8 +104,8 @@ let generateWit (wmod: WModule) (packageName: string) (worldName: string) : stri
 let private runCmd (exe: string) (args: string) : bool =
     try
         let psi = System.Diagnostics.ProcessStartInfo(exe, args)
-        psi.UseShellExecute <- false
-        psi.RedirectStandardError <- true
+        psi.UseShellExecute        <- false
+        psi.RedirectStandardError  <- true
         use proc = System.Diagnostics.Process.Start(psi)
         proc.WaitForExit()
         proc.ExitCode = 0
@@ -117,16 +118,19 @@ let private runCmd (exe: string) (args: string) : bool =
 /// On the last file: finalizes and emits WAT + .wasm binary.
 ///
 /// Parameters follow the Fable pipeline convention:
-///   com       — per-file Compiler instance (entity lookups rooted here)
+///   com         — per-file Compiler instance (entity lookups rooted here)
 ///   projectFile — absolute path to the .fsproj (used as Ctx key)
-///   isSilent  — suppress output when true (used in watch-mode no-op passes)
-///   outPath   — path for the .wasm output (stem is also used for .wat sidecar)
+///   isSilent    — suppress output when true (used in watch-mode no-op passes)
+///   outPath     — path for the .wasm output (stem is also used for .wat sidecar)
 let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath: string) =
     async {
-        // Front-end: F# → Fable AST → Fable IR (language-agnostic transforms)
+        // Front-end: F# → Fable AST (FCS), then apply our clean WasmGC transforms.
+        // WasmXform.transformFileForWasm replaces FableTransforms.transformFile:
+        //   ✓ uncurryMemberArgs (via transformDeclaration structural pass)
+        //   ✗ curryReceivedArgs / uncurrySendingArgs / propagateCurrying — JS only, skipped
         let fableFile =
             FSharp2Fable.Compiler.transformFile com
-            |> FableTransforms.transformFile com
+            |> WasmXform.transformFileForWasm com
 
         // Library files (from fable-library-wasmgc/ or fable_modules/) are
         // isLastFile=false — their functions get prefixed names and are not exported.
@@ -158,20 +162,23 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                             | "i16" -> T.I16
                             | _     -> T.I32
                         let fresh = T.Ctx.Create(com, stringMode)
-                        sharedCtxs.[projectFile] <- fresh
+                        sharedCtxs[projectFile] <- fresh
                         fresh
                 let ctx = Lowering.processFileIntoCtx latestCtx com fableFile isLastFile
                 // Write BEFORE releasing lock so subsequent files see the update.
-                sharedCtxs.[projectFile] <- ctx
+                sharedCtxs[projectFile] <- ctx
                 ctx)
 
         // Track the correct output path from the app (non-library) file.
         if not isLibraryFile then
-            emitOutPaths.[projectFile] <- outPath
+            emitOutPaths[projectFile] <- outPath
 
-        // Count files processed.  Emission happens when the count reaches the total.
+        // Count files processed. Emission happens when the count reaches the total.
         // This works regardless of processing order (race-free).
-        let totalFiles = com.SourceFiles |> Array.filter (fun f -> f.EndsWith(".fs") || f.EndsWith(".fsx")) |> Array.length
+        let totalFiles =
+            com.SourceFiles
+            |> Array.filter (fun f -> f.EndsWith(".fs") || f.EndsWith(".fsx"))
+            |> Array.length
         let processedCount = processedCounts.AddOrUpdate(projectFile, 1, fun _ c -> c + 1)
         let allDone = processedCount >= totalFiles
 
@@ -181,10 +188,11 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             let emitPath =
                 match emitOutPaths.TryGetValue(projectFile) with
                 | true, p -> p
-                | _ -> outPath  // fallback: single-file project
+                | _       -> outPath  // fallback: single-file project
+
             processedCounts.TryRemove(projectFile) |> ignore
-            emitOutPaths.TryRemove(projectFile) |> ignore
-            sharedCtxs.TryRemove(projectFile) |> ignore
+            emitOutPaths.TryRemove(projectFile)    |> ignore
+            sharedCtxs.TryRemove(projectFile)      |> ignore
 
             let wasmModule =
                 let declarations = fableFile.Declarations
@@ -206,32 +214,31 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 | Ok pipelineModule -> pipelineModule
                 | Error errors ->
                     errors |> List.iter (fun e ->
-                        eprintfn "  ✗ [%s] %s: %s" e.FuncName e.NodeDesc e.Message)
+                        eprintfn $"  ✗ [%s{e.FuncName}] %s{e.NodeDesc}: %s{e.Message}")
                     failwith "Pipeline validation failed"
 
-            let dir = System.IO.Path.GetDirectoryName(emitPath)
-            if not (System.IO.Directory.Exists(dir)) then
-                System.IO.Directory.CreateDirectory(dir) |> ignore
-
+            let dir  = System.IO.Path.GetDirectoryName(emitPath)
             let stem = System.IO.Path.GetFileNameWithoutExtension(emitPath)
 
+            if not (System.IO.Directory.Exists dir) then
+                System.IO.Directory.CreateDirectory dir |> ignore
+
             // Always emit WAT (human-readable, primary output for debugging)
-            let watPath = System.IO.Path.Combine(dir, stem + ".wat")
-            let watText = W.moduleToWat wasmModule
-            let watContent: string = watText
+            let watPath    = System.IO.Path.Combine(dir, stem + ".wat")
+            let watContent = W.moduleToWat wasmModule
             do! System.IO.File.WriteAllTextAsync(watPath, watContent) |> Async.AwaitTask
 
             // WAT-first binary: wasm-tools parse; fallback to built-in encoder.
             let wasmPath = System.IO.Path.Combine(dir, stem + ".wasm")
             let watFirstSucceeded =
-                if not (System.IO.File.Exists(watPath)) then false
+                if not (System.IO.File.Exists watPath) then false
                 else
                 try
                     let psi =
                         System.Diagnostics.ProcessStartInfo(
                             "wasm-tools",
-                            sprintf "parse \"%s\" -o \"%s\"" watPath wasmPath)
-                    psi.UseShellExecute <- false
+                            $"parse \"%s{watPath}\" -o \"%s{wasmPath}\"")
+                    psi.UseShellExecute       <- false
                     psi.RedirectStandardError <- true
                     use proc = System.Diagnostics.Process.Start(psi)
                     proc.WaitForExit()
@@ -239,9 +246,9 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 with _ -> false
 
             if not watFirstSucceeded then
-                let lowered = E.emitModule wasmModule
-                let bytes = Bin.encodeModule lowered
-                let wasmBytes: byte[] = bytes
+                let lowered   = E.emitModule wasmModule
+                let bytes     = Bin.encodeModule lowered
+                let wasmBytes : byte[] = bytes
                 do! System.IO.File.WriteAllBytesAsync(wasmPath, wasmBytes) |> Async.AwaitTask
 
             // ── WIT / Component Model ───────────────────────────────────────
@@ -253,8 +260,8 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             | None -> ()
             | Some witContent ->
                 let witDir  = System.IO.Path.Combine(dir, "wit")
-                if not (System.IO.Directory.Exists(witDir)) then
-                    System.IO.Directory.CreateDirectory(witDir) |> ignore
+                if not (System.IO.Directory.Exists witDir) then
+                    System.IO.Directory.CreateDirectory witDir |> ignore
                 let witPath = System.IO.Path.Combine(witDir, worldName + ".wit")
                 do! System.IO.File.WriteAllTextAsync(witPath, witContent) |> Async.AwaitTask
 
@@ -264,17 +271,17 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 let componentPath = System.IO.Path.Combine(dir, stem + "-component.wasm")
                 let embedOk =
                     runCmd "wasm-tools"
-                        (sprintf "component embed \"%s\" \"%s\" -o \"%s\""
-                            witDir wasmPath embeddedPath)
+                        $"component embed \"%s{witDir}\" \"%s{wasmPath}\" -o \"%s{embeddedPath}\""
+
                 if embedOk then
                     let newOk =
                         runCmd "wasm-tools"
-                            (sprintf "component new \"%s\" -o \"%s\""
-                                embeddedPath componentPath)
+                            $"component new \"%s{embeddedPath}\" -o \"%s{componentPath}\""
+
                     if newOk then
-                        eprintfn "    ✅ Component: %s" componentPath
+                        eprintfn $"    ✅ Component: %s{componentPath}"
                     else
                         eprintfn "    ⚠️  wasm-tools component new failed — embedded.wasm kept"
                 else
-                    eprintfn "    ℹ️  wasm-tools not found or embed failed — WIT written to %s" witPath
+                    eprintfn $"    ℹ️  wasm-tools not found or embed failed — WIT written to %s{witPath}"
     }

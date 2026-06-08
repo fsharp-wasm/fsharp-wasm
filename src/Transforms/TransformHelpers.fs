@@ -1,4 +1,4 @@
-module WasmGc.Transforms.Helpers
+module WasmGc.Transforms.TransformHelpers
 
 /// Parse a printf-style format string into prefix parts and specifier chars.
 /// e.g. "Hello %s, you are %d!" → (["Hello "; ", you are "; "!"], ['s'; 'd'])

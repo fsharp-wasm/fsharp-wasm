@@ -24,7 +24,7 @@ open TransformDecisionTree
 
 module Scope = WasmGc.Pipeline.Scope
 
-open Helpers
+open TransformHelpers
 
 /// Inline grow-and-set for ResizeArray.push.
 /// wRav: the ResizeArray struct ref.  wVal: value to append.

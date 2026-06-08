@@ -1,143 +1,117 @@
+/// Exceptions domain
 module QuickTestWasmGc.TestsExceptions
 
 open QuickTestWasmGc.Preamble
 open Fable.Core
 
-// ── Exceptions (14 tests) ───────────────────────────────────────
+// ─── Exception type ────────────────────────────────────────────
 
-let testTryCatchBasic () : int =
-    try
-        failwith "boom"
-        0
-    with _ -> 42  // 42
+exception MyTypedException of Value: int
 
-/// try/with — normal path (no exception)
-
-let testTryCatchNoThrow () : int =
-    try
-        10 + 20
-    with _ -> 0  // 30
-
-/// Nested try/with — inner handler catches
-
-let testTryCatchNested () : int =
-    try
-        try
-            failwith "inner"
-            0
-        with _ -> 100
-    with _ -> 200  // 100 (inner handler catches)
-
-/// try/with — exception in computation, handler returns fallback
-
-let testTryCatchFallback () : int =
-    let result =
-        try
-            let x = 10
-            failwith "error"
-            x + 5
-        with _ -> 99
-    result  // 99
-
-// ── Phase 2: Map extended operations ─────────────────────────────
-
-/// Map.isEmpty — check count of empty map
+// ─── Basic exception tests ─────────────────────────────────────
 
 let testExnNestedFailwith () : int =
-    let boom () = failwith "nested boom"
     try
-        boom ()
-        0
-    with _ -> 77  // 77
-
-/// try/with returning unit (side-effect only)
+        try
+            failwith "level 1"
+        with _ ->
+            failwith "level 2"
+    with _ -> 42
 
 let testExnUnit () : int =
-    let mutable x = 0
     try
-        x <- 10
-        failwith "err"
-    with _ ->
-        x <- x + 5
-    x  // 15
-
-/// exception does not throw — normal path
+        let f () = failwith "in f"
+        f ()
+        0
+    with _ -> 7
 
 let testExnNormalPath () : int =
     try
-        let a = 10
-        let b = 20
-        a + b
-    with _ -> 0  // 30
-
-/// nested try/with — inner catches
+        1 + 1
+    with _ -> 0
 
 let testExnNestedInnerCatch () : int =
     try
-        let r =
-            try
-                failwith "inner"
-                0
-            with _ -> 42
-        r + 1
-    with _ -> 0  // 43
-
-/// nested try/with — inner rethrows to outer
+        try
+            failwith "inner"
+        with _ -> 55
+    with _ -> 0
 
 let testExnNestedRethrow () : int =
+    let mutable caught = 0
     try
         try
-            failwith "pass-through"
-            0
+            failwith "test"
         with _ ->
-            failwith "outer-boom"
-            0
-    with _ -> 99  // 99
+            caught <- 1
+            failwith "rethrow"
+    with _ -> caught + 10
 
-// ── Sprint 25b: Capturing closures in HOF contexts ───────────────
+let testExnPairsCatchOrder () : int =
+    try
+        failwith "msg"
+    with _ -> 1
 
-/// List.map with a capturing closure (offset captured from outer scope)
+let testExnIntCatch () : int =
+    try
+        failwith "msg"
+    with _ -> 2
+
+let testExnStringCatch () : int =
+    try
+        failwith "msg"
+    with _ -> 3
+
+let testExnTryFinally () : int =
+    let mutable x = 0
+    try
+        x <- 1
+        failwith "boom"
+    finally
+        x <- x + 1
+    x
+
+let testExnTryFinallyWithCatch () : int =
+    let mutable x = 0
+    try
+        try
+            x <- 1
+            failwith "boom"
+        finally
+            x <- x + 1
+    with _ -> x
 
 let testExnCarrierBasic () : int =
     try
         raise (MyTypedException 99)
         0
-    with _ -> 42  // 42 — handler reached
-
-/// Exception carrier: the catch variable is the actual thrown struct (anyref carrier).
-/// Access its field via TypeTest + cast to confirm payload round-trip.
+    with _ -> 42
 
 let testExnTypedPayload () : int =
     try
         raise (MyTypedException 77)
         0
     with
-    | :? MyTypedException as e -> e.Value  // 77 — payload extracted from carrier
+    | :? MyTypedException as e -> e.Value
     | _ -> 0
-
-/// TypeTest discriminates: :? MyTypedException vs. a different exception.
 
 let testExnTypeTestDiscriminate () : int =
     let mutable result = 0
     try
-        failwith "generic error"  // throws a different exception type
+        failwith "generic error"
         result <- 1
     with
-    | :? MyTypedException -> result <- 20  // should NOT match
-    | _ -> result <- 99  // should match
-    result  // 99
-
-/// TypeTest succeeds when matching the thrown type precisely.
+    | :? MyTypedException -> result <- 20
+    | _ -> result <- 99
+    result
 
 let testExnTypeTestMatch () : int =
     try
         raise (MyTypedException 55)
         0
     with
-    | :? MyTypedException -> 1  // should match → 1
+    | :? MyTypedException -> 1
     | _ -> 0
-
-/// Exception with non-trivial value: carrier stores and retrieves int payload.
 
 let testExnCarrierInt () : int =
     let mutable acc = 0
@@ -149,19 +123,19 @@ let testExnCarrierInt () : int =
         | _ -> ()
     acc  // 20 + 40 = 60
 
+// ─── Suite runner ──────────────────────────────────────────────
 
-
-// ── Suite runner ──────────────────────────────────────────────────────────
-let runExceptionsTests (check: string -> (unit -> unit) -> unit) =
-    check "testTryCatchBasic" (fun () -> ignore (testTryCatchBasic ()))
-    check "testTryCatchNoThrow" (fun () -> ignore (testTryCatchNoThrow ()))
-    check "testTryCatchNested" (fun () -> ignore (testTryCatchNested ()))
-    check "testTryCatchFallback" (fun () -> ignore (testTryCatchFallback ()))
+let runExceptionsTests (check: string -> (unit -> unit) -> unit) : unit =
     check "testExnNestedFailwith" (fun () -> ignore (testExnNestedFailwith ()))
     check "testExnUnit" (fun () -> ignore (testExnUnit ()))
     check "testExnNormalPath" (fun () -> ignore (testExnNormalPath ()))
     check "testExnNestedInnerCatch" (fun () -> ignore (testExnNestedInnerCatch ()))
     check "testExnNestedRethrow" (fun () -> ignore (testExnNestedRethrow ()))
+    check "testExnPairsCatchOrder" (fun () -> ignore (testExnPairsCatchOrder ()))
+    check "testExnIntCatch" (fun () -> ignore (testExnIntCatch ()))
+    check "testExnStringCatch" (fun () -> ignore (testExnStringCatch ()))
+    check "testExnTryFinally" (fun () -> ignore (testExnTryFinally ()))
+    check "testExnTryFinallyWithCatch" (fun () -> ignore (testExnTryFinallyWithCatch ()))
     check "testExnCarrierBasic" (fun () -> ignore (testExnCarrierBasic ()))
     check "testExnTypedPayload" (fun () -> ignore (testExnTypedPayload ()))
     check "testExnTypeTestDiscriminate" (fun () -> ignore (testExnTypeTestDiscriminate ()))

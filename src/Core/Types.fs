@@ -129,7 +129,7 @@ type Ctx =
         // To reduce this coupling, extract a minimal ICompilerServices interface from ICompiler
         // and depend on that instead. Track in issue: decouple-ctx-from-compiler.
         // TODO: we shouldn't reference the full Compiler
-        GenericFuncRegistry: System.Collections.Generic.Dictionary<string, Compiler * obj>
+        GenericFuncRegistry: System.Collections.Generic.Dictionary<string, ICompilerCore * obj>
 
         /// Cache of already-emitted or in-progress specializations.
         /// Key = mangled name (e.g. "MyModule.swap|i32,ref1"); Value = same mangled name (sentinel).
@@ -141,7 +141,7 @@ type Ctx =
         TypeSubst: Map<string, WType>
 
         /// Compiler reference for diagnostics
-        Compiler: Compiler
+        Compiler: ICompilerCore
 
         // ── Multi-file / library-compilation support ──────────────────────────
         /// True when compiling a non-last file (library context).
@@ -205,7 +205,7 @@ type Ctx =
         Diagnostics: WasmGc.Core.Diagnostics.DiagnosticBag
     }
 
-    static member Create(com: Compiler, ?stringMode: StringMode) =
+    static member Create(com: ICompilerCore, ?stringMode: StringMode) =
         let stringMode = defaultArg stringMode I32
         let typeDefs = new ResizeArray<WTypeDeclEntry>()
         let functions = new ResizeArray<WFuncDecl>()
@@ -245,7 +245,7 @@ type Ctx =
             ClosureBaseTypeMap = System.Collections.Generic.Dictionary<int, int>()
             UsedHelpers = System.Collections.Generic.HashSet<string>()
             EqualityRegistry = System.Collections.Generic.Dictionary<int, string>()
-            GenericFuncRegistry = System.Collections.Generic.Dictionary<string, Compiler * obj>()
+            GenericFuncRegistry = System.Collections.Generic.Dictionary<string, ICompilerCore * obj>()
             MonoCache = System.Collections.Generic.Dictionary<string, string>()
             TypeSubst = Map.empty
             Compiler = com

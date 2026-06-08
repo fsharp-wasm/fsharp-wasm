@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <AssemblyName>Fable.WasmGc</AssemblyName>
-    <PackageId>Fable.WasmGc</PackageId>
+    <PackageId>WasmGc</PackageId>
     <!--
       Targets net10.0 to match Fable.Compiler NuGet (net10.0).
       Source files are physically in this directory — no fork dependency.
@@ -118,12 +117,12 @@
 
     <!-- Transforms -->
     <Compile Include="Transforms/MathMap.fs" />
-    <Compile Include="Transforms/OptionResult.fs" />
-    <Compile Include="Transforms/ListCombinators.fs" />
+    <Compile Include="Transforms\OptionResultTransforms.fs" />
+    <Compile Include="Transforms\ListTransforms.fs" />
     <Compile Include="Transforms/ListOps.fs" />
     <Compile Include="Transforms/ArrayReplacements.fs" />
     <Compile Include="Transforms/FSharpCoreReplacements.fs" />
-    <Compile Include="Transforms/Helpers.fs" />
+    <Compile Include="Transforms\TransformHelpers.fs" />
 
     <!-- New modularized Fable2Wasm components -->
     <Compile Include="Transforms/Fable2Wasm/TransformConstruct.fs" />
@@ -135,13 +134,22 @@
     <Compile Include="Transforms/Fable2Wasm/TransformOperation.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformMemberDecl.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformExpr.fs" />
-    <Compile Include="Transforms/Fable2Wasm/Fable2Wasm.fs" />    
+    <Compile Include="Transforms/Fable2Wasm/Fable2Wasm.fs" />
 
     <!-- TODO: split Phases.fs and Fable2Wasm for better code order -->
     <Compile Include="Pipeline/Phases.fs" />
 
+    <!-- WasmGC-safe Fable-stage transform pipeline.
+         Must come AFTER Pipeline/Phases.fs (no dep on it, but logically grouped here)
+         and BEFORE Pipeline.fs which calls WasmTransformPipeline.transformFileForWasm. -->
+    <Compile Include="Transforms\FableAstGate.fs" />
+
     <!-- Top-level Pipeline -->
     <Compile Include="Pipeline.fs" />
+
+    <!-- CLI / programmatic entry point.
+         Must come AFTER Pipeline.fs — references WasmGc.Pipeline.Core and Phases. -->
+    <Compile Include="Pipeline/CliFacade.fs" />
   </ItemGroup>
 
   <ItemGroup>

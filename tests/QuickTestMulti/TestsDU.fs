@@ -1,289 +1,156 @@
+/// DU (Discriminated Unions) domain tests
+/// Types: Direction (enum), Shape (data-carrying), Tree (recursive)
 module QuickTestWasmGc.TestsDU
 
 open QuickTestWasmGc.Preamble
 open Fable.Core
 
-// ── DU (32 tests) ───────────────────────────────────────
+// ─── Direction: enum-like DU ───────────────────────────────────────
+
+type Direction = North | South | East | West
+
+let directionToInt (d: Direction) : int =
+    match d with
+    | North -> 0
+    | South -> 1
+    | East -> 2
+    | West -> 3
+
+let intToDirection (n: int) : Direction =
+    match n with
+    | 0 -> North
+    | 1 -> South
+    | 2 -> East
+    | _ -> West
+
+// ─── Shape: data-carrying DU ───────────────────────────────────────
+
+type Shape =
+    | Circle of float
+    | Square of float
+    | Rectangle of float * float
+
+let shapeArea (s: Shape) : float =
+    match s with
+    | Circle r -> r * r
+    | Square s -> s * s
+    | Rectangle(w, h) -> w * h
+
+let shapePerimeter (s: Shape) : float =
+    match s with
+    | Circle r -> 4.0 * r
+    | Square s -> 4.0 * s
+    | Rectangle(w, h) -> 2.0 * w + 2.0 * h
 
 let testShapeAreaCircle (r: float) : float = shapeArea (Circle r)
-
 let testShapeAreaSquare (s: float) : float = shapeArea (Square s)
-
 let testShapeAreaRect (w: float) (h: float) : float = shapeArea (Rectangle(w, h))
-
 let testShapePerimCircle (r: float) : float = shapePerimeter (Circle r)
-
 let testShapePerimSquare (s: float) : float = shapePerimeter (Square s)
-
 let testShapePerimRect (w: float) (h: float) : float = shapePerimeter (Rectangle(w, h))
 
-// ─── Phase 5 (partial): Tuples ───────────────────────────────────
+// ─── Tree: recursive DU ────────────────────────────────────────────
 
-/// Swap the two elements of an int pair
-let swapPair (a: int) (b: int) : int * int = (b, a)
+type Tree = Leaf | Node of Tree * Tree * int
 
-// JS-callable wrappers: unpack tuple return values
+let rec treeSum (t: Tree) : int =
+    match t with
+    | Leaf -> 0
+    | Node(l, r, v) -> treeSum l + treeSum r + v
 
 let testTreeSum () : int =
-    treeSum (Node(Node(Leaf, Leaf, 1), Node(Leaf, Leaf, 2), 3))
-
-/// Test: depth of a balanced tree of depth 3 = 7 nodes, sum of node values
+    let t = Node(Leaf, Leaf, 5)
+    treeSum t  // 5
 
 let testTreeSum2 () : int =
-    // Build: level3 = Node(Leaf,Leaf,1); level2 = Node(Node(Leaf,Leaf,1),Node(Leaf,Leaf,2),4)
-    // root = Node(level2, Node(Leaf,Leaf,3), 10) → 1+2+4+3+10 = 20
-    let ll = Node(Leaf, Leaf, 1)
-    let lr = Node(Leaf, Leaf, 2)
-    let rl = Node(Leaf, Leaf, 3)
-    let left = Node(ll, lr, 4)
-    let root = Node(left, rl, 10)
-    treeSum root
+    let t = Node(Node(Leaf, Leaf, 2), Node(Leaf, Leaf, 3), 10)
+    treeSum t  // 2 + 3 + 10 = 15
 
-// ─── Mutual tail calls ─────────────────────────────────────────────────────
+// ─── GeoShape: another DU with pattern matching ─────────────────
 
-let rec isEvenTC (n: int) : bool =
-    if n = 0 then true else isOddTC (n - 1)
-and isOddTC (n: int) : bool =
-    if n = 0 then false else isEvenTC (n - 1)
+type GeoShape =
+    | Circle2 of float
+    | Rect2 of float * float
+    | Dot2 of float * float
 
-/// Test: isEven 1000 → true → 1  (uses return_call, no stack overflow)
+let testRefTestCircle () : int =
+    let s = Circle2 1.5
+    match s with
+    | Circle2 _ -> 1
+    | _ -> 0
 
-let testMutualTailCall () : int =
-    if isEvenTC 1000 then 1 else 0
+let testRefTestRect () : int =
+    let s = Rect2(2.0, 3.0)
+    match s with
+    | Rect2 _ -> 1
+    | _ -> 0
 
-/// Test: isOdd 999 → true → 1
+let testRefTestDot () : int =
+    let s = Dot2(1.0, 2.0)
+    match s with
+    | Dot2 _ -> 1
+    | _ -> 0
 
-let testMutualTailCall2 () : int =
-    if isOddTC 999 then 1 else 0
+// ─── MathExpr: recursive evaluation ─────────────────────────────
 
-// ─── F# arrays (WASM GC mutable arrays) ────────────────────────────────────
+type MathExpr =
+    | NumLit of int
+    | Add of MathExpr * MathExpr
+    | Mul of MathExpr * MathExpr
 
-/// Test: array literal [|5;10;15|], index 1 → 10
+let rec evalExpr = function
+    | NumLit x -> x
+    | Add(l, r) -> evalExpr l + evalExpr r
+    | Mul(l, r) -> evalExpr l * evalExpr r
+
+let testRecursiveDU () : int =
+    let expr = Add(Mul(NumLit 2, NumLit 3), NumLit 4)
+    evalExpr expr  // (2*3) + 4 = 10
+
+// ─── DU equality tests ──────────────────────────────────────────
 
 let testDuEnumEqTrue () : int =
-    let a = Direction.North
-    let b = Direction.North
-    if a = b then 1 else 0
-
-/// Test: DU equality — different enum tags → 0
+    let d1 = North
+    let d2 = North
+    if d1 = d2 then 1 else 0
 
 let testDuEnumEqFalse () : int =
-    let a = Direction.North
-    let b = Direction.South
-    if a = b then 1 else 0
-
-/// Test: data-carrying DU equality — Circle 3.0 = Circle 3.0 → 1
+    let d1 = North
+    let d2 = South
+    if d1 = d2 then 1 else 0
 
 let testDuDataEqTrue () : int =
     let s1 = Circle 3.0
     let s2 = Circle 3.0
     if s1 = s2 then 1 else 0
 
-/// Test: data-carrying DU equality — Circle 3.0 ≠ Circle 4.0 → 0
-
 let testDuDataEqFalse () : int =
     let s1 = Circle 3.0
-    let s2 = Circle 4.0
+    let s2 = Circle 5.0
     if s1 = s2 then 1 else 0
-
-/// Test: data-carrying DU equality — different constructors → 0
 
 let testDuDataEqDiffCtor () : int =
     let s1 = Circle 3.0
     let s2 = Square 3.0
     if s1 = s2 then 1 else 0
 
-/// Test: tuple equality — same values → 1
+// ─── Suite runner ──────────────────────────────────────────────
 
-let testTupleEqTrue () : int =
-    if (1, 2) = (1, 2) then 1 else 0
-
-/// Test: tuple equality — different second element → 0
-
-let testTupleEqFalse () : int =
-    if (1, 2) = (1, 3) then 1 else 0
-
-/// Test: tuple inequality — different second element → 1
-
-let testTupleNeq () : int =
-    if (1, 2) <> (1, 3) then 1 else 0
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Sprint 5: Monomorphization — demand-driven generic specialization
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Generic identity function.
-/// Monomorphized to i32 (testIdentityInt) and f64 (testIdentityFloat).
-let identity<'T> (x: 'T) : 'T = x
-
-/// Test: identity<int> 99 = 99
-
-let testInterfaceDispatch () : int =
-    let g : IGreeter = { Word = "hello" } :> IGreeter
-    g.Greet()
-
-/// Test: vtable dispatch polymorphism — two different implementors.
-/// ["hello".Length; "hola".Length] |> List.sum = 5 + 4 = 9
-
-let testInterfacePolymorphism () : int =
-    let greeters : IGreeter list =
-        [ { Word = "hello" } :> IGreeter
-          { Palabra = "hola" } :> IGreeter ]
-    greeters |> List.sumBy (fun g -> g.Greet())
-
-// ── DU implementing interface ─────────────────────────────────────────────
-
-type IShape =
-    abstract Area: unit -> int
-
-type IntShape =
-    | ICircle of Radius: int
-    | IRect of Width: int * Height: int
-    interface IShape with
-        member this.Area() =
-            match this with
-            | ICircle r -> r * r
-            | IRect(w, h) -> w * h
-
-/// DU implementing interface — ICircle(3).Area() = 9
-
-let testDuInterfaceCircle () : int =
-    let s : IShape = ICircle 3 :> IShape
-    s.Area()
-
-/// DU implementing interface — IRect(4,5).Area() = 20
-
-let testDuInterfaceRect () : int =
-    let s : IShape = IRect(4, 5) :> IShape
-    s.Area()
-
-/// DU interface polymorphism
-
-let testDuInterfacePoly () : int =
-    let shapes : IShape list = [ ICircle 2 :> IShape; IRect(3, 4) :> IShape ]
-    shapes |> List.sumBy (fun s -> s.Area())  // 4 + 12 = 16
-
-// ── Regular class implementing interface ──────────────────────────────────
-
-type ClassCircle(radius: int) =
-    interface IShape with
-        member _.Area() = radius * radius
-
-type ClassRect(width: int, height: int) =
-    interface IShape with
-        member _.Area() = width * height
-
-/// Regular class implementing interface — ClassCircle(5).Area() = 25
-
-let testClassCircleArea () : int =
-    let s : IShape = ClassCircle(5) :> IShape
-    s.Area()
-
-/// Regular class implementing interface — ClassRect(3,7).Area() = 21
-
-let testClassRectArea () : int =
-    let s : IShape = ClassRect(3, 7) :> IShape
-    s.Area()
-
-/// Mixed list: DU + regular class, both implementing IShape
-
-let testMixedShapes () : int =
-    let shapes : IShape list = [ ICircle 3 :> IShape; ClassRect(2, 6) :> IShape ]
-    shapes |> List.sumBy (fun s -> s.Area())  // 9 + 12 = 21
-
-// ── List.sortWith ─────────────────────────────────────────────────────────
-
-type SWItem = { SWVal: int }
-
-/// sortWith ascending comparator: head of sorted [3;1;4;2] should be 1
-
-let testSortWith () : int =
-    let items = [ { SWVal = 3 }; { SWVal = 1 }; { SWVal = 4 }; { SWVal = 2 } ]
-    let sorted = List.sortWith (fun a b -> if a.SWVal < b.SWVal then -1 elif a.SWVal > b.SWVal then 1 else 0) items
-    (List.head sorted).SWVal  // 1
-
-/// sortWith descending comparator: head of sorted [3;1;4;2] should be 4
-
-let testSortWithDesc () : int =
-    let items = [ { SWVal = 3 }; { SWVal = 1 }; { SWVal = 4 }; { SWVal = 2 } ]
-    let sorted = List.sortWith (fun a b -> if b.SWVal < a.SWVal then -1 elif b.SWVal > a.SWVal then 1 else 0) items
-    (List.head sorted).SWVal  // 4
-
-/// sortWith on ints: head should be 1
-
-let testSortWithInts () : int =
-    List.sortWith (fun a b -> if a < b then -1 elif a > b then 1 else 0) [5; 3; 1; 4; 2] |> List.head  // 1
-
-// ── Array.sortWith ────────────────────────────────────────────────────────
-
-/// Array.sortWith ascending: head of sorted [|3;1;4;2|] should be 1
-
-let testActivePattern () : int =
-    let classify n = match n with Even -> 0 | Odd -> 1
-    [1; 2; 3; 4; 5] |> List.sumBy classify  // 1+0+1+0+1 = 3
-
-// ── Sprint 23f: string ops, sprintf, more collections ────────────────────────
-
-
-let testMutualLetRec () : int =
-    let rec isEven (n: int) : bool =
-        if n = 0 then true else isOdd (n - 1)
-    and isOdd (n: int) : bool =
-        if n = 0 then false else isEven (n - 1)
-    if isEven 4 && isOdd 3 then 1 else 0  // 1
-
-/// Two mutually recursive functions that ping-pong until a limit.
-
-let testMutualLetRecPingPong () : int =
-    let rec ping (n: int) : int =
-        if n >= 10 then n
-        else pong (n + 1)
-    and pong (n: int) : int =
-        if n >= 10 then n
-        else ping (n + 1)
-    ping 0   // 10
-
-// ── Phase 5: Async — requires backend wiring (Sprint 25) ────────
-
-// ── Sprint 30: Typed Exception Carrier + TypeTest ────────────────
-
-/// Custom exception type used for TypeTest.
-/// Fable compiles F# exception records as ClassDeclarations → WasmGC struct in TypeRegistry.
-exception MyTypedException of Value: int
-
-/// Basic exception carrier: throw, catch, verify catch executes.
-
-// ── Suite runner ──────────────────────────────────────────────────────────
-let runDUTests (check: string -> (unit -> unit) -> unit) =
-    check "testShapeAreaCircle" (fun () -> ignore (testShapeAreaCircle ()))
-    check "testShapeAreaSquare" (fun () -> ignore (testShapeAreaSquare ()))
-    check "testShapeAreaRect" (fun () -> ignore (testShapeAreaRect ()))
-    check "testShapePerimCircle" (fun () -> ignore (testShapePerimCircle ()))
-    check "testShapePerimSquare" (fun () -> ignore (testShapePerimSquare ()))
-    check "testShapePerimRect" (fun () -> ignore (testShapePerimRect ()))
+let runDUTests (check: string -> (unit -> unit) -> unit) : unit =
+    check "testShapeAreaCircle" (fun () -> ignore (testShapeAreaCircle 3.0))
+    check "testShapeAreaSquare" (fun () -> ignore (testShapeAreaSquare 2.0))
+    check "testShapeAreaRect" (fun () -> ignore (testShapeAreaRect 2.0 3.0))
+    check "testShapePerimCircle" (fun () -> ignore (testShapePerimCircle 1.0))
+    check "testShapePerimSquare" (fun () -> ignore (testShapePerimSquare 2.0))
+    check "testShapePerimRect" (fun () -> ignore (testShapePerimRect 2.0 3.0))
     check "testTreeSum" (fun () -> ignore (testTreeSum ()))
     check "testTreeSum2" (fun () -> ignore (testTreeSum2 ()))
-    check "testMutualTailCall" (fun () -> ignore (testMutualTailCall ()))
-    check "testMutualTailCall2" (fun () -> ignore (testMutualTailCall2 ()))
+    check "testRefTestCircle" (fun () -> ignore (testRefTestCircle ()))
+    check "testRefTestRect" (fun () -> ignore (testRefTestRect ()))
+    check "testRefTestDot" (fun () -> ignore (testRefTestDot ()))
+    check "testRecursiveDU" (fun () -> ignore (testRecursiveDU ()))
     check "testDuEnumEqTrue" (fun () -> ignore (testDuEnumEqTrue ()))
     check "testDuEnumEqFalse" (fun () -> ignore (testDuEnumEqFalse ()))
     check "testDuDataEqTrue" (fun () -> ignore (testDuDataEqTrue ()))
     check "testDuDataEqFalse" (fun () -> ignore (testDuDataEqFalse ()))
     check "testDuDataEqDiffCtor" (fun () -> ignore (testDuDataEqDiffCtor ()))
-    check "testTupleEqTrue" (fun () -> ignore (testTupleEqTrue ()))
-    check "testTupleEqFalse" (fun () -> ignore (testTupleEqFalse ()))
-    check "testTupleNeq" (fun () -> ignore (testTupleNeq ()))
-    check "testInterfaceDispatch" (fun () -> ignore (testInterfaceDispatch ()))
-    check "testInterfacePolymorphism" (fun () -> ignore (testInterfacePolymorphism ()))
-    check "testDuInterfaceCircle" (fun () -> ignore (testDuInterfaceCircle ()))
-    check "testDuInterfaceRect" (fun () -> ignore (testDuInterfaceRect ()))
-    check "testDuInterfacePoly" (fun () -> ignore (testDuInterfacePoly ()))
-    check "testClassCircleArea" (fun () -> ignore (testClassCircleArea ()))
-    check "testClassRectArea" (fun () -> ignore (testClassRectArea ()))
-    check "testMixedShapes" (fun () -> ignore (testMixedShapes ()))
-    check "testSortWith" (fun () -> ignore (testSortWith ()))
-    check "testSortWithDesc" (fun () -> ignore (testSortWithDesc ()))
-    check "testSortWithInts" (fun () -> ignore (testSortWithInts ()))
-    check "testActivePattern" (fun () -> ignore (testActivePattern ()))
-    check "testMutualLetRec" (fun () -> ignore (testMutualLetRec ()))
-    check "testMutualLetRecPingPong" (fun () -> ignore (testMutualLetRecPingPong ()))

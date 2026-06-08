@@ -1,7 +1,7 @@
 /// WasmGC inline replacements for List higher-order function HOF operations.
 /// Full FableQuery DSL integration — no Fable.Expr.Lambda inline patterns.
 /// Uses high-level combinators from WasmGcLoopCombinators for clean, composable code.
-module WasmGc.Transforms.ListCombinators
+module WasmGc.Transforms.ListTransforms
 
 open Fable
 open Fable.AST

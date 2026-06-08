@@ -96,20 +96,20 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
 
     match expr with
     | Expr.IdentExpr ident ->
-        sprintf "%s[Ident] %s : %s" indentStr ident.Name (typeToString ident.Type)
+        $"%s{indentStr}[Ident] %s{ident.Name} : %s{typeToString ident.Type}"
 
     | Expr.Value(kind, _) ->
         match kind with
-        | ValueKind.UnitConstant -> sprintf "%s[Unit]" indentStr
-        | ValueKind.BoolConstant b -> sprintf "%s[Bool] %b" indentStr b
-        | ValueKind.CharConstant c -> sprintf "%s[Char] '%c'" indentStr c
-        | ValueKind.NumberConstant(n, _) -> sprintf "%s[Num] %A" indentStr n
-        | ValueKind.StringConstant s -> sprintf "%s[Str] \"%s\"" indentStr s
-        | ValueKind.Null t -> sprintf "%s[Null] : %s" indentStr (typeToString t)
-        | _ -> sprintf "%s[Value] : %s" indentStr (typeToString kind.Type)
+        | ValueKind.UnitConstant -> $"%s{indentStr}[Unit]"
+        | ValueKind.BoolConstant b -> $"%s{indentStr}[Bool] %b{b}"
+        | ValueKind.CharConstant c -> $"%s{indentStr}[Char] '%c{c}'"
+        | ValueKind.NumberConstant(n, _) -> $"%s{indentStr}[Num] %A{n}"
+        | ValueKind.StringConstant s -> $"%s{indentStr}[Str] \"%s{s}\""
+        | ValueKind.Null t -> $"%s{indentStr}[Null] : %s{typeToString t}"
+        | _ -> $"%s{indentStr}[Value] : %s{typeToString kind.Type}"
 
     | Expr.Let(ident, value, body) ->
-        [ sprintf "%slet %s : %s =" indentStr ident.Name (typeToString ident.Type)
+        [ $"%s{indentStr}let %s{ident.Name} : %s{typeToString ident.Type} ="
           dumpExpr nextIndent value
           dumpExpr indent body ]
         |> String.concat "\n"
@@ -120,7 +120,7 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
             bindings
             |> List.mapi (fun i (id, e) ->
                 let kw = if i = 0 then "let rec" else "and"
-                [ sprintf "%s%s %s : %s =" indentStr kw id.Name (typeToString id.Type)
+                [ $"%s{indentStr}%s{kw} %s{id.Name} : %s{typeToString id.Type} ="
                   dumpExpr nextIndent e ]
                 |> String.concat "\n")
             |> String.concat "\n"
@@ -130,7 +130,7 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
         |> String.concat "\n"
 
     | Expr.Lambda(arg, body, _) ->
-        [ sprintf "%s[Lambda] fun %s : %s ->" indentStr arg.Name (typeToString arg.Type)
+        [ $"%s{indentStr}[Lambda] fun %s{arg.Name} : %s{typeToString arg.Type} ->"
           dumpExpr nextIndent body ]
         |> String.concat "\n"
 
@@ -139,41 +139,41 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
             args
             |> List.map (fun a -> $"{a.Name}: {typeToString a.Type}")
             |> String.concat ", "
-        [ sprintf "%s[Delegate] fun (%s) ->" indentStr argStr
+        [ $"%s{indentStr}[Delegate] fun (%s{argStr}) ->"
           dumpExpr nextIndent body ]
         |> String.concat "\n"
 
     | Expr.IfThenElse(guard, thenExpr, elseExpr, _) ->
-        [ sprintf "%s[If]" indentStr
-          sprintf "%sCondition:" indentStr
+        [ $"%s{indentStr}[If]"
+          $"%s{indentStr}Condition:"
           dumpExpr nextIndent guard
-          sprintf "%sThen:" indentStr
+          $"%s{indentStr}Then:"
           dumpExpr nextIndent thenExpr
-          sprintf "%sElse:" indentStr
+          $"%s{indentStr}Else:"
           dumpExpr nextIndent elseExpr ]
         |> String.concat "\n"
 
     | Expr.WhileLoop(guard, body, _) ->
-        [ sprintf "%s[While]" indentStr
-          sprintf "%sCondition:" indentStr
+        [ $"%s{indentStr}[While]"
+          $"%s{indentStr}Condition:"
           dumpExpr nextIndent guard
-          sprintf "%sBody:" indentStr
+          $"%s{indentStr}Body:"
           dumpExpr nextIndent body ]
         |> String.concat "\n"
 
     | Expr.ForLoop(ident, start, limit, body, isUp, _) ->
         let dir = if isUp then "to" else "downto"
-        [ sprintf "%s[For] %s : %s" indentStr ident.Name (typeToString ident.Type)
-          sprintf "%sStart:" indentStr
+        [ $"%s{indentStr}[For] %s{ident.Name} : %s{typeToString ident.Type}"
+          $"%s{indentStr}Start:"
           dumpExpr nextIndent start
-          sprintf "%s%s:" indentStr dir
+          $"%s{indentStr}%s{dir}:"
           dumpExpr nextIndent limit
-          sprintf "%sBody:" indentStr
+          $"%s{indentStr}Body:"
           dumpExpr nextIndent body ]
         |> String.concat "\n"
 
     | Expr.Sequential exprs ->
-        [ sprintf "%s[Seq]" indentStr
+        [ $"%s{indentStr}[Seq]"
           exprs |> List.map (dumpExpr nextIndent) |> String.concat "\n" ]
         |> String.concat "\n"
 
@@ -182,7 +182,7 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
         let thisArgStr =
             match callInfo.ThisArg with
             | Some thisArg ->
-                [ sprintf "%sThisArg:" indentStr
+                [ $"%s{indentStr}ThisArg:"
                   dumpExpr nextIndent thisArg ]
                 |> String.concat "\n"
             | None -> ""
@@ -191,20 +191,20 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
             |> List.map (dumpExpr nextIndent)
             |> String.concat "\n"
 
-        [ sprintf "%s[Call]" indentStr
-          sprintf "%sCallee:" indentStr
+        [ $"%s{indentStr}[Call]"
+          $"%s{indentStr}Callee:"
           calleeStr
           thisArgStr
-          sprintf "%sArgs:" indentStr
+          $"%s{indentStr}Args:"
           argsStr ]
         |> List.filter (fun s -> s <> "")
         |> String.concat "\n"
 
     | Expr.CurriedApply(callee, args, _, _) ->
-        [ sprintf "%s[Apply]" indentStr
-          sprintf "%sCallee:" indentStr
+        [ $"%s{indentStr}[Apply]"
+          $"%s{indentStr}Callee:"
           dumpExpr nextIndent callee
-          sprintf "%sArgs:" indentStr
+          $"%s{indentStr}Args:"
           args |> List.map (dumpExpr nextIndent) |> String.concat "\n" ]
         |> String.concat "\n"
 
@@ -214,16 +214,16 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
             targets
             |> List.mapi (fun i (ids, body) ->
                 let idStr = ids |> List.map (fun id -> id.Name) |> String.concat ", "
-                [ sprintf "%sCase #%d (%s):" indentStr i idStr
+                [ $"%s{indentStr}Case #%d{i} (%s{idStr}):"
                   dumpExpr nextIndent body ]
                 |> String.concat "\n")
-        [ sprintf "%s[Match]" indentStr
+        [ $"%s{indentStr}[Match]"
           scrutStr ]
         @ targetStrs
         |> String.concat "\n"
 
     | Expr.DecisionTreeSuccess(targetIndex, vals, _) ->
-        [ sprintf "%s[DecisionTreeSuccess] target=%d" indentStr targetIndex
+        [ $"%s{indentStr}[DecisionTreeSuccess] target=%d{targetIndex}"
           vals |> List.map (dumpExpr nextIndent) |> String.concat "\n" ]
         |> String.concat "\n"
 
@@ -232,13 +232,13 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
         let catchStr =
             match catch with
             | Some(exId, e) ->
-                sprintf "%sCatch %s:\n%s" indentStr exId.Name (dumpExpr nextIndent e)
+                $"%s{indentStr}Catch %s{exId.Name}:\n%s{dumpExpr nextIndent e}"
             | None -> ""
         let finStr =
             match fin with
-            | Some e -> sprintf "%sFinally:\n%s" indentStr (dumpExpr nextIndent e)
+            | Some e -> $"%s{indentStr}Finally:\n%s{dumpExpr nextIndent e}"
             | None -> ""
-        [ sprintf "%s[Try]" indentStr
+        [ $"%s{indentStr}[Try]"
           bodyStr
           catchStr
           finStr ]
@@ -246,42 +246,42 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
         |> String.concat "\n"
 
     | Expr.TypeCast(e, t) ->
-        [ sprintf "%s[TypeCast] : %s" indentStr (typeToString t)
+        [ $"%s{indentStr}[TypeCast] : %s{typeToString t}"
           dumpExpr nextIndent e ]
         |> String.concat "\n"
 
     | Expr.Get(e, _, t, _) ->
-        [ sprintf "%s[Get] : %s" indentStr (typeToString t)
+        [ $"%s{indentStr}[Get] : %s{typeToString t}"
           dumpExpr nextIndent e ]
         |> String.concat "\n"
 
     | Expr.Set(e, _, t, v, _) ->
-        [ sprintf "%s[Set] : %s" indentStr (typeToString t)
-          sprintf "%sTarget:" indentStr
+        [ $"%s{indentStr}[Set] : %s{typeToString t}"
+          $"%s{indentStr}Target:"
           dumpExpr nextIndent e
-          sprintf "%sValue:" indentStr
+          $"%s{indentStr}Value:"
           dumpExpr nextIndent v ]
         |> String.concat "\n"
 
     | Expr.Test(e, testKind, _) ->
-        [ sprintf "%s[Test] %A" indentStr testKind
+        [ $"%s{indentStr}[Test] %A{testKind}"
           dumpExpr nextIndent e ]
         |> String.concat "\n"
 
     | Expr.Import(info, t, _) ->
-        sprintf "%s[Import] %A : %s" indentStr info (typeToString t)
+        $"%s{indentStr}[Import] %A{info} : %s{typeToString t}"
 
     | Expr.Emit(info, t, _) ->
-        sprintf "%s[Emit] %A : %s" indentStr info (typeToString t)
+        $"%s{indentStr}[Emit] %A{info} : %s{typeToString t}"
 
     | Expr.Extended(kind, _) ->
-        sprintf "%s[Extended] %A : %s" indentStr kind (typeToString kind.Type)
+        $"%s{indentStr}[Extended] %A{kind} : %s{typeToString kind.Type}"
 
     | Expr.ObjectExpr(members, t, baseCall) ->
         let baseStr =
             match baseCall with
             | Some b ->
-                [ sprintf "%sBaseCall:" indentStr
+                [ $"%s{indentStr}BaseCall:"
                   dumpExpr nextIndent b ]
                 |> String.concat "\n"
             | None -> ""
@@ -289,42 +289,43 @@ let rec dumpExpr (indent: int) (expr: Expr) : string =
             members
             |> List.map (fun m ->
                 let args = m.Args |> List.map (fun a -> a.Name) |> String.concat ", "
-                [ sprintf "%sMember %s(%s):" indentStr m.Name args
+                [ $"%s{indentStr}Member %s{m.Name}(%s{args}):"
                   dumpExpr nextIndent m.Body ]
                 |> String.concat "\n")
             |> String.concat "\n"
 
-        [ sprintf "%s[ObjectExpr] : %s" indentStr (typeToString t)
+        [ $"%s{indentStr}[ObjectExpr] : %s{typeToString t}"
           baseStr
           memberStrs ]
         |> List.filter (fun s -> s <> "")
         |> String.concat "\n"
 
     | Expr.Unresolved(u, t, _) ->
-        sprintf "%s[Unresolved] %A : %s" indentStr u (typeToString t)
+        $"%s{indentStr}[Unresolved] %A{u} : %s{typeToString t}"
 
     | Expr.Quote(q, isTyped, _) ->
-        [ sprintf "%s[Quote] typed=%b" indentStr isTyped
+        [ $"%s{indentStr}[Quote] typed=%b{isTyped}"
           dumpExpr nextIndent q ]
         |> String.concat "\n"
 
     | Fable.Expr.Operation(kind, _tags, _ty, _range) ->
         let desc =
             match kind with
-            | OperationKind.Binary(op, _, _) -> sprintf "Binary(%A)" op
-            | OperationKind.Unary(op, _)     -> sprintf "Unary(%A)" op
-            | OperationKind.Logical(op, _, _)-> sprintf "Logical(%A)" op
-        sprintf "%sOperation(%s)" indentStr desc
+            | OperationKind.Binary(op, _, _) -> $"Binary(%A{op})"
+            | OperationKind.Unary(op, _)     -> $"Unary(%A{op})"
+            | OperationKind.Logical(op, _, _)-> $"Logical(%A{op})"
+
+        $"%s{indentStr}Operation(%s{desc})"
 
 /// Dump a function/member declaration.
 let dumpFuncDecl (func: MemberDecl) : string =
-    let sig_ = sprintf "[Function] %s" func.Name
-    let paramStrs = func.Args |> List.map (fun arg -> sprintf "%s : %s" arg.Name (typeToString arg.Type))
+    let sig_ = $"[Function] %s{func.Name}"
+    let paramStrs = func.Args |> List.map (fun arg -> $"%s{arg.Name} : %s{typeToString arg.Type}")
     let paramList = String.concat ", " paramStrs
     let retType = typeToString func.Body.Type
-    let header = sprintf "%s(%s) -> %s" sig_ paramList retType
+    let header = $"%s{sig_}(%s{paramList}) -> %s{retType}"
     let body = dumpExpr 2 func.Body
-    sprintf "%s\n%s" header body
+    $"%s{header}\n%s{body}"
 
 /// Dump all declarations in a module.
 let dumpModule (decls: Declaration list) : string =

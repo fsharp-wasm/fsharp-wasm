@@ -9,12 +9,12 @@ open WasmGc.Runtime.Locals // TODO: should they be renamed to Builder
 open WasmGc.Runtime.Types
 open WasmGc.Runtime.Equality
 open WasmGc.Transforms.ArrayReplacements
-open WasmGc.Transforms.OptionResult
-open WasmGc.Transforms.ListCombinators
+open WasmGc.Transforms.OptionResultTransforms
+open WasmGc.Transforms.ListTransforms
 open WasmGc.Transforms.ListOps
 open WasmGc.Transforms.MathMap
 
-open WasmGc.Transforms.Helpers
+open WasmGc.Transforms.TransformHelpers
 
 module RT = WasmGc.Runtime.Runtime
 module VT = WasmGc.Runtime.VTable
