@@ -1,6 +1,14 @@
 <Solution>
+  <Folder Name="/lib/">
+    <Project Path="fable-library-wasmgc/Fable.LibraryWasmGc.fsproj" />
+    <Project Path="fsharp-wasm-core/FSharp.Wasm.Core/FSharp.WasmCore.fsproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Native/TestNative.fsproj" />
+    <Project Path="tests\QuickTestMulti\QuickTestMulti.fsproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj" />
   </Folder>
   <Folder Name="/vendor/" />
   <Folder Name="/vendor/Fable/">
@@ -15,16 +23,13 @@
     <Project Path="vendor/fsharp/src/Compiler/FSharp.Compiler.Service.fsproj" />
     <Project Path="vendor/fsharp/src/FSharp.Core/FSharp.Core.fsproj" />
   </Folder>
-  <Project Path="src/Bcl/WasmGc.Bcl.fsproj" />
-  <Project Path="src/Builder/WasmGc.Builder.fsproj" />
-  <Project Path="src/Core/WasmGc.Core.fsproj" />
-  <Project Path="src/Emit/WasmGc.Emit.fsproj" />
-  <Project Path="src/Fable.WasmGc.fsproj">
-    <!-- <BuildType Solution="Release|*" Project="?" />
-    <Platform Solution="Release|*" Project="?" />
-    <Build Solution="Release|*" Project="false" /> -->
-  </Project>
-  <Project Path="tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj" />
-  <Project Path="src/Ir/WasmGc.Ir.fsproj" />
-  <Project Path="src/Patterns/WasmGc.Patterns.fsproj" />
+  <Folder Name="/WasmGc/">
+    <Project Path="src/Bcl/WasmGc.Bcl.fsproj" />
+    <Project Path="src/Builder/WasmGc.Builder.fsproj" />
+    <Project Path="src/Core/WasmGc.Core.fsproj" />
+    <Project Path="src/Emit/WasmGc.Emit.fsproj" />
+    <Project Path="src/Ir/WasmGc.Ir.fsproj" />
+    <Project Path="src/Patterns/WasmGc.Patterns.fsproj" />
+    <Project Path="src\WasmGc.fsproj" />
+  </Folder>
 </Solution>

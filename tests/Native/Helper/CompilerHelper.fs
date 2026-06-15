@@ -1,14 +1,6 @@
-/// Mock Compiler Interface for In-Memory Fable Compilation
-///
-/// This module creates a mock Fable.Compiler that implements the Fable compiler interface,
-/// allowing Fable transformations to run on F# code that has been type-checked via FCS
-/// without requiring the full CLI pipeline.
-///
-/// Usage:
-///   let fcsDeclarations = parseFSharpString code
-///   let compiler = createMockCompiler code
-///   let fableAst = Fable.Transforms.FSharp2Fable.Compiler.transformFile compiler
-///
+/// FCS parse+check helper and MockCompiler for in-memory tests.
+/// MockCompiler implements Fable.Compiler (full interface) but uses
+/// fable-library-wasmgc as LibraryDir — NOT vendor Fable.Core.
 module TestNative.Helper.CompilerHelper
 
 open System
@@ -19,130 +11,99 @@ open Fable
 open Fable.Transforms
 open Fable.AST
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
 // FCS (F# Compiler Service) Integration
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
 
 /// Parse and type-check F# source code using FCS (F# Compiler Service)
 /// Returns the typed F# AST declarations on success
-let parseFSharpString (code: string) : Result<FSharp.Compiler.Symbols.FSharpImplementationFileDeclaration list, string> =
+let parseFSharpString (code: string)
+        : Result<FSharp.Compiler.Symbols.FSharpImplementationFileDeclaration list, string> =
     try
-        let checker = FSharpChecker.Create()
+        let checker  = FSharpChecker.Create()
         let tempFile = Path.ChangeExtension(Path.GetTempFileName(), ".fs")
         
         try
             File.WriteAllText(tempFile, code)
-            
-            let projOptions, _ = 
+            let projOpts, _ =
                 checker.GetProjectOptionsFromScript(tempFile, SourceText.ofString code)
                 |> Async.RunSynchronously
 
-            let parseResults, checkResults = 
-                checker.ParseAndCheckFileInProject(tempFile, 1, SourceText.ofString code, projOptions)
+            let parseResults, checkResult =
+                checker.ParseAndCheckFileInProject(tempFile, 1, SourceText.ofString code, projOpts)
                 |> Async.RunSynchronously
 
-            match checkResults with
-            | FSharpCheckFileAnswer.Succeeded(res) -> 
+            match checkResult with
+            | FSharpCheckFileAnswer.Succeeded res ->
                 match res.ImplementationFile with
-                | Some implFile -> 
-                    Ok(implFile.Declarations)
-                | None -> 
-                    Error("Type checking succeeded but no ImplementationFile was produced")
-            | FSharpCheckFileAnswer.Aborted -> 
-                let errors = 
-                    parseResults.Diagnostics 
-                    |> Array.map (fun e -> e.Message) 
-                    |> String.concat "\n"
-                Error($"Type checking aborted:\n{errors}")
+                | Some impl -> Ok impl.Declarations
+                | None      -> Error "Type-check succeeded but produced no ImplementationFile"
+            | FSharpCheckFileAnswer.Aborted ->
+                parseResults.Diagnostics
+                |> Array.map (fun e -> e.Message)
+                |> String.concat "\n"
+                |> fun errs -> Error $"Type-check aborted:\n{errs}"
         finally
             try File.Delete(tempFile) with _ -> ()
-    with ex ->
-        Error($"FCS parsing failed: {ex.Message}")
+    with ex -> Error $"FCS parse failed: {ex.Message}"
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Mock Compiler Implementation
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// MockCompiler Implementation
+// ─────────────────────────────────────────────────────────────────
+// TODO: do we still need the MockCompiler?
 
 /// Mock Compiler that implements Fable.Compiler interface for in-memory testing.
 /// This allows Fable transformations to run without shelling out to a CLI.
 type MockCompiler (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementationFileDeclaration list) =
-    
+
+    // Our own library, not vendor Fable.Core
+    let libDir =
+        let candidates = [
+            Path.Combine(__SOURCE_DIRECTORY__, "../../../fable-library-wasmgc")
+            Path.Combine(__SOURCE_DIRECTORY__, "../../../../fable-library-wasmgc")
+        ]
+        candidates |> List.tryFind Directory.Exists |> Option.defaultValue "."
+
     // Standard Fable compiler options for WasmGC backend
-    let options : Fable.CompilerOptions = 
-        {
-            TypedArrays           = true
-            ClampByteArrays       = false
-            Language              = Fable.Language.WasmGc
-            Define                = []
-            DebugMode             = false
-            OptimizeFSharpAst     = true
-            Verbosity             = Verbosity.Normal
-            FileExtension         = ".fs"
-            TriggeredByDependency = false
-            NoReflection          = true
-        }
+    let options : CompilerOptions =
+        { TypedArrays           = true
+          ClampByteArrays       = false
+          Language              = Language.WasmGc
+          Define                = []
+          DebugMode             = false
+          OptimizeFSharpAst     = true
+          Verbosity             = Verbosity.Normal
+          FileExtension         = ".fs"
+          TriggeredByDependency = false
+          NoReflection          = true }
 
     interface Fable.Compiler with
-        member _.Options = options
-        
-        member _.LibraryDir = 
-            // TODO: we create our own Fable.Core (it's already in a subproject.) The Fable.Core from Fable is not compatible and optimized for other js
-            // Try to locate Fable.Core library in workspace
-            let candidates = [
-                Path.Combine(__SOURCE_DIRECTORY__, "../../vendor/Fable/src/Fable.Core")
-                Path.Combine(__SOURCE_DIRECTORY__, "../../../../vendor/Fable/src/Fable.Core")
-                Path.Combine(__SOURCE_DIRECTORY__, "../../../../../vendor/Fable/src/Fable.Core")
-            ]
-            candidates 
-            |> List.tryFind Directory.Exists
-            |> Option.defaultValue (Path.Combine(__SOURCE_DIRECTORY__, "../../vendor/Fable/src/Fable.Core"))
-        
-        member _.CurrentFile = "InMemoryTest.fs"
-        
-        member _.GetImplementationFile(_fileName) = 
-            // Return the in-memory FCS declarations instead of reading from disk
-            fcsDeclarations
-        
-        member _.GetRootModule(_fileName) = 
-            // Extract root module from FCS declarations using Fable's helper
-            try
-                Fable.Transforms.FSharp2Fable.Compiler.getRootModule fcsDeclarations
-            with ex ->
-                failwith $"Failed to extract root module from FCS declarations: {ex.Message}"
-        
-        member _.TryGetEntity(_entityRef) = 
-            // In-memory tests don't need full entity resolution from disk
-            None
-        
-        member _.GetInlineExpr(_entityRef) = 
-            // Inline expressions not used in in-memory tests
-            {
-                Args = []
-                Body = Fable.AST.Fable.Expr.Value(Fable.AST.Fable.ValueKind.Null Fable.AST.Fable.Type.Any, None)
-                FileName = ""
-                GenericArgs = []
-                ScopeIdents = Set.empty
-            }
-        
-        member _.AddWatchDependency(_file) = 
-            // No file watching in tests
-            ()
-        
-        member _.AddLog(msg, severity, ?range, ?fileName, ?tag) = 
-            // Log compiler messages (particularly errors)
-            if severity = Severity.Error then
-                printfn "[Fable Error] %s" msg
-                
-        // TODO: Added these missing members for Fable 5
-        member _.IncrementCounter() = 0
-        member this.WillPrecompileInlineFunction(file: string) = this
+        member _.Options      = options
+        member _.LibraryDir   = libDir
+        member _.CurrentFile  = "InMemoryTest.fs"
+        member _.OutputDir    = None
+        member _.OutputType   = OutputType.Exe
+        member _.ProjectFile  = ""
+        member _.ProjectOptions = Unchecked.defaultof<_>
+        member _.SourceFiles  = [| "InMemoryTest.fs" |]
+        member _.Plugins      = { MemberDeclarationPlugins = Map.empty }
         member _.IsPrecompilingInlineFunction = false
-        member _.OutputDir = None
-        member _.OutputType = Fable.OutputType.Exe // or Library, depending on your test
-        member _.Plugins = { MemberDeclarationPlugins = Map.empty } // TODO: Adjust based on your imports
-        member _.ProjectFile = ""
-        member _.ProjectOptions = obj() :?> FSharp.Compiler.CodeAnalysis.FSharpProjectOptions // Or mock/null if not used
-        member _.SourceFiles = [||]
+        member this.WillPrecompileInlineFunction(_) = this :> Fable.Compiler
+        member _.IncrementCounter() = 0
+        member _.GetImplementationFile(_) = fcsDeclarations
+        member _.GetRootModule(_) =
+            try   FSharp2Fable.Compiler.getRootModule fcsDeclarations
+            with ex -> failwith $"MockCompiler.GetRootModule: {ex.Message}"
+        member _.TryGetEntity(_)   = None
+        member _.GetInlineExpr(_)  =
+            { Args        = []
+              Body        = Fable.AST.Fable.Expr.Value(Fable.AST.Fable.ValueKind.Null Fable.AST.Fable.Type.Any, None)
+              FileName    = ""; GenericArgs = []; ScopeIdents = Set.empty }
+        member _.AddWatchDependency(_) = ()
+        member _.AddLog(msg, sev, ?_r, ?_f, ?_t) =
+            if sev = Severity.Error then eprintfn "[MockCompiler] %s" msg
+        // ICompilerCore — no plugin dispatch in tests
+        member _.TryGetPluginHelper() = None
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -158,7 +119,5 @@ type MockCompiler (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementation
 ///
 let createMockCompiler (code: string) : Fable.Compiler =
     match parseFSharpString code with
-    | Ok fcsDeclarations ->
-        MockCompiler(fcsDeclarations) :> Fable.Compiler
-    | Error msg ->
-        failwith $"Failed to parse F# source for mock compiler:\n{msg}"
+    | Ok decls -> MockCompiler(decls) :> Fable.Compiler
+    | Error msg -> failwith $"createMockCompiler: {msg}"

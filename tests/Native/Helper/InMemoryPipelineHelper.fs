@@ -35,9 +35,6 @@ open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Text
 open Fable
 open Fable.AST
-open Fable.AST.Fable
-open Fable.Compiler.Util
-// open Fable.Transforms
 open WasmGc.Core.AST
 
 module WasmXform = WasmGc.Transforms.FableAstGate
@@ -50,17 +47,17 @@ module Phases    = WasmGc.Pipeline.Phases
 [<AutoOpen>]
 module private ResultCE =
     type ResultBuilder() =
-        member _.Return(v)     = Ok v
-        member _.ReturnFrom(r) = r
-        member _.Bind(r, f)    = Result.bind f r
-        member _.Zero()        = Ok ()
-        member _.Delay(f)      = f
-        member _.Run(f)        = f ()
+        member _.Return v     = Ok v
+        member _.ReturnFrom r = r
+        member _.Bind(r, f)   = Result.bind f r
+        member _.Zero()       = Ok ()
+        member _.Delay f      = f
+        member _.Run f        = f ()
     let result = ResultBuilder()
 
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
 // Output types
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
 
 type CompilationStages =
     {
@@ -95,14 +92,23 @@ type CompileResult = Result<CompilationStages, string>
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Stage 2-3: Mock Fable.Compiler for in-memory compilation
+// Uses fable-library-wasmgc (not vendor Fable.Core).
 // ──────────────────────────────────────────────────────────────────────────────
 
+// TODO: Another Mock.Compiler ??? really? 
 /// Implements Fable.Compiler using pre-parsed FCS declarations held in memory.
 /// TryGetEntity returns None — sufficient for tests that don't use reflection/plugins.
 type private MockCompiler(fcsDecls: FSharp.Compiler.Symbols.FSharpImplementationFileDeclaration list) =
 
+    let libDir =
+        let candidates = [
+            Path.Combine(__SOURCE_DIRECTORY__, "../../../fable-library-wasmgc")
+            Path.Combine(__SOURCE_DIRECTORY__, "../../../../fable-library-wasmgc")
+        ]
+        candidates |> List.tryFind Directory.Exists |> Option.defaultValue "."
+
     let opts : CompilerOptions =
-        { TypedArrays           = trrue
+        { TypedArrays           = true
           ClampByteArrays       = false
           Language              = Language.WasmGc
           Define                = []
@@ -115,15 +121,7 @@ type private MockCompiler(fcsDecls: FSharp.Compiler.Symbols.FSharpImplementation
 
     interface Fable.Compiler with
         member _.Options      = opts
-        member _.LibraryDir   =
-            let candidates = [
-                // TODO: we don't use Fable.Core !! We have our own implementation
-                Path.Combine(__SOURCE_DIRECTORY__, "../../vendor/Fable/src/Fable.Core")
-                Path.Combine(__SOURCE_DIRECTORY__, "../../../../vendor/Fable/src/Fable.Core")
-                Path.Combine(__SOURCE_DIRECTORY__, "../../../../../vendor/Fable/src/Fable.Core")
-            ]
-            candidates |> List.tryFind Directory.Exists
-            |> Option.defaultValue "vendor/Fable/src/Fable.Core"
+        member _.LibraryDir   = libDir
         member _.CurrentFile  = "InMemoryTest.fs"
         member _.OutputDir    = None
         member _.OutputType   = OutputType.Exe
@@ -131,32 +129,28 @@ type private MockCompiler(fcsDecls: FSharp.Compiler.Symbols.FSharpImplementation
         member _.ProjectOptions =
             FSharpChecker.Create().GetProjectOptionsFromScript(
                 "InMemoryTest.fs", SourceText.ofString "")
-            |> Async.RunSynchronously
-            |> fst
+            |> Async.RunSynchronously |> fst
         member _.SourceFiles  = [| "InMemoryTest.fs" |]
         member _.Plugins      = { MemberDeclarationPlugins = Map.empty }
         member _.IsPrecompilingInlineFunction = false
-        member this.WillPrecompileInlineFunction(_file) = this :> Fable.Compiler
+        member this.WillPrecompileInlineFunction(_) = this :> Fable.Compiler
         member _.IncrementCounter() = 0
-
-        member _.GetImplementationFile(_fileName) = fcsDecls
-        member _.GetRootModule(_fileName) =
+        member _.GetImplementationFile(_) = fcsDecls
+        member _.GetRootModule(_) =
             try   Fable.Transforms.FSharp2Fable.Compiler.getRootModule fcsDecls
             with ex -> failwith $"MockCompiler.GetRootModule: {ex.Message}"
-        member _.TryGetEntity(_ref)          = None
-        member _.GetInlineExpr(_memberName)  =
-            { Args        = []
-              Body        = Fable.AST.Fable.Expr.Value(Fable.AST.Fable.ValueKind.Null Fable.AST.Fable.Type.Any, None)
-              FileName    = ""
-              GenericArgs = []
-              ScopeIdents = Set.empty }
-        member _.AddWatchDependency(_file)   = ()
-        member _.AddLog(msg, sev, ?_range, ?_fileName, ?_tag) =
+        member _.TryGetEntity(_)  = None
+        member _.GetInlineExpr(_) =
+            { Args = []; Body = Fable.AST.Fable.Expr.Value(Fable.AST.Fable.ValueKind.Null Fable.AST.Fable.Type.Any, None)
+              FileName = ""; GenericArgs = []; ScopeIdents = Set.empty }
+        member _.AddWatchDependency(_) = ()
+        member _.AddLog(msg, sev, ?_r, ?_f, ?_t) =
             if sev = Severity.Error then eprintfn "[MockCompiler] %s" msg
+        member _.TryGetPluginHelper() = None
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Pipeline stage helpers
-// ──────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// Pipeline stages
+// ─────────────────────────────────────────────────────────────────
 
 module InMemoryPipelineHelper =
 
@@ -176,24 +170,23 @@ module InMemoryPipelineHelper =
                 let projOpts, _ =
                     checker.GetProjectOptionsFromScript(tempFile, SourceText.ofString code)
                     |> Async.RunSynchronously
-                let _, checkResult =
+                let parseResults, checkResult =
                     checker.ParseAndCheckFileInProject(
-                        tempFile, 1, 
-                        SourceText.ofString code, 
-                        projOptions)
+                        tempFile, 1, SourceText.ofString code, projOpts)
                     |> Async.RunSynchronously
                 match checkResult with
                 | FSharpCheckFileAnswer.Succeeded res ->
                     match res.ImplementationFile with
                     | Some impl -> Ok impl.Declarations
                     | None      -> Error "Type-check succeeded but produced no ImplementationFile"
-                | FSharpCheckFileAnswer.Aborted -> 
-                    let errors = String.concat "\n" (parseResults.Diagnostics |> Array.map (fun e -> e.Message))
-                    Error($"Type checking aborted:\n{errors}")
+                | FSharpCheckFileAnswer.Aborted ->
+                    parseResults.Diagnostics
+                    |> Array.map (fun e -> e.Message)
+                    |> String.concat "\n"
+                    |> fun errs -> Error $"Type-check aborted:\n{errs}"
             finally
                 try File.Delete(tempFile) with _ -> ()
-        with ex ->
-            Error $"FCS parse+check failed: {ex.Message}"
+        with ex -> Error $"FCS parse+check failed: {ex.Message}"
 
     // ──────────────────────────────────────────────────────────────────────────────
     // Stage 3: FCS → Fable AST
@@ -202,14 +195,8 @@ module InMemoryPipelineHelper =
     let private fcsToFableAst
             (fcsDecls: FSharp.Compiler.Symbols.FSharpImplementationFileDeclaration list)
             : Result<Fable.AST.Fable.File, string> =
-        try
-            let com  = MockCompiler(fcsDecls) :> Fable.Compiler
-
-            // Run the FSharp2Fable transformation
-            let file = Fable.Transforms.FSharp2Fable.Compiler.transformFile com
-            Ok file
-        with ex ->
-            Error $"FSharp2Fable transform failed: {ex.Message}"
+        try Ok (Fable.Transforms.FSharp2Fable.Compiler.transformFile (MockCompiler(fcsDecls) :> Fable.Compiler))
+        with ex -> Error $"FSharp2Fable failed: {ex.Message}"
 
     // ──────────────────────────────────────────────────────────────────────────────
     // Stage 4: Fable transformations
@@ -222,12 +209,8 @@ module InMemoryPipelineHelper =
             (file: Fable.AST.Fable.File)
             (fcsDecls: FSharp.Compiler.Symbols.FSharpImplementationFileDeclaration list)
             : Result<Fable.AST.Fable.File, string> =
-        try
-            let com         = MockCompiler(fcsDecls) :> Fable.Compiler
-            let transformed = WasmXform.transformFileForWasm com file
-            Ok transformed
-        with ex ->
-            Error $"WasmGC Fable transform failed: {ex.Message}"
+        try Ok (WasmXform.transformFileForWasm (MockCompiler(fcsDecls)) file)
+        with ex -> Error $"WasmGC transform failed: {ex.Message}"
 
     // ──────────────────────────────────────────────────────────────────────────────
     // Stage 5-7: Fable AST → WasmGC IR (normalized WModule)
@@ -244,57 +227,43 @@ module InMemoryPipelineHelper =
             finalCtx.Diagnostics.Flush()
 
             // Raw module (Phase 3 only) for snapshot / diff purposes.
-            let rawModule = WasmGc.Transforms.Fable2Wasm.buildWModule finalCtx
-
-            // Full pipeline (Phases 4–7).
+            let raw  = WasmGc.Transforms.Fable2Wasm.buildWModule finalCtx
             let opts = { Phases.defaultOptions with Quiet = true }
             match Phases.runPipeline finalCtx file.Declarations opts with
-            | Ok optimized -> Ok (rawModule, optimized)
-            | Error errs   ->
-                let msg =
-                    errs
-                    |> List.map (fun e -> $"[{e.FuncName}] {e.NodeDesc}: {e.Message}")
-                    |> String.concat "; "
-                Error $"Pipeline validation failed: {msg}"
-        with ex ->
-            Error $"Fable→WasmGC IR failed: {ex.Message}"
+            | Ok opt  -> Ok (raw, opt)
+            | Error e ->
+                e |> List.map (fun e -> $"[{e.FuncName}] {e.NodeDesc}: {e.Message}")
+                  |> String.concat "; " |> fun s -> Error $"Validation: {s}"
+        with ex -> Error $"Fable→IR failed: {ex.Message}"
+
 
     // ──────────────────────────────────────────────────────────────────────────────
     // Stage 8: WModule → WAT
     // ──────────────────────────────────────────────────────────────────────────────
 
     let private wmoduleToWat (wmod: WModule) : Result<string, string> =
-        try Ok (WasmGc.Emit.Wat.moduleToWat wmod)
-        with ex -> Error $"WAT emission failed: {ex.Message}"
+        try  Ok (WasmGc.Emit.Wat.moduleToWat wmod)
+        with ex -> Error $"WAT emit failed: {ex.Message}"
+
 
     // ──────────────────────────────────────────────────────────────────────────────
     // ── Stage 9: WAT → WASM binary (optional, requires external tools) ───────────
     // ──────────────────────────────────────────────────────────────────────────────
-
-    let private watToWasm (watText: string) : byte[] option =
-        let tempWat  = Path.ChangeExtension(Path.GetTempFileName(), ".wat")
-        let tempWasm = Path.ChangeExtension(tempWat, ".wasm")
+    let private watToWasm (wat: string) : byte[] option =
+        let tmp  = Path.ChangeExtension(Path.GetTempFileName(), ".wat")
+        let wasm = Path.ChangeExtension(tmp, ".wasm")
         try
-            File.WriteAllText(tempWat, watText)
-            let psi =
-                ProcessStartInfo(
-                    "wasm-as",
-                    $"\"{tempWat}\" -o \"{tempWasm}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError  = true,
-                    UseShellExecute        = false)
-            use proc = Process.Start(psi)
+            File.WriteAllText(tmp, wat)
+            use proc = Process.Start(
+                ProcessStartInfo("wasm-as", $"\"{tmp}\" -o \"{wasm}\"",
+                                 RedirectStandardOutput=true, RedirectStandardError=true,
+                                 UseShellExecute=false))
             proc.WaitForExit(5_000) |> ignore
-            if proc.ExitCode = 0 && File.Exists(tempWasm) then
-                Some (File.ReadAllBytes(tempWasm))
-            else
-                None
-        with _ ->
-            None
-        |> fun r ->
-            try File.Delete(tempWat)  with _ -> ()
-            try File.Delete(tempWasm) with _ -> ()
-            r
+            if proc.ExitCode = 0 && File.Exists(wasm) then Some(File.ReadAllBytes wasm) else None
+        with _ -> None
+        |> fun r -> try File.Delete tmp  with _ -> ()
+                    try File.Delete wasm with _ -> ()
+                    r
 
     // ──────────────────────────────────────────────────────────────────────────────
     // ── Orchestrator ──────────────────────────────────────────────────────────────
@@ -305,20 +274,15 @@ module InMemoryPipelineHelper =
     let compileSource (fsharpCode: string) : CompileResult =
         result {
             // Stage 1-2: FCS Parse & Type Check
-            let! fcsDecls          = fcsParseAndCheck fsharpCode
-
+            let! fcsDecls         = fcsParseAndCheck fsharpCode
             // Stage 3: FCS → Fable AST (raw)
-            let! fableRaw          = fcsToFableAst fcsDecls
-
+            let! fableRaw         = fcsToFableAst fcsDecls
             // Stage 4: Apply Fable transformations
-            let! fableTransformed  = transformFableAst fableRaw fcsDecls
-
+            let! fableTransformed = transformFableAst fableRaw fcsDecls
             // Stage 5-7: Fable → WasmGC IR (raw + normalized)
-            let! (wmodRaw, wmodOpt) = fableToWasmIr fcsDecls fableTransformed
-
+            let! (wmodRaw, wmod)  = fableToWasmIr fcsDecls fableTransformed
             // Stage 8: WModule → WAT
-            let! watText           = wmoduleToWat wmodOpt
-
+            let! watText          = wmoduleToWat wmod
             // Stage 9: WAT → WASM (optional)
             let  wasmBinary        = watToWasm watText
 
@@ -328,7 +292,7 @@ module InMemoryPipelineHelper =
                 FableAstRaw         = fableRaw
                 FableAstTransformed = fableTransformed
                 WModuleRaw          = wmodRaw
-                WModuleNormalized   = wmodOpt
+                WModuleNormalized   = wmod
                 WatText             = watText
                 WasmBinary          = wasmBinary
             }
@@ -347,13 +311,13 @@ module InMemoryPipelineHelper =
             false
 
     /// Helper to get just the normalized WModule (most common use case)
-    let tryCompileToWModule (fsharpCode: string) : WModule option =
-        match compileSource fsharpCode with
-        | Ok stages -> Some stages.WModuleNormalized
-        | Error _ -> None
+    let tryCompileToWModule (code: string) : WModule option =
+        match compileSource code with
+        | Ok s -> Some s.WModuleNormalized
+        | _    -> None
 
     /// Helper to get WAT text for snapshot testing
-    let tryCompileToWat (fsharpCode: string) : string option =
-        match compileSource fsharpCode with
-        | Ok stages -> Some stages.WatText
-        | Error _ -> None
+    let tryCompileToWat (code: string) : string option =
+        match compileSource code with
+        | Ok s -> Some s.WatText
+        | _    -> None

@@ -18,6 +18,8 @@ open Expecto
 open WasmGc.Core.AST
 open WasmGc.Emit
 
+
+module WExprQuery = WasmGc.Util.WExprQuery
 module Wat = WasmGc.Emit.Wat
 
 open Tests.WasmTestHelper

@@ -11,11 +11,13 @@ open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc
 
-open WasmGc.Transforms // .ListCombinators
+open WasmGc.Transforms // .ListTransforms
 open WasmGc.Transforms.TransformExpr
 
 open WasmGc.Runtime
 open WasmGc.Runtime.Types
+
+module WExprQuery = WasmGc.Util.WExprQuery
 
 open Tests.WasmTestHelper
 open Tests.WasmTestHelper.FableAst
@@ -48,7 +50,7 @@ let listReplacementTests = testList "List replacements" [
 
         let _ = mapTypeKnown ctx (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
         let (lambda, listArg, _) = buildListMapAst()
-        let result = ListCombinators.tryListMapInline
+        let result = ListTransforms.tryListMapInline
                         transformExpr ctx "map"
                         [lambda; listArg] (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
         Expect.isSome result "List.map should produce a replacement"
@@ -65,7 +67,7 @@ let listReplacementTests = testList "List replacements" [
         // let _ = mapTypeKnown ctx (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
         // let (lambda, listArg, listType) = buildListMapAst()
         // let ctxWithList = { ctx with Locals = Map.ofList [("myList", WType.Ref(100, true))] }
-        // let result = ListCombinators.tryListMapInline
+        // let result = ListTransforms.tryListMapInline
         //                 transformExpr ctxWithList "map"
         //                 [lambda; listArg] listType
         // match result with
@@ -105,7 +107,7 @@ let listReplacementTests = testList "List replacements" [
         let fbody = listArg  // trivial: identity (maps each int to a list of... something)
         let lambda = Fable.Expr.Lambda(farg, fbody, None)
         // tryListCollectInline handles "collect"; tryListMapInline only handles "map"/"mapIndexed"
-        let result = ListCombinators.tryListCollectInline
+        let result = ListTransforms.tryListCollectInline
                         transformExpr ctx "collect"
                         [lambda; listArg] (Fable.Type.List(Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty)))
         // TODO: once implemented, check that the result contains a loop and no Nops

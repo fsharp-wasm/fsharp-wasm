@@ -1,7 +1,7 @@
-// Minimal Fable.Core stubs for WasmGC compilation.
+// Minimal WasmGc.Core stubs for WasmGC compilation.
 // We define these ourselves so we need no NuGet Fable.Core package.
 // Fable's translator recognises [<Import>] by its qualified name "Fable.Core.ImportAttribute".
-// Using `module Fable.Core` (not namespace) so we can also define `nativeOnly` here.
+// Using `module WasmGc.Core` (not namespace) so we can also define `nativeOnly` here.
 module Fable.Core
 
 open System

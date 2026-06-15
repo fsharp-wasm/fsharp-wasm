@@ -2,6 +2,7 @@
 ///
 /// Thin wrapper: cracks the project, runs Fable type-check + our WasmGC backend.
 /// No watch mode, no source maps, no run-process — just compile to .wasm / .wat.
+/// Sets FableLibraryPath to fable-library-wasmgc — NOT vendor Fable.Core.
 ///
 /// Usage:  fsharp-wasm [<path/to/project.fsproj>] [--outDir <dir>] [--verbose] [--silent]
 module FSharp.Wasm.Cli
@@ -13,9 +14,7 @@ open Fable
 open Fable.Compiler.Util
 open Fable.Cli.CustomLogging
 
-// ── arg parsing ──────────────────────────────────────────────────────────────
-
-let private usage = """fsharp-wasm — WasmGC compiler driver
+let private usage = """fsharp-wasm — WasmGC compiler
 
 Usage:
   fsharp-wasm [<project.fsproj|dir>] [options]
@@ -28,7 +27,7 @@ Options:
   --help           Show this message
 """
 
-type Args =
+type private Args =
     { Project : string option
       OutDir  : string option
       NoCache : bool
@@ -37,12 +36,12 @@ type Args =
 
 let private parseArgs argv =
     let rec loop acc = function
-        | [] -> Ok acc
-        | ("--help"|"-h") :: _ -> Error "help"
-        | "--outDir" :: d :: rest -> loop { acc with OutDir  = Some d }   rest
-        | "--noCache"    :: rest  -> loop { acc with NoCache = true }      rest
-        | "--verbose"    :: rest  -> loop { acc with Verbose = true }      rest
-        | "--silent"     :: rest  -> loop { acc with Silent  = true }      rest
+        | []                              -> Ok acc
+        | ("--help" | "-h") :: _          -> Error "help"
+        | "--outDir"  :: d :: rest         -> loop { acc with OutDir  = Some d } rest
+        | "--noCache"       :: rest        -> loop { acc with NoCache = true }   rest
+        | "--verbose"       :: rest        -> loop { acc with Verbose = true }   rest
+        | "--silent"        :: rest        -> loop { acc with Silent  = true }   rest
         | p :: rest when not (p.StartsWith("-")) ->
             match acc.Project with
             | Some _ -> Error "Multiple project paths"
@@ -50,18 +49,25 @@ let private parseArgs argv =
         | u :: _ -> Error $"Unknown argument: {u}"
     loop { Project=None; OutDir=None; NoCache=false; Verbose=false; Silent=false } (List.ofArray argv)
 
-let private resolveFsproj (projArg: string option) =
-    let root = Environment.CurrentDirectory
-    let path = projArg |> Option.map Path.GetFullPath |> Option.defaultValue root
+let private resolveFsproj projArg =
+    let path = projArg |> Option.map Path.GetFullPath |> Option.defaultValue Environment.CurrentDirectory
     if   File.Exists path      then Ok path
     elif Directory.Exists path then
         match Directory.GetFiles(path, "*.fsproj") with
         | [| f |] -> Ok f
-        | [||]    -> Error $"No .fsproj found in: {path}"
-        | _       -> Error $"Multiple .fsproj files in: {path} — specify one"
-    else Error $"Path does not exist: {path}"
+        | [||]    -> Error $"No .fsproj in: {path}"
+        | _       -> Error $"Multiple .fsproj in: {path} — specify one"
+    else Error $"Path not found: {path}"
 
-// ── entry point ──────────────────────────────────────────────────────────────
+/// Locate fable-library-wasmgc by searching upwards from the project directory.
+let private findFableLibWasmGc (projDir: string) =
+    let rec tryUp dir depth =
+        if depth > 5 then None
+        else
+            let candidate = Path.Combine(dir, "fable-library-wasmgc")
+            if Directory.Exists candidate then Some candidate
+            else tryUp (Path.GetDirectoryName dir) (depth + 1)
+    tryUp projDir 0
 
 [<EntryPoint>]
 let main argv =
@@ -74,56 +80,60 @@ let main argv =
     | Error msg -> eprintfn "Error: %s" msg; 1
     | Ok fsproj ->
 
-    let verbosity  = if args.Verbose then Verbosity.Verbose elif args.Silent then Verbosity.Silent else Verbosity.Normal
-    let logLevel   = if args.Verbose then LogLevel.Debug  elif args.Silent  then LogLevel.None    else LogLevel.Information
+    let verbosity = if args.Verbose then Verbosity.Verbose elif args.Silent then Verbosity.Silent else Verbosity.Normal
+    let logLevel  = if args.Verbose then LogLevel.Debug  elif args.Silent  then LogLevel.None    else LogLevel.Information
 
     use factory =
         LoggerFactory.Create(fun b ->
             b.SetMinimumLevel(logLevel)
              .AddCustomConsole(fun o -> o.UseNoPrefixMsgStyle <- true) |> ignore)
-    Fable.Compiler.Util.Log.setLogger verbosity (factory.CreateLogger "")
+    Log.setLogger verbosity (factory.CreateLogger "")
 
-    let projDir = Path.GetDirectoryName fsproj
-    let outDir  =
-        args.OutDir
-        |> Option.map (fun d -> if Path.IsPathRooted d then d else Path.GetFullPath d)
-        |> Option.defaultWith (fun () -> Path.Combine(projDir, "output"))
+    let projDir   = Path.GetDirectoryName fsproj
+    let outDir    = args.OutDir |> Option.map Path.GetFullPath
+                    |> Option.defaultWith (fun () -> Path.Combine(projDir, "output"))
+
+    // Use our own fable-library-wasmgc, NOT vendor Fable.Core
+    let fableLib  = findFableLibWasmGc projDir
+
+    if fableLib.IsNone && not args.Silent then
+        eprintfn "Warning: fable-library-wasmgc not found — LibraryDir will default to '.'"
 
     let cliArgs : CliArgs =
-        { ProjectFile  = Fable.Path.normalizeFullPath fsproj
-          RootDir      = Environment.CurrentDirectory
-          OutDir       = Some outDir
-          IsWatch      = false
-          Precompile   = false
-          PrecompiledLib  = None
-          PrintAst     = false
-          FableLibraryPath = None
-          Configuration = "Release"
-          NoRestore    = false
-          NoCache      = args.NoCache
+        { ProjectFile        = Fable.Path.normalizeFullPath fsproj
+          RootDir            = Environment.CurrentDirectory
+          OutDir             = Some outDir
+          IsWatch            = false
+          Precompile         = false
+          PrecompiledLib     = None
+          PrintAst           = false
+          FableLibraryPath   = fableLib   // ← our library, not Fable.Core
+          Configuration      = "Release"
+          NoRestore          = false
+          NoCache            = args.NoCache
           NoParallelTypeCheck = false
-          SourceMaps   = false
-          SourceMapsRoot = None
-          Exclude      = []
-          Replace      = Map.empty
-          RunProcess   = None
-          Verbosity    = verbosity
-          CompilerOptions =
+          SourceMaps         = false
+          SourceMapsRoot     = None
+          Exclude            = []
+          Replace            = Map.empty
+          RunProcess         = None
+          Verbosity          = verbosity
+          CompilerOptions    =
               CompilerOptionsHelper.Make(
-                  language    = Language.WasmGc,
-                  fileExtension = ".wasm",
-                  define      = [ "FABLE_COMPILER"; "FABLE_COMPILER_5"; "FABLE_COMPILER_WASMGC" ],
-                  debugMode   = false,
+                  language         = Language.WasmGc,
+                  fileExtension    = ".wasm",
+                  define           = [ "FABLE_COMPILER"; "FABLE_COMPILER_5"; "FABLE_COMPILER_WASMGC" ],
+                  debugMode        = false,
                   optimizeFSharpAst = false,
-                  verbosity   = verbosity) }
-
-    let state = Fable.Cli.Main.State.Create(cliArgs)
+                  verbosity        = verbosity) }
 
     try
-        match Fable.Cli.Main.startCompilationAsync state |> Async.RunSynchronously with
+        match Fable.Cli.Main.State.Create(cliArgs)
+              |> Fable.Cli.Main.startCompilationAsync
+              |> Async.RunSynchronously with
         | Ok (_, logs) ->
-            for l in logs do
-                if not args.Silent then Log.log l.Severity l.Message
+            if not args.Silent then
+                for l in logs do Log.log l.Severity l.Message
             0
         | Error (msg, logs) ->
             for l in logs do eprintfn "%s" l.Message

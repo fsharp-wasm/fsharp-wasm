@@ -14,6 +14,8 @@ open WasmGc.Patterns.ListPatterns
 
 open Tests.WasmTestHelper
 
+module WExprQuery = WasmGc.Util.WExprQuery
+
 [<Tests>]
 let whileBangTests = testList "while! loop generation" [
 

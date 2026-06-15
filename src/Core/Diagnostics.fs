@@ -72,6 +72,9 @@ module Code =
     let UninitializedLocal = "WGC006"
     /// Generic monomorphization limit hit.
     let MonoLimit          = "WGC007"
+    /// transformExpr returned Nop for a non-Unit-typed expression — the
+    /// enclosing Let/If/struct.new will be missing a stack value.
+    let NonVoidNop         = "WGC008"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Diagnostic bag
@@ -155,3 +158,22 @@ let unhandledImport
         func = defaultArg funcName "<global>",
         msg  = sprintf "Unhandled import call '%s' from '%s' — emitting Nop." importName fromFile,
         hint = sprintf "Add a handler for '%s' in FSharpCoreReplacements or TransformExpr." importName)
+
+let nonVoidNop
+        (bag: DiagnosticBag)
+        (exprDescription: string)
+        (funcName: string option)
+        (range: SourceLocation option)
+        : unit =
+    let loc = range |> Option.map SourceLoc.FromFable |> Option.defaultValue SourceLoc.Unknown
+    // Truncate — Fable.Expr `%A` dumps can be enormous (nested ASTs).
+    let desc =
+        if exprDescription.Length > 160 then exprDescription.Substring(0, 160) + " …"
+        else exprDescription
+    bag.Error(
+        Code.NonVoidNop, loc,
+        func = defaultArg funcName "<global>",
+        msg  = sprintf "Expression of non-Unit type compiled to Nop (produces no value): %s" desc,
+        hint = "This expression shape is unhandled in TransformExpr/TransformDispatch. \
+                The enclosing Let/If/struct.new now has a missing operand and the \
+                function WILL fail WAT/WASM validation. Add a case for this expression.")

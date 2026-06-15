@@ -13,6 +13,8 @@ open WasmGc.Bcl.StringHelpers
 
 module RT = WasmGc.Bcl.StringHelpers
 
+module WExprQuery = WasmGc.Util.WExprQuery
+
 open Tests.WasmTestHelper
 
 [<Tests>]

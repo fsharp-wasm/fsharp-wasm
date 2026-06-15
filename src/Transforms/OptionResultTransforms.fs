@@ -1,13 +1,5 @@
 /// WasmGC inline replacements for Option<'T> and Result<'T,'E>.
 /// FableQuery DSL integrated — UnaryLambda replaces Lambda|Delegate([f]) throughout.
-///
-/// Design: the `wasm { }` CE (WasmGcBuilder) eliminates all explicit `tmp`
-/// local-variable plumbing.  The private `optBranch` helper encodes the
-/// shared "bind opt, RefIsNull test, dispatch" skeleton so each combinator
-/// only expresses the semantic difference between None and Some branches.
-///
-/// Compared to the old code (one explicit let-binding + two LocalGet refs
-/// per combinator):  -40 % lines, zero magic string variable names.
 module WasmGc.Transforms.OptionResultTransforms
 
 open Fable
@@ -18,10 +10,10 @@ open WasmGc.Runtime.Types
 
 open WasmGc.Builder.Core
 open WasmGc.Runtime.Runtime
-open WasmGc.Util.FableQuery   // ← DSL
+open WasmGc.Util.FableQuery
 
 // ─────────────────────────────────────────────────────────────────
-// Private helpers — Option encoding
+// Option encoding helpers
 // ─────────────────────────────────────────────────────────────────
 
 /// Extract the inner value from a known-non-null option expression.
@@ -142,13 +134,13 @@ let tryResultInline
 
     let resultInstKey (t: Fable.Type) =
         match t with
-        | Type.DeclaredType(e, gs) when gs.IsEmpty -> e.FullName
+        | Type.DeclaredType(e, []) -> e.FullName
         | Type.DeclaredType(e, gs) ->
             let argKeys = gs |> List.map (fun t -> wTypeKey (mapTypeKnown ctx t)) |> String.concat ","
             $"{e.FullName}<{argKeys}>"
         | _ -> ""
 
-    /// Shared skeleton for Result combinators: bind result to a local, tag-test Ok.
+    /// Shared skeleton: bind result → test Ok tag (tag == 0) → dispatch.
     let resultBranch (wResult: WExpr) (okCase: WExpr -> WExpr) =
         wasm {
             let! res = wResult
@@ -156,19 +148,39 @@ let tryResultInline
             return makeIf isOk (okCase res) res ty
         }
 
-    let withOkCase selector (resultArg: Fable.Expr) (farg: Fable.Ident) fbody =
+    /// Result.bind / Result.mapError — extract Ok payload, run body, return wBody directly.
+    /// wBody must itself produce a Result (bind) or the same Error type (mapError).
+    let withBindCase (resultArg: Fable.Expr) (farg: Fable.Ident) fbody =
         let instKey = resultInstKey resultArg.Type
         match ctx.GenericDuRegistry.TryGetValue(instKey) with
-        | true, baseIdx ->
+        | true, _ ->
             match ctx.GenericDuRegistry.TryGetValue($"{instKey}#0") with
             | true, okCaseIdx ->
-                let innerT   = mapTypeKnown ctx farg.Type
-                let okRef    = WType.Ref(okCaseIdx, false)
-                let wBody    = transform (ctx.WithLocal(farg.Name, innerT)) fbody
+                let innerT = mapTypeKnown ctx farg.Type
+                let okRef  = WType.Ref(okCaseIdx, false)
+                let wBody  = transform (ctx.WithLocal(farg.Name, innerT)) fbody
                 Some(resultBranch (transform ctx resultArg) (fun res ->
-                    let castedOk = cast res okRef
-                    let innerVal = structGet castedOk 1 innerT
+                    let innerVal = structGet (cast res okRef) 1 innerT
                     WExpr.Let(farg.Name, innerVal, wBody)))
+            | _ -> None
+        | _ -> None
+
+    /// Result.map — extract Ok payload, apply f, RE-WRAP in Ok(0, f(x)).
+    /// wBody is the NEW inner value — must be boxed back into Ok variant.
+    let withMapCase (resultArg: Fable.Expr) (farg: Fable.Ident) fbody =
+        let instKey = resultInstKey resultArg.Type
+        match ctx.GenericDuRegistry.TryGetValue(instKey) with
+        | true, _ ->
+            match ctx.GenericDuRegistry.TryGetValue($"{instKey}#0") with
+            | true, okCaseIdx ->
+                let innerT = mapTypeKnown ctx farg.Type
+                let okRef  = WType.Ref(okCaseIdx, false)
+                let wBody  = transform (ctx.WithLocal(farg.Name, innerT)) fbody
+                // Critical: wrap the transformed value back in Ok(tag=0, newValue)
+                Some(resultBranch (transform ctx resultArg) (fun res ->
+                    let innerVal = structGet (cast res okRef) 1 innerT
+                    WExpr.Let(farg.Name, innerVal,
+                        WExpr.StructNew(okCaseIdx, [i32Zero; wBody], ty))))
             | _ -> None
         | _ -> None
 
@@ -180,30 +192,12 @@ let tryResultInline
     // Result.isError → tag != 0
     | "Result_IsError", [r] -> Some(ne (WExpr.TagOf(transform ctx r)) i32Zero)
 
-    // Result.map f r — if Ok x → Ok (f x) else Error (pass through)
-    // DSL: UnaryLambda handles both Lambda and Delegate([f]) cases
-    // TODO: use UnaryLambda ! 
+    // Result.map f r — Ok x → Ok (f x), Error e → Error e
     | "Result_Map",  [UnaryLambda(farg, fbody); resultArg] ->
-        withOkCase selector resultArg farg fbody
-        // TODO: like withOkCase?!
-    //    let instKey = resultInstKey resultArg.Type
-    //    match ctx.GenericDuRegistry.TryGetValue(instKey) with
-    //    | true, _ ->
-    //        match ctx.GenericDuRegistry.TryGetValue($"{instKey}#0") with
-    //        | true, okCaseIdx ->
-    //            let innerT   = mapTypeKnown ctx farg.Type
-    //            let okRef    = WType.Ref(okCaseIdx, false)
-    //            let wBody    = transform (ctx.WithLocal(farg.Name, innerT)) fbody
-    //            Some(resultBranch (transform ctx resultArg) (fun res ->
-    //                let castedOk = cast res okRef
-    //                let innerVal = structGet castedOk 1 innerT
-    //                WExpr.Let(farg.Name, innerVal,
-    //                    WExpr.StructNew(okCaseIdx, [i32Zero; wBody], ty))))
-    //        | _ -> None
-    //    | _ -> None
+        withMapCase resultArg farg fbody
 
-    // Result.bind f r — if Ok x → f x else Error (pass through)
+    // Result.bind f r — Ok x → f x (f returns Result), Error e → Error e
     | "Result_Bind", [UnaryLambda(farg, fbody); resultArg] ->
-        withOkCase selector resultArg farg fbody
+        withBindCase resultArg farg fbody
 
     | _ -> None

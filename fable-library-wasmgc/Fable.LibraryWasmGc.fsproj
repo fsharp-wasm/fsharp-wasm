@@ -23,6 +23,7 @@
     <Compile Include="Core/Option.fs" />
     <!-- Result<'T,'E> — combinators over F#'s built-in Result type -->
     <Compile Include="Core/Result.fs" />
+    <Compile Include="Core/WasmGcModule.fs" />
 
     <!-- ── Tier 2: Collections ──────────────────────────────────────────────── -->
     <!-- Map<int,'V> — BST; key must be comparable (int for now) -->
