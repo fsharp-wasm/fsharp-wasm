@@ -435,7 +435,11 @@ OUTPUT TYPE: {result.OutputType}
                 "Compiling project as Library. If you intend to run the code directly, please set OutputType to Exe."
         | _ -> ()
 
-        let sourceFiles = result.ProjectOptions.SourceFiles |> Array.map Fable.Compiler.File
+        let sourceFiles = 
+            result.ProjectOptions.SourceFiles 
+            |> Array.map Fable.Compiler.File
+            |> List.fold (fun acc file -> file :: acc) []
+            |> List.rev
 
         ProjectCracked(cliArgs, result, sourceFiles)
 

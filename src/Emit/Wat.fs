@@ -428,12 +428,28 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
             w "i32.const 0"
             emit operand
             w "i32.sub"
+            w $"local.set {watId name}"
         | WExpr.Unary(WUnaryOp.Neg, operand, WType.I64) ->
             w "i64.const 0"
             emit operand
             w "i64.sub"
-        | _ -> emit value
-        w $"local.set {watId name}"
+            w $"local.set {watId name}"
+        | _ when exprWType value = WType.Void ->
+            // `value` produced NO stack output (Nop, or any expr whose
+            // exprWType is Void). Emitting `local.set` here would pop from
+            // an empty stack and invalidate the entire function — this is
+            // the func-39 "expected i32 but nothing on stack" failure.
+            //
+            // This always indicates an unhandled Fable expression upstream
+            // (see Diagnostics WGC008, emitted by transformExpr). Skip the
+            // assignment: numeric locals default to 0, nullable ref locals
+            // default to null. The local keeps its default value instead of
+            // corrupting the function's stack balance.
+            eprintfn $"[WasmGc] WARNING: binding '%s{name}' produced no value (Nop) \
+                       — skipping local.set. See WGC008 for the unhandled expression."
+        | _ ->
+            emit value
+            w $"local.set {watId name}"
         emit body
 
     // ── Assignment ────────────────────────────────────────

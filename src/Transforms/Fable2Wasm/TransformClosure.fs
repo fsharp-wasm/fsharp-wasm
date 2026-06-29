@@ -72,3 +72,29 @@ and buildLetRecLambdas
         (body     : Fable.Expr)
         : WExpr =
     ClosureBuilder.buildLetRecLambdas ctx eval bindings body
+
+
+// let emitWasmClosureCall 
+//     (ctx      : Ctx) 
+//     closureExpr
+//     (args     : Ident list)
+//     typeInfo =
+//     // Assumes closure structure: field 0 = function ref, field 1 = environment payload
+    
+//     // 1. Push the closure struct instance to the stack
+//     let closureLocal = ctx.AllocateLocal(closureExpr.Type)
+    
+//     // 2. Extract the function pointer from the closure struct
+//     let funcRef = WExpr.StructGet(closureExpr, 0)
+    
+//     // 3. Extract the context environment payload
+//     let envPayload = WExpr.StructGet(closureExpr, 1)
+    
+//     // 4. Combine environment payload and arguments into the call parameters
+//     let callParams = envPayload :: args
+    
+//     // 5. Emit CallRef / TailCallRef instead of CallIndirect
+//     if ctx.IsTailCallContext then
+//         WExpr.TailCallRef(funcRef, callParams)
+//     else
+//         WExpr.CallRef(funcRef, callParams)

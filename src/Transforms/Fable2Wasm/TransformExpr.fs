@@ -73,7 +73,23 @@ let jsTypedArrayElemType (name: string) : (WType * WExpr) option =
     | "Float64Array"                   -> Some(WType.F64, f64Const 0.0)
     | _                                -> None
 
+/// Recursive entry point. Wraps transformExprCore with a single diagnostic
+/// chokepoint: if a non-Unit-typed Fable expression compiles to Nop, that is
+/// ALWAYS a compiler bug (the result is used as a value somewhere — a Let
+/// binding, an If branch, a struct.new field — and Nop produces nothing on
+/// the stack). Reporting it here, at the source expression, is far more
+/// actionable than the resulting "expected i32 but nothing on stack" error
+/// from wasm-tools three transforms later.
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
+    let result = transformExprCore ctx expr
+    match result, expr.Type with
+    | WExpr.Nop, ty when ty <> Fable.Type.Unit ->
+        WasmGc.Core.Diagnostics.nonVoidNop
+            ctx.Diagnostics (sprintf "%A" expr) ctx.CurrentFunc expr.Range
+    | _ -> ()
+    result
+
+and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     match expr with
     // ── Emit: ResizeArray.Add(x) emits "void ($0)" wrapping a .push() InstanceCall ──
     | Fable.Expr.Emit(info, _, _)
@@ -635,6 +651,24 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let wFinally = finalizer |> Option.map (transformExpr ctx)
         let ty = mapType body.Type
         WExpr.TryCatch(wBody, wCatch, wFinally, ty)
+
+    // | Fable.Extended(Fable.Curry(expr, arity), typeInfo) ->
+    //     // 1. Transform the underlying function expression
+    //     let transformedInner = transformExpr ctx expr
+        
+    //     // 2. Generate a WasmGC closure allocation (struct.new) 
+    //     // wrapping the function reference with an initial environment payload
+    //     emitWasmClosureCreation ctx transformedInner arity typeInfo
+
+    // | Fable.CurriedApply(applied, args, typeInfo) ->
+    //     // 1. Transform the closure identifier/expression
+    //     let transformedApplied = transformExpr ctx applied
+        
+    //     // 2. Transform the arguments being applied
+    //     let transformedArgs = args |> List.map (transformExpr ctx)
+        
+    //     // 3. Emit a closure invocation sequence instead of falling back to Nop
+    //     emitWasmClosureCall ctx transformedApplied transformedArgs typeInfo
 
     // ── Extended expressions ──────────────────────────────
     | Fable.Expr.Extended(kind, _range) ->

@@ -18,7 +18,7 @@ module PipelineHelper =
         // Note: adjust the path to Fable.Cli based on your test runner's working directory
         // let fableCliPath = Path.GetFullPath("../../vendor/Fable/src/Fable.Cli") 
         let fsharpWasmCliPath = Path.Combine(__SOURCE_DIRECTORY__, "../../../tools/FSharp.Wasm.Cli")
-        psi.Arguments <- $"run --project \"{fsharpWasmCliPath}\" -- \"{projectDir}\" --outDir \"{outDir}\" --noCache --noParallelTypeCheck"
+        psi.Arguments <- $"run --project \"{fsharpWasmCliPath}\" -- \"{projectDir}\" --outDir \"{outDir}\" --noCache"
         
         psi.RedirectStandardOutput <- true
         psi.RedirectStandardError <- true

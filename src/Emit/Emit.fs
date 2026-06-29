@@ -121,18 +121,21 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
             failwithf "[WGC] Emit: unknown global '%s' in GlobalSet. All globals must be registered before emission." name
 
     // ── Let binding ───────────────────────────────────────
-    | WExpr.Let(name, value, body) ->
+    | WExpr.Let(name, value, body) | WExpr.LetMut(name, value, body) ->
         let valueInstrs = emitExpr ctx value
-        let localIdx = ctx.GetLocalIdx name
-        let bodyInstrs = emitExpr ctx body
-        valueInstrs @ [Instr.LocalSet localIdx] @ bodyInstrs
-
-    | WExpr.LetMut(name, value, body) ->
-        // Same as Let — local is mutable by default in WASM
-        let valueInstrs = emitExpr ctx value
-        let localIdx = ctx.GetLocalIdx name
-        let bodyInstrs = emitExpr ctx body
-        valueInstrs @ [Instr.LocalSet localIdx] @ bodyInstrs
+        let bodyInstrs  = emitExpr ctx body
+        if exprWType value = WType.Void then
+            // See Wat.fs PATCH 1 — `value` produced no stack output (Nop).
+            // Emitting LocalSet here underflows the stack and produces an
+            // invalid module (the func-39 failure). Skip the set; the local
+            // keeps its WASM-mandated zero/null default. WGC008 (Diagnostics)
+            // reports the unhandled expression that caused this separately.
+            eprintfn $"[WasmGc] WARNING: binding '%s{name}' produced no value (Nop) \
+                       — skipping LocalSet. See WGC008 for the unhandled expression."
+            valueInstrs @ bodyInstrs
+        else
+            let localIdx = ctx.GetLocalIdx name
+            valueInstrs @ [Instr.LocalSet localIdx] @ bodyInstrs
 
     // ── Assignment ────────────────────────────────────────
     | WExpr.Assign(name, value) ->
