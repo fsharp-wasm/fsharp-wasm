@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference> -->
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <AssemblyName>WasmGc.Core</AssemblyName>
     <Nullable>enable</Nullable> <!-- TODO: we should fix this ? -->
     <LangVersion>preview</LangVersion>

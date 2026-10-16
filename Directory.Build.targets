@@ -10,7 +10,8 @@
             DisableImplicitFSharpCoreReference above.
         -->
         <!-- <PackageReference Update="FSharp.Core"             Version="10.1.203" /> -->
-        <PackageReference Update="FSharp.Core"             Version="10.1.204" />
+        <!-- <PackageReference Update="FSharp.Core"             Version="10.1.204" /> -->
+        <PackageReference Update="FSharp.Core"             Version="11.0.*" />
         <!--
             The main FCS package.  Includes the compiler, symbol APIs, and the
             FSharpChecker public surface that InteractiveChecker.fs now uses.

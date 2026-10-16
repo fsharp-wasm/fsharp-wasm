@@ -200,6 +200,10 @@ type Ctx =
         /// Controls whether a linear memory section is emitted in the output.
         HasLinearMemory: bool ref
 
+        /// Monotonically increasing counter for generating globally-unique closure names.
+        /// Shared (mutable ref cell) so multiple closure variants don't get duplicate names.
+        ClosureCounter: int ref
+
         /// Structured diagnostic accumulator — collect errors/warnings with source locations.
         /// Replaces scattered eprintfn calls. Flushed and checked before WASM emit.
         Diagnostics: WasmGc.Core.Diagnostics.DiagnosticBag
@@ -263,6 +267,7 @@ type Ctx =
             DecisionTreeCounter = ref 0
             TargetBase = ref 0
             HasLinearMemory = ref false
+            ClosureCounter = ref 0
             Diagnostics     = WasmGc.Core.Diagnostics.DiagnosticBag()
         }
 

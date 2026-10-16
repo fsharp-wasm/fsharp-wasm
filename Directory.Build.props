@@ -1,7 +1,7 @@
 <Project>
   <!-- Global defaults for first-party projects (applies repo-wide) -->
   <PropertyGroup>
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net11.0</TargetFramework>
     <LangVersion Condition="'$(LangVersion)' == ''">preview</LangVersion>
     <Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
     <Deterministic>true</Deterministic>

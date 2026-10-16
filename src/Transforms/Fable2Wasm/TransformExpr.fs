@@ -487,6 +487,23 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         buildFor ctx ident wStart wLimit wBody isUp
 
     // ── Function calls ────────────────────────────────────
+    // ── JS Typed Array constructors in Call expressions ────
+    // Handles: Call(IdentExpr "Int32Array", [size], typ)
+    // These are JS typed array constructors with no WasmGC equivalent.
+    // We translate to ArrayNew(elemTypeIdx, size, zeroVal, arrRefTy).
+    | Call(Fable.Expr.IdentExpr ctorIdent, info, typ, _) 
+        when jsTypedArrayElemType ctorIdent.Name |> Option.isSome ->
+        let elemWTy, zeroVal =
+            match jsTypedArrayElemType ctorIdent.Name with
+            | Some (et, zv) -> et, zv
+            | None -> WType.I32, i32Zero // unreachable
+        let wSize =
+            info.Args |> List.tryHead
+            |> Option.map (transformExpr ctx)
+            |> Option.defaultValue i32Zero
+        let arrTypeIdx = getOrAddArrayType ctx elemWTy
+        WExpr.ArrayNew(arrTypeIdx, wSize, zeroVal, WType.Ref(arrTypeIdx, false))
+
     | Call(callee, info, typ, _) ->
         // Delegation to TransformDispatch
         transformCall ctx transformExpr callee info typ

@@ -145,7 +145,8 @@ let filterCaptures (ctx: Ctx) (freeVarNames: string list) : (string * WType) lis
 
 /// Build a unique closure function name from a base name and current TypeDefs count.
 let closureName (baseName: string) (ctx: Ctx) : string =
-    sprintf "%s_%d" baseName ctx.TypeDefs.Count
+    let counter = System.Threading.Interlocked.Increment(ctx.ClosureCounter)
+    sprintf "%s_%d" baseName counter
 
 /// Build a closure for a plain lambda/delegate.
 /// `eval` is transformExpr — passed to break the circular reference.
