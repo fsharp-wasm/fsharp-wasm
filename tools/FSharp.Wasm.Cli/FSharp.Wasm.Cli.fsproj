@@ -23,7 +23,6 @@
       Fable.Cli for CompilerImpl, Pipeline dispatch, and Project.From.
       We reference as library (OutputType=Exe is fine for project references).
     -->
-    <!-- <ProjectReference Include="../../vendor/Fable/src/Fable.Cli/Fable.Cli.fsproj" /> -->
 
     <Compile Include="../../vendor/Fable/src/Fable.Cli/Contributors.fs" />
     <Compile Include="../../vendor/Fable/src/Fable.Cli/Printers.fs" />
@@ -48,7 +47,7 @@
     </ProjectReference>
     <ProjectReference Include="../../vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
   </ItemGroup>
-  
+
   <ItemGroup>
     <!--
       Reference our WasmGc backend — provides WasmGcPipeline.compileFile.
@@ -60,7 +59,7 @@
       <!-- <ExcludeAssets>runtime</ExcludeAssets> -->
     </ProjectReference>
   </ItemGroup>
-  
+
   <ItemGroup>
     <!-- <PackageReference Include="EasyBuild.PackageReleaseNotes.Tasks" Version="2.1.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

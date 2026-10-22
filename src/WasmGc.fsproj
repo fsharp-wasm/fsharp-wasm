@@ -7,7 +7,7 @@
       Source files are physically in this directory — no fork dependency.
     -->
     <TargetFramework>net11.0</TargetFramework>
-    <LangVersion>10.0</LangVersion>
+    <!-- <LangVersion>10.0</LangVersion> -->
 
     <IsPackable>true</IsPackable>
     <!-- <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference> -->

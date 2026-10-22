@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AssemblyName>WasmGc.Patterns</AssemblyName>
-    <TargetFramework>net11.0</TargetFramework>
-    <LangVersion>preview</LangVersion>
+    <!-- <TargetFramework>net11.0</TargetFramework> -->
+    <!-- <LangVersion>preview</LangVersion> -->
     <Nullable>enable</Nullable>
     <!--
       WasmGC algorithm library — pure WExpr builders with NO Fable.AST dependency.
@@ -15,7 +15,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- <PackageReference Update="FSharp.Core" Version="10.1.204" /> -->
-    <PackageReference Update="FSharp.Core" Version="11.0.*" />
+    <PackageReference Update="FSharp.Core" Version="11.0.100" />
 
     <ProjectReference Include="../Core/WasmGc.Core.fsproj" />
     <ProjectReference Include="../Builder/WasmGc.Builder.fsproj" />

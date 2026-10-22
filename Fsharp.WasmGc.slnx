@@ -13,7 +13,6 @@
   <Folder Name="/vendor/" />
   <Folder Name="/vendor/Fable/">
     <Project Path="vendor/Fable/src/Fable.AST/Fable.AST.fsproj" />
-    <Project Path="vendor/Fable/src/Fable.Cli/Fable.Cli.fsproj" />
     <Project Path="vendor/Fable/src/Fable.Compiler/Fable.Compiler.fsproj" />
     <Project Path="vendor/Fable/src/Fable.Core/Fable.Core.fsproj" />
     <Project Path="vendor/Fable/src/Fable.Transforms/Fable.Transforms.fsproj" />
