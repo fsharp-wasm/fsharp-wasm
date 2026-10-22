@@ -1,7 +1,7 @@
 <Project>
   <!-- Global defaults for first-party projects (applies repo-wide) -->
   <PropertyGroup>
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net11.0</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0</TargetFramework>
     <LangVersion Condition="'$(LangVersion)' == ''">preview</LangVersion>
     <Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
     <Deterministic>true</Deterministic>
@@ -18,9 +18,9 @@
     <FableCoreNet10>true</FableCoreNet10>
     <DefineConstants>$(DefineConstants);FABLE_CORE_NET10</DefineConstants>
 
-    <FableCoreVersion>net11.0</FableCoreVersion>
+    <FableCoreVersion>net10.0</FableCoreVersion>
 
-    <FSharpNetCoreProductTargetFramework>net11.0</FSharpNetCoreProductTargetFramework>
+    <FSharpNetCoreProductTargetFramework>net10.0</FSharpNetCoreProductTargetFramework>
   </PropertyGroup>
 
   <!--
@@ -34,7 +34,7 @@
       DOTNET_INSTALL_DIR=dotnet-root ./build.sh -configuration Release
 
     FSHARP_COMPILER is set to:
-      vendor/fsharp/artifacts/bin/fsc/Release/net11.0/fsc.dll
+      vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
   -->
   <PropertyGroup Condition="'$(FSHARP_COMPILER)' != ''">
     <!-- <FscToolPath>$([System.IO.Path]::GetDirectoryName('$(FSHARP_COMPILER)'))</FscToolPath> -->

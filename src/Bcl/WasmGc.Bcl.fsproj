@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference> -->
-    <TargetFramework>net11.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>WasmGc.Bcl</AssemblyName>
   </PropertyGroup>
   <ItemGroup>

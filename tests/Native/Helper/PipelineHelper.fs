@@ -66,7 +66,7 @@ let private runFable (source: string) (extraIncludes: string list) : string * st
 <Project Sdk="Microsoft.NET.Sdk">
 <PropertyGroup>
 <OutputType>Exe</OutputType>
-<TargetFramework>net11.0</TargetFramework>
+<TargetFramework>net10.0</TargetFramework>
 </PropertyGroup>
 <ItemGroup>
 <Compile Include="{Path.Combine(sourceDir, "../../fable-library-wasmgc/Core/Interop.fs")}" />
