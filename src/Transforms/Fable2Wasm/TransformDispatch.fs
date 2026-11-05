@@ -682,12 +682,9 @@ let transformCall
                     // This is a closure parameter — dispatch via ClosureApply.
                     // Self-parameter convention (Sprint 25b): prepend ref $AnyFn as first param.
                     let wClosure = WExpr.LocalGet(ident.Name, WType.Ref(AnyFnTypeIdx, false))
-                    let selfType = WType.Ref(AnyFnTypeIdx, false)
-                    let wArgsFilt = wArgs |> List.filter (fun a -> exprWType a <> WType.Void)
-                    let argTypes = wArgsFilt |> List.map exprWType
-                    let funcTypeIdx = ctx.GetOrAddFuncType(selfType :: argTypes, ty)
-                    let closureTypeIdx = match ctx.FuncTypeToClosureMap.TryGetValue(funcTypeIdx) with | true, cti -> cti | false, _ -> AnyFnTypeIdx
-                    WExpr.ClosureApply(wClosure, wArgsFilt, funcTypeIdx, closureTypeIdx, 0, ty)
+                    // Func type from the callee's declared type (see ClosureBuilder.applyClosure);
+                    // the ClosureBase is created on demand so closureTypeIdx is never 0.
+                    ClosureBuilder.applyClosure ctx ident.Type wClosure (info.Args |> List.map (fun a -> a.Type)) wArgs ty
                 | _ -> WExpr.Call(actualName, wArgs, ty)  // Direct function call (non-generic or unregistered generic).
 
         | Import(importInfo, _, _) ->
@@ -921,3 +918,4 @@ let transformCall
             // Indirect call (TODO: closure apply)
             let wCallee = eval ctx callee
             WExpr.CallIndirect(wCallee, wArgs, ty)
+

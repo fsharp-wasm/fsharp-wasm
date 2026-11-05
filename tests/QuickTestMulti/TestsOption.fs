@@ -146,13 +146,13 @@ let testOptionModuleCountSome () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runOptionTests (check: string -> (unit -> unit) -> unit) =
-    check "testOptionSome" (fun () -> ignore (testOptionSome ()))
-    check "testOptionNone" (fun () -> ignore (testOptionNone ()))
-    check "testOptionDoubleSome" (fun () -> ignore (testOptionDoubleSome ()))
+    check "testOptionSome" (fun () -> ignore (testOptionSome 5 0))
+    check "testOptionNone" (fun () -> ignore (testOptionNone 7))
+    check "testOptionDoubleSome" (fun () -> ignore (testOptionDoubleSome 5))
     check "testOptionDoubleNone" (fun () -> ignore (testOptionDoubleNone ()))
-    check "testOptionIsSome" (fun () -> ignore (testOptionIsSome ()))
+    check "testOptionIsSome" (fun () -> ignore (testOptionIsSome 5))
     check "testOptionIsNone" (fun () -> ignore (testOptionIsNone ()))
-    check "testOptionNested" (fun () -> ignore (testOptionNested ()))
+    check "testOptionNested" (fun () -> ignore (testOptionNested 5))
     check "testOptionMap" (fun () -> ignore (testOptionMap ()))
     check "testOptionBind" (fun () -> ignore (testOptionBind ()))
     check "testOptionValue" (fun () -> ignore (testOptionValue ()))
@@ -171,3 +171,4 @@ let runOptionTests (check: string -> (unit -> unit) -> unit) =
     check "testOptionModuleDefaultValueSome" (fun () -> ignore (testOptionModuleDefaultValueSome ()))
     check "testOptionModuleCountNone" (fun () -> ignore (testOptionModuleCountNone ()))
     check "testOptionModuleCountSome" (fun () -> ignore (testOptionModuleCountSome ()))
+

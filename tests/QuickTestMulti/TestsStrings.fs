@@ -433,10 +433,6 @@ let testStrCompareGt () : int =
 
 // ── Showcase: Recursion ───────────────────────────────────────────────────
 
-/// Fibonacci (recursive)
-let rec fibonacci (n: int) : int =
-    if n <= 1 then n else fibonacci (n - 1) + fibonacci (n - 2)
-
 // Note: GeoShape tests moved to TestsDU (testRefTestCircle, testRefTestRect, testRefTestDot)
 
 // ─── Math.Exp ────────────────────────────────────────────────────────────────
@@ -556,3 +552,4 @@ let runStringsTests (check: string -> (unit -> unit) -> unit) =
     check "testStrCompareEq" (fun () -> ignore (testStrCompareEq ()))
     check "testStrCompareLt" (fun () -> ignore (testStrCompareLt ()))
     check "testStrCompareGt" (fun () -> ignore (testStrCompareGt ()))
+

@@ -35,7 +35,7 @@ type private Args =
       Silent  : bool }
 
 let private parseArgs argv =
-    let rec loop acc = function
+    let rec loop (acc: Args) = function
         | []                              -> Ok acc
         | ("--help" | "-h") :: _          -> Error "help"
         | "--outDir"  :: d :: rest         -> loop { acc with OutDir  = Some d } rest
@@ -111,6 +111,7 @@ let main argv =
           Configuration      = "Release"
           NoRestore          = false
           NoCache            = args.NoCache
+          NoGitignore        = false
           NoParallelTypeCheck = false
           SourceMaps         = false
           SourceMapsRoot     = None
@@ -143,4 +144,5 @@ let main argv =
         eprintfn "Fatal: %s" ex.Message
         if args.Verbose then eprintfn "%s" ex.StackTrace
         1
+
 

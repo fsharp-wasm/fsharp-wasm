@@ -188,6 +188,9 @@ let testPopcnt_allOnes () : int = System.Numerics.BitOperations.PopCount(0xFFFFF
 
 // ─── StringBuilder ────────────────────────────────────────────────────────────
 
+let private roundTo6 (x: float) : int =
+    int (System.Math.Round(x * 1_000_000.0))
+
 let testAtan2Origin () : int =
     // atan2(0, 1) = 0
     roundTo6 (System.Math.Atan2(0.0, 1.0))  // 0
@@ -222,7 +225,7 @@ let testAtan2Q3 () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runMathTests (check: string -> (unit -> unit) -> unit) =
-    check "testDistanceFromOrigin" (fun () -> ignore (testDistanceFromOrigin ()))
+    check "testDistanceFromOrigin" (fun () -> ignore (testDistanceFromOrigin 3.0 4.0))
     check "testFib10" (fun () -> ignore (testFib10 ()))
     check "testFib15" (fun () -> ignore (testFib15 ()))
     check "testIsPrime7" (fun () -> ignore (testIsPrime7 ()))
@@ -263,3 +266,4 @@ let runMathTests (check: string -> (unit -> unit) -> unit) =
     check "testAtan2PosY" (fun () -> ignore (testAtan2PosY ()))
     check "testAtan2NegY" (fun () -> ignore (testAtan2NegY ()))
     check "testAtan2Q3" (fun () -> ignore (testAtan2Q3 ()))
+

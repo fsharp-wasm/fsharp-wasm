@@ -135,3 +135,22 @@ let intCmp (a: int) (b: int) : int =
 let roundTo6 (x: float) : float =
     let scale = 1000000.0
     System.Math.Round(x * scale) / scale
+
+// ── Shared definitions ────────────────────────────────────────────────────
+// Used by several test modules (TestsMath, TestsPrimitives, TestsStrings, Runner). They lived in the
+// monolith (QuickTestWasmGc.fs) where definition order resolved them; after the split they must be
+// in a module that is compiled first and opened by everyone.
+
+type Point = { X: float; Y: float }
+
+let distanceFromOrigin (p: Point) : float =
+    p.X * p.X + p.Y * p.Y  // x² + y²
+
+type Rect = { TopLeft: Point; BottomRight: Point }
+
+let rectWidth (r: Rect) : float =
+    r.BottomRight.X - r.TopLeft.X
+
+/// Fibonacci (recursive)
+let rec fibonacci (n: int) : int =
+    if n <= 1 then n else fibonacci (n - 1) + fibonacci (n - 2)

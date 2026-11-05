@@ -102,6 +102,7 @@
     <!-- <Compile Include="Runtime/LoopPrimitives.fs" /> -->
     <Compile Include="Runtime/VTable.fs" />
     <Compile Include="Runtime/LoopHelpers.fs" />
+    <Compile Include="Runtime/ArraySort.fs" />
     <Compile Include="Runtime/Runtime.fs" />
 
     <!-- Pipeline -->
@@ -156,3 +157,4 @@
     <ProjectReference Include="Runtime.Quotations/WasmGc.Quotations.fsproj" />
   </ItemGroup>
 </Project>
+

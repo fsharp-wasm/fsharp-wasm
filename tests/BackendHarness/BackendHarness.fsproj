@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Back-end regression harness: hand-built WExpr modules (mirroring what the Fable front end emits)
+       are pushed through Normalize → Lower → Locals → Validate → Optimize → Emit/Encode (+ WAT),
+       then executed in V8 by run.sh.  Closure, exception, join-point, optimizer and operator-table
+       regressions are covered; every scenario runs through BOTH the WAT path and the binary encoder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <NoWarn>$(NoWarn);FS0025;FS3370</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Lib.fs" />
+    <Compile Include="EmitScenarios.fs" />
+    <Compile Include="OpTable.fs" />
+    <Compile Include="Scenarios.fs" />
+    <Compile Include="Fuzz.fs" />
+    <Compile Include="ClosureFuzz.fs" />
+    <Compile Include="FreeVarChecks.fs" />
+    <Compile Include="Main.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/WasmGc.fsproj" />
+  </ItemGroup>
+</Project>

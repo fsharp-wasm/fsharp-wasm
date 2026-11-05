@@ -7,10 +7,10 @@ open Fable.Core
 
 // ─── Records ───────────────────────────────────────────────────
 
-type Point = { X: float; Y: float }
+// type Point = { X: float; Y: float }
 
-let distanceFromOrigin (p: Point) : float =
-    p.X * p.X + p.Y * p.Y  // x² + y²
+// let distanceFromOrigin (p: Point) : float =
+//    p.X * p.X + p.Y * p.Y  // x² + y²
 
 let pointSum (x: float) (y: float) : float =
     let p = { X = x; Y = y }
@@ -46,10 +46,10 @@ let testMutRecord () : int =
 
 // ─── Nested records ────────────────────────────────────────────
 
-type Rect = { TopLeft: Point; BottomRight: Point }
-
-let rectWidth (r: Rect) : float =
-    r.BottomRight.X - r.TopLeft.X
+// type Rect = { TopLeft: Point; BottomRight: Point }
+// 
+// let rectWidth (r: Rect) : float =
+//     r.BottomRight.X - r.TopLeft.X
 
 let testRectWidth (x1: float) (y1: float) (x2: float) (y2: float) : float =
     rectWidth { TopLeft = { X = x1; Y = y1 }; BottomRight = { X = x2; Y = y2 } }
@@ -108,3 +108,4 @@ let runPrimitivesTests (check: string -> (unit -> unit) -> unit) : unit =
     check "testMinMaxSecond" (fun () -> ignore (testMinMaxSecond 3.0 1.0))
     check "testTripleSum" (fun () -> ignore (testTripleSum 1 2 3))
     check "testSortWith" (fun () -> ignore (testSortWith ()))
+

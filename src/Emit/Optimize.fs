@@ -45,6 +45,10 @@ module private InlineCfg =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// True iff `expr` has no observable side effects and can be dropped or moved.
+///
+/// Operations that can TRAP are not pure: dropping `let _ = arr.[i]` or `let _ = x / y` would turn
+/// an IndexOutOfRange / DivideByZero / InvalidCast into silent success.  That excludes
+/// ref.cast, struct.get (null deref), array.get (bounds), integer div/rem and float→int truncation.
 /// Conservative: any unknown node returns false.
 let rec isPure = function
     | WExpr.Const _
@@ -52,15 +56,21 @@ let rec isPure = function
     | WExpr.GlobalGet _
     | WExpr.Nop -> true
     | WExpr.Let(_, v, b) | WExpr.LetMut(_, v, b) -> isPure v && isPure b
-    | WExpr.Unary(_, x, _)
-    | WExpr.Cast(x, _)
+    | WExpr.Unary(op, x, _) ->
+        (match op with
+         | WUnaryOp.TruncF64S | WUnaryOp.TruncF32S -> false
+         | _ -> true)
+        && isPure x
     | WExpr.RefIsNull x
     | WExpr.RefTest(x, _)      -> isPure x
-    | WExpr.Binary(_, a, b, _)
+    | WExpr.Binary(op, a, b, ty) ->
+        let traps =
+            match op, ty with
+            | (WBinaryOp.DivS | WBinaryOp.DivU | WBinaryOp.RemS | WBinaryOp.RemU), (WType.I32 | WType.I64) -> true
+            | _ -> false
+        not traps && isPure a && isPure b
     | WExpr.Compare(_, a, b)   -> isPure a && isPure b
     | WExpr.If(c, t, e, _)     -> isPure c && isPure t && isPure e
-    | WExpr.StructGet(o, _, _) -> isPure o
-    | WExpr.ArrayGet(a, i, _)  -> isPure a && isPure i
     | WExpr.ArrayLen a         -> isPure a
     | WExpr.Sequence xs        -> List.forall isPure xs
     | WExpr.TagOf o            -> isPure o
@@ -82,11 +92,17 @@ let private applyJoin (label: string) (parms: (string * WType) list) (body: WExp
         | _ -> None) expr
 
 /// Inline join points that are applied exactly once (linear use).
-/// Pure functional — iterates to fixed point without mutation.
+/// Iterates to a fixed point.
+///
+/// Convergence is detected with an explicit "something was inlined" flag, NOT with `pass = expr`:
+/// F# equality on floats is IEEE (`nan = nan` is false), so any expression containing a NaN constant
+/// was never equal to itself and this loop never terminated (compiler hang on every function with a
+/// `match` and a `nan` literal).
 let rec private inlineJoins (expr: WExpr) : WExpr =
     let hasJoin = exists (function WExpr.JoinPoint _ -> true | _ -> false) expr
     if not hasJoin then expr
     else
+        let changed = ref false
         // Safe mode (default): inline only when single-use OR when duplication is safe.
         // Duplication considered safe when body is pure and small.
         let pass =
@@ -95,16 +111,25 @@ let rec private inlineJoins (expr: WExpr) : WExpr =
                     let uses = count (function WExpr.JoinApply(l,_,_) -> l = lbl | _ -> false) cont
                     // Inline when used once (no duplication) or the body is trivially cheap
                     if uses = 1 || (uses > 1 && isPure body && InlineCfg.isSmall body)
-                    then Some(applyJoin lbl parms body cont)
+                    then
+                        changed.Value <- true
+                        Some(applyJoin lbl parms body cont)
                     else None
                 | _ -> None) expr
-        // Fixed-point: keep inlining until nothing changes
-        if pass = expr then expr else inlineJoins pass
+        if changed.Value then inlineJoins pass else pass
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pass 2 — Constant folding + algebraic identities
 // ─────────────────────────────────────────────────────────────────────────────
 // Reference: any compiler textbook, e.g., Appel "Modern Compiler Implementation in ML" Ch. 17
+
+/// True iff the i32 value of `e` is guaranteed to be 0 or 1.
+let rec private isBool (e: WExpr) : bool =
+    match e with
+    | WExpr.Compare _ | WExpr.RefIsNull _ | WExpr.RefTest _ | WExpr.Unary(WUnaryOp.Eqz, _, _) -> true
+    | WExpr.Const(WConst.I32 n) -> n = 0 || n = 1
+    | WExpr.If(_, t, el, WType.I32) -> isBool t && isBool el
+    | _ -> false
 
 let private foldI32 op a b = WExpr.Const(WConst.I32(op a b))
 let private foldI64 op a b = WExpr.Const(WConst.I64(op a b))
@@ -118,8 +143,9 @@ let private foldConstants (expr: WExpr) : WExpr =
         | BinAdd(I32Lit a, I32Lit b, _) -> Some(foldI32 (+)  a b)
         | BinSub(I32Lit a, I32Lit b, _) -> Some(foldI32 (-)  a b)
         | BinMul(I32Lit a, I32Lit b, _) -> Some(foldI32 ( *) a b)
-        | WExpr.Binary(WBinaryOp.DivS, I32Lit a, I32Lit b, _) when b <> 0 -> Some(foldI32 (/) a b)
-        | WExpr.Binary(WBinaryOp.RemS, I32Lit a, I32Lit b, _) when b <> 0 -> Some(foldI32 (%) a b)
+        // MinValue / -1 overflows (and would throw inside the compiler); leave it to the runtime.
+        | WExpr.Binary(WBinaryOp.DivS, I32Lit a, I32Lit b, _) when b <> 0 && not (a = System.Int32.MinValue && b = -1) -> Some(foldI32 (/) a b)
+        | WExpr.Binary(WBinaryOp.RemS, I32Lit a, I32Lit b, _) when b <> 0 && b <> -1 -> Some(foldI32 (%) a b)
         | BinAnd(I32Lit a, I32Lit b, _) -> Some(foldI32 (&&&) a b)
         | BinOr (I32Lit a, I32Lit b, _) -> Some(foldI32 (|||) a b)
         | WExpr.Binary(WBinaryOp.Xor,  I32Lit a, I32Lit b, _) -> Some(foldI32 (^^^) a b)
@@ -143,28 +169,29 @@ let private foldConstants (expr: WExpr) : WExpr =
         | WExpr.Compare(WCompareOp.LeS, I32Lit a, I32Lit b) -> Some(boolI32 (<=) a b)
         | WExpr.Compare(WCompareOp.GeS, I32Lit a, I32Lit b) -> Some(boolI32 (>=) a b)
         // ── branch elimination (if-on-constant) ────────────────────────────────────────────
-        // TODO: shouldn't it be Zero and Not-Zero. Or One and not one?! Like in other langs
-        | IfExpr(I32One,  t, _, _) -> Some t
-        | IfExpr(I32Zero, _, e, _) -> Some e
+        // wasm `if` takes ANY non-zero i32 as true (previously only the literals 1 / 0 folded).
+        | IfExpr(WExpr.Const(WConst.I32 n), t, e, _) -> Some(if n <> 0 then t else e)
         // ── i32 identities and annihilators ──────────────────────────────
         | BinAdd(x, I32Zero, _)
         | BinAdd(I32Zero, x, _)
         | BinSub(x, I32Zero, _)
         | BinMul(x, I32One,  _)
         | BinMul(I32One,  x, _) -> Some x
-        | BinMul(_, I32Zero, _)
-        | BinMul(I32Zero, _, _) -> Some(WExpr.Const(WConst.I32 0))
-        | BinAnd(_, I32Zero, _)
-        | BinAnd(I32Zero, _, _) -> Some(WExpr.Const(WConst.I32 0))
+        // The other operand is dropped, so it must not have side effects (`f() * 0` still calls f).
+        | BinMul(x, I32Zero, _)
+        | BinMul(I32Zero, x, _) when isPure x -> Some(WExpr.Const(WConst.I32 0))
+        | BinAnd(x, I32Zero, _)
+        | BinAnd(I32Zero, x, _) when isPure x -> Some(WExpr.Const(WConst.I32 0))
         | BinOr (x, I32Zero, _)
         | BinOr (I32Zero, x, _) -> Some x
         | WExpr.Binary(WBinaryOp.Xor, x, I32Zero, _)     -> Some x
         // x - x → 0
-        | BinSub(LocalVar(a,_), LocalVar(b,_), _) when a = b -> Some(WExpr.Const(WConst.I32 0))
+        // (i32 only: for f64 `x - x` is NaN when x is NaN/inf, and the result type would change.)
+        | BinSub(LocalVar(a,_), LocalVar(b,_), WType.I32) when a = b -> Some(WExpr.Const(WConst.I32 0))
         // x & x → x, x | x → x, x ^ x → 0
-        | BinAnd(LocalVar(a,ta), LocalVar(b,_), _) when a = b -> Some(WExpr.LocalGet(a, ta))
-        | BinOr (LocalVar(a,ta), LocalVar(b,_), _) when a = b -> Some(WExpr.LocalGet(a, ta))
-        | WExpr.Binary(WBinaryOp.Xor, LocalVar(a,_), LocalVar(b,_), _) when a = b ->
+        | BinAnd(LocalVar(a,ta), LocalVar(b,_), WType.I32) when a = b -> Some(WExpr.LocalGet(a, ta))
+        | BinOr (LocalVar(a,ta), LocalVar(b,_), WType.I32) when a = b -> Some(WExpr.LocalGet(a, ta))
+        | WExpr.Binary(WBinaryOp.Xor, LocalVar(a,_), LocalVar(b,_), WType.I32) when a = b ->
             Some(WExpr.Const(WConst.I32 0))
         // ── strength reduction ─────────────────────────────────────────────
         // x * 2^n → x << n (power-of-two mul)
@@ -174,12 +201,19 @@ let private foldConstants (expr: WExpr) : WExpr =
                 let shift = System.Numerics.BitOperations.Log2(uint32 n) |> int
                 Some(WExpr.Binary(WBinaryOp.Shl, x, WExpr.Const(WConst.I32 shift), ty))
         // ── comparison with self → known bool ────────────────────────────
-        | CmpEq(LocalVar(a,_), LocalVar(b,_)) when a = b -> Some(WExpr.Const(WConst.I32 1))
-        | CmpNe(LocalVar(a,_), LocalVar(b,_)) when a = b -> Some(WExpr.Const(WConst.I32 0))
+        // (integers only: x == x is false and x <> x is true for a NaN float.)
+        | CmpEq(LocalVar(a,(WType.I32 | WType.I64)), LocalVar(b,_)) when a = b -> Some(WExpr.Const(WConst.I32 1))
+        | CmpNe(LocalVar(a,(WType.I32 | WType.I64)), LocalVar(b,_)) when a = b -> Some(WExpr.Const(WConst.I32 0))
         | CmpLt(LocalVar(a,_), LocalVar(b,_)) when a = b -> Some(WExpr.Const(WConst.I32 0))
         | CmpGt(LocalVar(a,_), LocalVar(b,_)) when a = b -> Some(WExpr.Const(WConst.I32 0))
-        // ── not(not(x)) → x ──────────────────────────────────────────────
-        | WExpr.Unary(WUnaryOp.Eqz, WExpr.Unary(WUnaryOp.Eqz, x, _), _) -> Some x
+        // ── not(not(x)) ──────────────────────────────────────────────────
+        // `!!x` is `x <> 0`, which equals `x` only when x is already 0/1.  (`!!popcnt(-1)` is 1, not 32;
+        // the old unconditional `→ x` rewrite changed the result of every non-boolean operand.)
+        | WExpr.Unary(WUnaryOp.Eqz, WExpr.Unary(WUnaryOp.Eqz, x, _), _) when isBool x -> Some x
+        | WExpr.Unary(WUnaryOp.Eqz, WExpr.Unary(WUnaryOp.Eqz, x, _), _) when WasmGc.Runtime.Types.exprWType x = WType.I32 ->
+            Some(WExpr.Compare(WCompareOp.Ne, x, WExpr.Const(WConst.I32 0)))
+        | WExpr.Unary(WUnaryOp.Eqz, WExpr.Unary(WUnaryOp.Eqz, x, _), _) when WasmGc.Runtime.Types.exprWType x = WType.I64 ->
+            Some(WExpr.Compare(WCompareOp.Ne, x, WExpr.Const(WConst.I64 0L)))
         // ── refIsNull(null) → 1, refIsNull(non-null struct) → 0 ─────────
         | IsNull(WExpr.Const(WConst.Null _)) -> Some(WExpr.Const(WConst.I32 1))
         | IsNull(WExpr.StructNew _) | IsNull(WExpr.ArrayNew _) -> Some(WExpr.Const(WConst.I32 0))
@@ -198,10 +232,9 @@ let private strengthReduce (expr: WExpr) : WExpr =
         // x * 2^n → x << n
         | BinMul(x, I32Lit n, ty) | BinMul(I32Lit n, x, ty) when isPow2 n ->
             Some(WExpr.Binary(WBinaryOp.Shl, x, WExpr.Const(WConst.I32(log2 n)), ty))
-        // x / 2^n → x >> n  (signed, only safe for non-negative x; we emit for all since
-        //   F# semantics match signed shift for non-negative divisors)
-        | WExpr.Binary(WBinaryOp.DivS, x, I32Lit n, ty) when isPow2 n && n > 1 ->
-            Some(WExpr.Binary(WBinaryOp.ShrS, x, WExpr.Const(WConst.I32(log2 n)), ty))
+        // NOTE: `x / 2^n → x >> n` was removed.  It is only valid for x >= 0: F# truncates toward
+        // zero (-7 / 2 = -3) while an arithmetic shift floors (-7 >> 1 = -4).  Engines already
+        // emit the correct bias-and-shift sequence for division by a constant.
         // x % 2^n → x & (2^n - 1)  (only for unsigned mod; skip signed)
         // i64 strength reductions
         | WExpr.Binary(WBinaryOp.Mul, x, WExpr.Const(WConst.I64 n), ty)
@@ -261,8 +294,9 @@ let private eliminateDeadCode (expr: WExpr) : WExpr =
 /// Substitute `let x = y` when y is a LocalGet and x is never reassigned.
 let private removeLetAliases (expr: WExpr) : WExpr =
     rewrite (function
-        | WExpr.Let(name, (WExpr.LocalGet _ as alias), body)
-              when not (exists (function WExpr.Assign(n,_) -> n = name | _ -> false) body) ->
+        | WExpr.Let(name, (WExpr.LocalGet(src, _) as alias), body)
+              // Neither side may be reassigned: `let j = i; i <- i + 1; j` must keep the OLD value.
+              when not (exists (function WExpr.Assign(n,_) -> n = name || n = src | _ -> false) body) ->
             Some(substituteLocal name alias body)
         | _ -> None) expr
 
@@ -288,3 +322,4 @@ let optimizeModule (wmod: WModule) : WModule =
         Functions =
             wmod.Functions
             |> List.map (fun f -> { f with Body = optimizeFuncBody f.Body }) }
+

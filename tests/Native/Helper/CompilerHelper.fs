@@ -75,7 +75,8 @@ type MockCompiler (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementation
           Verbosity             = Verbosity.Normal
           FileExtension         = ".fs"
           TriggeredByDependency = false
-          NoReflection          = true }
+          NoReflection          = true
+          JsTemporal            = false }
 
     interface Fable.Compiler with
         member _.Options      = options
@@ -98,7 +99,7 @@ type MockCompiler (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementation
         member _.GetInlineExpr(_)  =
             { Args        = []
               Body        = Fable.AST.Fable.Expr.Value(Fable.AST.Fable.ValueKind.Null Fable.AST.Fable.Type.Any, None)
-              FileName    = ""; GenericArgs = []; ScopeIdents = Set.empty }
+              FileName    = ""; GenericArgs = []; ScopeIdents = Set.empty; IsFileLocal = false }
         member _.AddWatchDependency(_) = ()
         member _.AddLog(msg, sev, ?_r, ?_f, ?_t) =
             if sev = Severity.Error then eprintfn "[MockCompiler] %s" msg
@@ -121,3 +122,4 @@ let createMockCompiler (code: string) : Fable.Compiler =
     match parseFSharpString code with
     | Ok decls -> MockCompiler(decls) :> Fable.Compiler
     | Error msg -> failwith $"createMockCompiler: {msg}"
+

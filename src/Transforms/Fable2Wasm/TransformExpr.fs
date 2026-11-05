@@ -1,3 +1,4 @@
+
 /// Fable AST → WasmGc IR translation.
 module WasmGc.Transforms.TransformExpr
 
@@ -119,26 +120,10 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         | Scope.Resolution.CapturedVar(name, ty)    -> WExpr.LocalGet(name, ty)
         | Scope.Resolution.ModuleValue(qn, retTy)   -> WExpr.Call(qn, [], retTy)
         | Scope.Resolution.KnownFunc(qn, ps, retTy) ->
-            // First-class function reference — wrap in a zero-capture closure
-            // so it can be passed as a value to HOFs.
-            // The closure struct has only a code field (no captures).
-            let selfTy      = WType.Ref(AnyFnTypeIdx, false)
-            let funcTypeIdx = ctx.GetOrAddFuncType(selfTy :: ps, retTy)
-            let codeFieldTy = WType.Ref(funcTypeIdx, false)
-            let baseIdx     =
-                match ctx.ClosureBaseTypeMap.TryGetValue(funcTypeIdx) with
-                | true, idx -> idx
-                | _ ->
-                    let idx = ctx.TypeDefs.Count
-                    ctx.TypeDefs.Add { Name = sprintf "ClosureBase_%d" idx
-                                       Def  = WTypeDef.Struct([{ Name="code"; Type=codeFieldTy; Mutable=false }], Some AnyFnTypeIdx) }
-                    ctx.ClosureBaseTypeMap.[funcTypeIdx] <- idx
-                    idx
-            let typeIdx = ctx.TypeDefs.Count
-            ctx.TypeDefs.Add { Name = sprintf "FuncRefClosure_%d" typeIdx
-                               Def  = WTypeDef.Struct([{ Name="code"; Type=codeFieldTy; Mutable=false }], Some baseIdx) }
-            ctx.ClosureRegistry.[qn] <- (typeIdx, funcTypeIdx, 0)
-            WExpr.Closure(qn, [], WType.Ref(typeIdx, false))
+            // First-class function reference.  `ref.func qn` cannot be stored in a closure directly:
+            // closure code pointers take `$self` as an extra first parameter, a module function
+            // does not.  ClosureBuilder generates a `$self`-taking wrapper (once per function).
+            ClosureBuilder.buildKnownFuncClosure ctx qn ps retTy
         | Scope.Resolution.ExternFunc(key, retTy)   -> WExpr.Call(key, [], retTy)
         | Scope.Resolution.Unknown name             ->
             // ── Type-safe unknown-ident fallback ─────────────────────────────────
@@ -188,7 +173,10 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             bindings |> List.forall (fun (_, v) ->
                 match v with Fable.Expr.Lambda _ | Fable.Expr.Delegate _ -> true | _ -> false)
 
-        if allAreLambdas && bindings.Length > 1 then
+        // One binding is included: a self-recursive local function (`let rec loop i = … loop (i+1)`)
+        // previously went down the sequential-let path below, where its own name is not yet in scope
+        // inside the lambda body → unbound local → invalid module.
+        if allAreLambdas && not bindings.IsEmpty then
             // Delegation to TransformClosures
             buildLetRecLambdas ctx transformExpr bindings body
         else
@@ -616,35 +604,14 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         // funcTypeIdx and wArgs must agree on count — both drop voids.
         let wArgsAll = args |> List.map (transformExpr ctx)
 
-        // Pair each wArg with its Fable type.
-        let wArgPairs = List.zip wArgsAll args
-
-        // For the functype, we need to know the expected call signature.
-        // First pass: collect the non-void arg types to register the functype.
-        let wArgsFull =
-            wArgPairs |> List.map (fun (wArg, fArg) ->
-                match exprWType wArg with
-                | WType.Void ->
-                    // Unit arg at a JS-bridge call site: the JS side sends an i32.
-                    // Preserve as i32Const 0 so the stack count matches.
-                    // For pure F# closures this is dead code (the body ignores it).
-                    i32Zero
-                | _ -> wArg)
-
-        let wArgs    = wArgsAll |> List.filter (fun a -> exprWType a <> WType.Void)
-        // Self-parameter convention (Sprint 25b):
-        // funcTypeIdx = (ref $AnyFn, arg1..., argN) → retType
-        // All closures with the same apply signature share this functype.
-        let selfType    = WType.Ref(AnyFnTypeIdx, false)
-        // let argTypes = args |> List.map (fun a -> mapTypeKnown ctx a.Type) |> List.filter (fun t -> t <> WType.Void)
-        let argTypes    = wArgs |> List.map exprWType   // already non-void
-        let funcTypeIdx = ctx.GetOrAddFuncType(selfType :: argTypes, ty)
-
-        let closureTypeIdx =
-            match ctx.FuncTypeToClosureMap.TryGetValue(funcTypeIdx) with
-            | true, cti -> cti
-            | false, _ -> AnyFnTypeIdx
-        WExpr.ClosureApply(wClosure, wArgs, funcTypeIdx, closureTypeIdx, 0, ty)
+        // The apply node (func type + ClosureBase) is built by ClosureBuilder.applyClosure:
+        //  * the func type comes from the callee's DECLARED function type — the same source the
+        //    lifted lambda's signature was built from — not from the types of the argument
+        //    expressions (a closure struct passed where `ref $AnyFn` is declared produced a
+        //    different func type and an invalid call_ref);
+        //  * void (unit) arguments are dropped consistently on both sides;
+        //  * the ClosureBase is created on demand, so closureTypeIdx is never 0.
+        ClosureBuilder.applyClosure ctx callee.Type wClosure (args |> List.map (fun a -> a.Type)) wArgsAll ty
 
     // ── Lambda ──
     | Lambda(arg, body, name) ->
@@ -749,4 +716,5 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     | _ -> 
         eprintfn "[WasmGc] FATAL/WARNING: Unhandled Fable AST expression: %A" expr
         WExpr.Nop // for Set, Get, Test etc
+
 

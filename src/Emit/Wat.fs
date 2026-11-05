@@ -359,6 +359,10 @@ let private compareMnemonic (op: WCompareOp) (ty: WType) : string =
     | WCompareOp.GeU, WType.I32 -> "i32.ge_u"
     | WCompareOp.Eq,  WType.I64 -> "i64.eq"
     | WCompareOp.Ne,  WType.I64 -> "i64.ne"
+    | WCompareOp.LtU, WType.I64 -> "i64.lt_u"
+    | WCompareOp.GtU, WType.I64 -> "i64.gt_u"
+    | WCompareOp.LeU, WType.I64 -> "i64.le_u"
+    | WCompareOp.GeU, WType.I64 -> "i64.ge_u"
     | WCompareOp.LtS, WType.I64 -> "i64.lt_s"
     | WCompareOp.GtS, WType.I64 -> "i64.gt_s"
     | WCompareOp.LeS, WType.I64 -> "i64.le_s"
@@ -378,11 +382,22 @@ let private compareMnemonic (op: WCompareOp) (ty: WType) : string =
     | WCompareOp.RefEq, _ -> "ref.eq"
     | WCompareOp.Eq,  WType.Ref _ -> "ref.eq"
     | WCompareOp.Ne,  WType.Ref _ -> "ref.eq"   // will need i32.eqz after
-    | _ -> "i32.eq"  // fallback
+    | _ -> failwithf "Wat: no instruction for comparison %A on %A" op ty
 
 // ─────────────────────────────────────────────────────────────────
 // WExpr → flat list of WAT instruction strings
 // ─────────────────────────────────────────────────────────────────
+
+/// WAT float literal.  F# prints NaN/Infinity, WAT wants `nan` / `inf` / `-inf`.
+let private watFloat (formatted: string) (v: float) : string =
+    if System.Double.IsNaN v then "nan"
+    elif System.Double.IsPositiveInfinity v then "inf"
+    elif System.Double.IsNegativeInfinity v then "-inf"
+    else formatted
+
+/// Parameters of the join points currently being emitted (label → parameter locals).
+/// Scoped: set while the join point's continuation is emitted, restored afterwards.
+let private joinParams = System.Collections.Generic.Dictionary<string, (string * WType) list>()
 
 /// Determines one level of indentation string.
 let private ind (depth: int) = System.String(' ', depth * 2)
@@ -399,12 +414,11 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
     | WExpr.Const(WConst.I32 n) -> w $"i32.const {n}"
     | WExpr.Const(WConst.I64 n) -> w $"i64.const {n}"
     | WExpr.Const(WConst.F32 f) ->
-        // WAT requires hex float or decimal; use decimal with enough precision
-        let fs = sprintf "%.9g" (float f)
-        w $"f32.const {fs}"
+        let lit = watFloat (sprintf "%.9g" (float f)) (float f)
+        w $"f32.const {lit}"
     | WExpr.Const(WConst.F64 f) ->
-        let fs = sprintf "%.17g" f
-        w $"f64.const {fs}"
+        let lit = watFloat (sprintf "%.17g" f) f
+        w $"f64.const {lit}"
     | WExpr.Const(WConst.Null(WType.Ref(idx, _))) ->
         let name = typeNames |> Map.tryFind idx |> Option.defaultValue (sprintf "%d" idx)
         w $"ref.null {watId name}"
@@ -626,11 +640,35 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
     // The optimizer inlines single-use join points; remaining ones
     // are treated like the binary emitter: emit the continuation,
     // which contains JoinApply nodes that have been substituted.
-    | WExpr.JoinPoint(_label, _parms, _body, cont, _ty) ->
-        emit cont
+    // Shared decision-tree target used from several leaves:
+    //   block $jp_done (result T) / block $jp / <cont> br $jp_done / end / <body> / end
+    // JoinApply = evaluate args, store into the parameter locals, `br $jp`.
+    // (Previously: only `cont` was emitted and JoinApply pushed its args — the target body
+    //  was dropped and the operand stack was left unbalanced.)
+    | WExpr.JoinPoint(label, parms, body, cont, ty) ->
+        if WasmGc.Core.Traverse.count (function WExpr.JoinApply(l, _, _) when l = label -> true | _ -> false) cont = 0 then
+            emit cont
+        else
+            let rStr = resultClause typeNames ty
+            let jp = watId ("jp_" + label)
+            let jd = watId ("jp_done_" + label)
+            let prev = match joinParams.TryGetValue label with | true, v -> Some v | _ -> None
+            joinParams.[label] <- parms
+            w $"block {jd}{rStr}"
+            w $"  block {jp}"
+            emitD (depth + 2) cont
+            (match prev with Some v -> joinParams.[label] <- v | None -> joinParams.Remove label |> ignore)
+            w $"    br {jd}"
+            w "  end"
+            emitD (depth + 1) body
+            w "end"
 
-    | WExpr.JoinApply(_label, args, _ty) ->
+    | WExpr.JoinApply(label, args, _ty) ->
         for a in args do emit a
+        for (p, a) in List.zip (joinParams.[label] |> List.map fst) args |> List.filter (fun (_, a) -> exprType a <> WType.Void) |> List.rev do
+            w $"local.set {watId p}"
+        let target = watId ("jp_" + label)
+        w $"br {target}"
 
     // ── Pattern matching (switch) ─────────────────────────
     | WExpr.SwitchInt(scrutinee, cases, default_, ty) ->
@@ -751,6 +789,9 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
             w "i64.const 0"
             emit operand
             w "i64.sub"
+        | WUnaryOp.Eqz, _ ->
+            emit operand
+            w (match exprType operand with WType.I64 -> "i64.eqz" | _ -> "i32.eqz")
         | _ ->
             emit operand
             for m in unaryMnemonic op ty do w m
@@ -789,6 +830,10 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         | Some (_, handler) -> emitExpr typeNames arrayElemTypes (depth + 2) sb handler
         | None -> ()
         w ")"
+
+    | WExpr.Throw WExpr.Nop ->
+        // Rethrow / payload already stored in $fsharp_exn_carrier by the caller — leave it alone.
+        w "throw $fsharp_exn"
 
     | WExpr.Throw(exnExpr) ->
         // Evaluate the exception expression, store in carrier global, then throw.
@@ -986,8 +1031,17 @@ let moduleToWat (wmod: WModule) : string =
     // ── Type section ──────────────────────────────────────
     if not wmod.Types.IsEmpty then
         sb.AppendLine("  ;; ── Types ───────────────────────────────────────────") |> ignore
-        for td in wmod.Types do
-            sb.AppendLine(typeDefToWat typeNames td) |> ignore
+        // Forward references (mutually recursive types) need `rec` groups — same grouping as the encoder.
+        let typeArr = Array.ofList wmod.Types
+        let groups = WasmGc.Core.Traverse.recGroups (typeArr |> Array.map (fun e -> WasmGc.Core.Traverse.typeDefRefs e.Def))
+        for (first, last) in groups do
+            if first = last then
+                sb.AppendLine(typeDefToWat typeNames typeArr.[first]) |> ignore
+            else
+                sb.AppendLine("  (rec") |> ignore
+                for i in first .. last do
+                    sb.AppendLine("  " + typeDefToWat typeNames typeArr.[i]) |> ignore
+                sb.AppendLine("  )") |> ignore
 
     // ── Import section ────────────────────────────────────
     if not wmod.Imports.IsEmpty then
@@ -1045,4 +1099,5 @@ let moduleToWat (wmod: WModule) : string =
 
     sb.AppendLine(")") |> ignore
     sb.ToString()
+
 

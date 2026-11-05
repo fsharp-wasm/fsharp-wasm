@@ -241,9 +241,16 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                     psi.UseShellExecute       <- false
                     psi.RedirectStandardError <- true
                     use proc = System.Diagnostics.Process.Start(psi)
+                    // Read stderr BEFORE waiting (a full pipe would deadlock) and never swallow it:
+                    // a WAT file that `wasm-tools parse` rejects is a compiler bug (WAT printer vs encoder
+                    // divergence), not something to hide behind the fallback.
+                    let err = proc.StandardError.ReadToEnd()
                     proc.WaitForExit()
+                    if proc.ExitCode <> 0 then
+                        let firstLines = err.Split('\n') |> Array.truncate 4 |> String.concat "\n      "
+                        eprintfn "    ⚠️  wasm-tools parse rejected %s — using the built-in encoder instead:\n      %s" watPath firstLines
                     proc.ExitCode = 0
-                with _ -> false
+                with _ -> false   // wasm-tools not installed → built-in encoder (silent, expected)
 
             if not watFirstSucceeded then
                 let lowered   = E.emitModule wasmModule
@@ -285,3 +292,4 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 else
                     eprintfn $"    ℹ️  wasm-tools not found or embed failed — WIT written to %s{witPath}"
     }
+

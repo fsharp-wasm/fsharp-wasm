@@ -1,3 +1,4 @@
+
 /// Array BCL helpers — emitted on-demand (like $strConcat etc.)
 /// $arraySortWith: insertion sort in place — takes anyref array + cmp closure.
 /// Called by arraySortWith in ArrayOps.fs instead of inlining per call site.
@@ -15,34 +16,16 @@ open WasmGc.Runtime.QuotationWalker
 // let private q name body =
 //     translateReflected name body runtimeTypeMap runtimeIntrinsics |> resolveLocals
 
-/// $arraySortWith(arr: ref $AnyArray, cmp: ref $AnyFn, n: i32) → void
-/// Insertion sort in place using the comparison closure.
-/// Shared helper: one copy per module regardless of how many Array.sortWith call sites exist.
+/// `$arraySortWith` — kept only so that `UsedHelpers` still resolves the name.
+///
+/// The real implementation is generated PER ARRAY TYPE by `Runtime.ArraySort.specialize`, which rewrites
+/// every call site to `$arraySortWith_<arrayTypeIdx>`.  The previous generic version (anyref array,
+/// `AnyFnTypeIdx` as call_ref function type) could not pass validation.
 let makeArraySortWithHelper () : WFuncDecl =
-    let gen    = LabelGen "bsort"
-    let arrTy  = WType.AnyRef
-    let cmpTy  = WType.Ref(AnyFnTypeIdx, false)
-    let elemTy = WType.I32  // AnyArray elements stored as i32/anyref; cast at read site
     {   Name    = "$arraySortWith"
-        Params  = [("arr", arrTy); ("cmp", cmpTy); ("n", WType.I32)]
+        Params  = [("arr", WType.AnyRef); ("cmp", WType.Ref(AnyFnTypeIdx, false)); ("n", WType.I32)]
         Result  = WType.Void
         Locals  = []
         Exported= false
-        Body    =
-            let arr = localGet "arr" arrTy
-            let cmp = localGet "cmp" cmpTy
-            let n   = localGet "n"   WType.I32
-            // Insertion sort:
-            //   for i = 1 to n-1:
-            //     held = arr[i]
-            //     j = i - 1
-            //     while j >= 0 && cmp(held, arr[j]) < 0:
-            //       arr[j+1] = arr[j]; j--
-            //     arr[j+1] = held
-            let read  a idx = WExpr.ArrayGet(a, idx, elemTy)
-            let write a idx v = WExpr.ArraySet(a, idx, v)
-            let cmpCall a b  =
-                // Call the comparison closure: cmp(a, b) → i32
-                WExpr.ClosureApply(cmp, [a; b], AnyFnTypeIdx, AnyFnTypeIdx, 0, WType.I32)
-            insertionSortInPlace gen arr n elemTy read write cmpCall
+        Body    = WExpr.Nop
     }

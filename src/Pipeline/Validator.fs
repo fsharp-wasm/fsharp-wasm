@@ -41,8 +41,9 @@ let private arityIndex (typeDefs: ResizeArray<WTypeDeclEntry>) : Map<int, int> =
 // Per-function checker
 // ─────────────────────────────────────────────────────────────────
 
-let internal checkFunc
+let internal checkFuncTyped
         (name    : string)
+        (typeDefs: ResizeArray<WTypeDeclEntry> option)
         (arity   : Map<int, int>)
         (known   : Set<string>)       // params + locals
         (body    : WExpr)
@@ -122,11 +123,25 @@ let internal checkFunc
             err (sprintf "Closure('%s')" n)
                 "type is Ref(0)=AnyFn — concrete closure type not registered"
 
+        | WExpr.Closure(n, caps, WType.Ref(ti, _)) as e ->
+            // struct.new needs exactly code + one value per capture.
+            (match (typeDefs |> Option.bind (fun td -> if ti >= 0 && ti < td.Count then Some td.[ti].Def else None)) with
+             | Some(WTypeDef.Struct(fields, _)) when fields.Length <> caps.Length + 1 ->
+                err (sprintf "Closure('%s')" n)
+                    (sprintf "closure struct %d has %d fields (code + captures) but %d captures supplied"
+                             ti fields.Length caps.Length)
+             | _ -> ())
+            children e |> List.iter walk
+
         // Descend
         | expr -> children expr |> List.iter walk
 
     walk body
     List.ofSeq errors
+
+/// Original entry point (kept: unit tests call it).  No type table → no closure-struct checks.
+let internal checkFunc (name: string) (arity: Map<int, int>) (known: Set<string>) (body: WExpr) : ValidationError list =
+    checkFuncTyped name None arity known body
 
 // ─────────────────────────────────────────────────────────────────
 // Public API
@@ -141,10 +156,29 @@ let validate
         : ValidationError list =
 
     let arity  = arityIndex typeDefs
-    let errors =
+
+    // Unbound locals.  `resolveLocals` declares every referenced name as a local, so a variable that
+    // nothing binds (typically: a closure that failed to capture it) would otherwise slip through:
+    //   numeric / nullable → silently reads 0 / null   (wrong result)
+    //   non-nullable ref   → "uninitialized non-defaultable local" in the engine
+    // Report the latter as a hard error here, with the function and variable name.
+    let unbound =
         funcs |> List.collect (fun f ->
+            WasmGc.Runtime.Locals.unboundReferences f
+            |> List.choose (fun (n, ty) ->
+                match ty with
+                | WType.Ref(_, false) ->
+                    Some { FuncName = f.Name; NodeDesc = "LocalGet"
+                           Message = sprintf "variable '%s' (%A) is read but never bound — missing capture or binding" n ty }
+                | _ ->
+                    eprintfn "[WasmGc] WARNING: '%s' reads unbound variable '%s' (%A) — it will silently be zero/null" f.Name n ty
+                    None))
+
+    let errors =
+        unbound
+        @ (funcs |> List.collect (fun f ->
             let known = (f.Params |> List.map fst) @ (f.Locals |> List.map fst) |> Set.ofList
-            checkFunc f.Name arity known f.Body)
+            checkFuncTyped f.Name (Some typeDefs) arity known f.Body))
 
     if not errors.IsEmpty then
         let severity = if strict then "✗ ERROR" else "⚠ WARNING"
@@ -162,4 +196,5 @@ let validate
         if strict then
             failwithf "[Validator] %d error(s) — aborting" errors.Length
     errors
+
 

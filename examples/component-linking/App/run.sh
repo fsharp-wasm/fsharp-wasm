@@ -11,12 +11,10 @@ rm -f "$OUT"/*.wasm "$OUT"/*.wat "$OUT"/*-embedded.wasm "$OUT"/*-component.wasm
 
 echo ""
 echo "=== App: Compiling F# → WasmGc ==="
-dotnet run --project "$ROOT/vendor/Fable/src/Fable.Cli" -- \
+dotnet run --project "$ROOT/tools/FSharp.Wasm.Cli" -- \
     "$HERE" \
-    --lang wasmgc \
     --outDir "$OUT" \
-    --noCache \
-    --noParallelTypeCheck
+    --noCache
 
 echo ""
 echo "=== App: Validating WASM binary ==="

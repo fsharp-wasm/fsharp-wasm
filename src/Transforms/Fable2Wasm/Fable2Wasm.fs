@@ -313,7 +313,8 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
 let buildWModule (ctx: Ctx) : WModule =
     let fixedFunctions =
         ctx.Functions |> Seq.toList
-        |> RT.fixClosureApply ctx.TypeDefs
+        |> WasmGc.Runtime.ArraySort.specialize ctx      // per-array-type Array.sortWith helpers
+        |> RT.fixClosureApply ctx.TypeDefs              // must run last: creates missing ClosureBase types
 
     // TODO: obsolete when pipeline is in place
     // Validate the functions after closure transformations are applied
@@ -444,3 +445,4 @@ let transformFile (com: ICompilerCore) (file: Fable.File) : WModule =
     // buildWModule will catch structural errors more precisely. Use strict
     // validate flag instead for hard failures.
     buildWModule finalCtx
+

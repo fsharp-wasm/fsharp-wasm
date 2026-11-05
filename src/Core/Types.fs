@@ -409,6 +409,43 @@ let getOrAddResizeArrayType (ctx: Ctx) (elemT: WType) : int * int =
         ctx.ResizeArrayRegistry.[key] <- (arrTypeIdx, ravTypeIdx)
         (arrTypeIdx, ravTypeIdx)
 
+// ─────────────────────────────────────────────────────────────────
+// Closure ABI — single source of truth
+// ─────────────────────────────────────────────────────────────────
+//
+// Every closure value is a struct that is a subtype of `$AnyFn` and has the code
+// pointer in field 0.  The code pointer has the func type
+//
+//        (self: ref $AnyFn, a1: T1, ..., an: Tn) -> R          (void Ti dropped)
+//
+// ONE `ClosureBase_k` struct (code: ref $FT) exists per func type `$FT`; every
+// concrete closure struct of that signature is a subtype of it, so a single
+// `ref.cast (ref $ClosureBase_k)` is valid for ALL closures of that signature.
+
+/// The `self` parameter type of every closure function.
+let closureSelfTy = WType.Ref(AnyFnTypeIdx, false)
+
+/// Func type of a closure with the given (possibly void-containing) args and result.
+let closureFuncType (ctx: Ctx) (argTys: WType list) (ret: WType) : int =
+    ctx.GetOrAddFuncType(closureSelfTy :: (argTys |> List.filter (fun t -> t <> WType.Void)), ret)
+
+/// Get or create the ClosureBase struct for a func type.
+let getOrAddClosureBase (ctx: Ctx) (funcTypeIdx: int) : int =
+    match ctx.ClosureBaseTypeMap.TryGetValue funcTypeIdx with
+    | true, idx -> idx
+    | false, _ ->
+        let idx = ctx.TypeDefs.Count
+        ctx.TypeDefs.Add
+            { Name = $"ClosureBase_{idx}"
+              Def =
+                WTypeDef.Struct(
+                    [ { Name = "code"; Type = WType.Ref(funcTypeIdx, false); Mutable = false } ],
+                    Some AnyFnTypeIdx
+                ) }
+        ctx.ClosureBaseTypeMap.[funcTypeIdx] <- idx
+        ctx.FuncTypeToClosureMap.[funcTypeIdx] <- idx
+        idx
+
 /// Type mapping that resolves declared (record/DU) types via the context's type registry.
 let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     match t with
@@ -584,4 +621,5 @@ let rec exprWType (expr: WExpr) : WType =
 /// Function type alias used to pass `transformExpr` into replacement modules.
 /// Breaking the mutual recursion via higher-order parameter.
 type TransformFn = Ctx -> Fable.Expr -> WExpr
+
 

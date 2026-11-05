@@ -82,13 +82,14 @@ let testClosureNestedCapture () : int =
 
 // ── Suite runner ──────────────────────────────────────────────────────────
 let runClosuresTests (check: string -> (unit -> unit) -> unit) =
-    check "testHOFSimple" (fun () -> ignore (testHOFSimple ()))
-    check "testCapture" (fun () -> ignore (testCapture ()))
-    check "testApplyTwice" (fun () -> ignore (testApplyTwice ()))
-    check "testLetCapture" (fun () -> ignore (testLetCapture ()))
+    check "testHOFSimple" (fun () -> ignore (testHOFSimple 5))
+    check "testCapture" (fun () -> ignore (testCapture 3 4))
+    check "testApplyTwice" (fun () -> ignore (testApplyTwice 5))
+    check "testLetCapture" (fun () -> ignore (testLetCapture 3 4))
     check "testClosureCapMap" (fun () -> ignore (testClosureCapMap ()))
     check "testClosureCapFilter" (fun () -> ignore (testClosureCapFilter ()))
     check "testClosureCapFold" (fun () -> ignore (testClosureCapFold ()))
     check "testClosureHigherOrder" (fun () -> ignore (testClosureHigherOrder ()))
     check "testClosureCapRef" (fun () -> ignore (testClosureCapRef ()))
     check "testClosureNestedCapture" (fun () -> ignore (testClosureNestedCapture ()))
+

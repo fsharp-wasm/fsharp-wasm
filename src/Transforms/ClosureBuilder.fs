@@ -1,14 +1,21 @@
-/// ClosureBuilder — deduplicated closure and lifted-function construction.
+
+/// ClosureBuilder — the single place that creates closures, lifted functions and closure calls.
 ///
-/// Replaces the duplicate logic in:
-///   buildClosure         (TransformClosure.fs ~60 lines)
-///   buildLetRecLambdas   (TransformClosure.fs ~80 lines of near-identical type/struct setup)
+/// ABI (see Types.fs "Closure ABI"):
+///   closure value  = struct (sub ClosureBase_k) { code: ref $FT; cap_0 .. cap_n }
+///   $FT            = (self: ref $AnyFn, a1 .. an) -> r
 ///
-/// Single source of truth for:
-///   - ClosureBase type registration (funcTypeIdx → baseClosureTypeIdx)
-///   - Concrete closure struct registration  
-///   - Lifted function body with capture extraction preamble
-///   - FuncTypeToClosureMap maintenance
+/// Fixes over the previous version:
+///   * `let rec` (one OR many bindings): the old code evaluated sibling cells before they were
+///     bound and never bound the binding names inside the lifted bodies (→ "uninitialized
+///     non-defaultable local").  Now: self-reference goes through `$self`, siblings through
+///     pre-allocated cells that are filled after all closures exist.  A single self-recursive
+///     closure needs no cell at all.
+///   * Module function used as a value: `ref.func f` was stored in a closure whose code type has
+///     an extra `$self` parameter (→ "struct.new expected (ref N), found ref.func of type (ref M)").
+///     A `$self`-taking wrapper function is generated (once per function) instead.
+///   * Closure calls derive the func type from the callee's DECLARED type, i.e. the same source
+///     the lambda's signature came from, not from the types of the argument expressions.
 module WasmGc.Transforms.ClosureBuilder
 
 open Fable.AST
@@ -23,27 +30,10 @@ module Lc = WasmGc.Runtime.Locals
 // Shared type infrastructure
 // ─────────────────────────────────────────────────────────────────
 
-/// Get or create the ClosureBase type for a given funcTypeIdx.
-/// ClosureBase = struct { code: ref $FT } sub $AnyFn
-/// All closures sharing this apply signature cast to this base.
-let private getOrAddClosureBase (ctx: Ctx) (funcTypeIdx: int) (codeFieldTy: WType) : int =
-    match ctx.ClosureBaseTypeMap.TryGetValue(funcTypeIdx) with
-    | true, idx -> idx
-    | false, _ ->
-        let idx = ctx.TypeDefs.Count
-        ctx.TypeDefs.Add {
-            Name = sprintf "ClosureBase_%d" idx
-            Def  = WTypeDef.Struct(
-                     [{ Name = "code"; Type = codeFieldTy; Mutable = false }],
-                     Some AnyFnTypeIdx) }
-        ctx.ClosureBaseTypeMap.[funcTypeIdx] <- idx
-        idx
-
 /// Register a concrete closure struct and return its type index.
 /// concreteStruct = { code: ref $FT, cap_0: T0, cap_1: T1, ... } sub ClosureBase
 let private addConcreteClosureType
         (ctx: Ctx)
-        (funcName: string)
         (baseClosureTypeIdx: int)
         (codeFieldTy: WType)
         (captures: (string * WType) list)
@@ -51,38 +41,34 @@ let private addConcreteClosureType
     let captureFields =
         captures |> List.mapi (fun i (name, ty) ->
             { Name = sprintf "cap_%d_%s" i name; Type = ty; Mutable = false })
-    let allFields = { Name = "code"; Type = codeFieldTy; Mutable = false } :: captureFields
     let typeIdx = ctx.TypeDefs.Count
     ctx.TypeDefs.Add {
         Name = sprintf "ClosureType_%d" typeIdx
-        Def  = WTypeDef.Struct(allFields, Some baseClosureTypeIdx) }
+        Def  = WTypeDef.Struct({ Name = "code"; Type = codeFieldTy; Mutable = false } :: captureFields,
+                               Some baseClosureTypeIdx) }
     typeIdx
 
-/// Build the lifted function body prefix that extracts captures from $self.
-/// Returns:  let $self_cast = cast($self, ref $closureTypeIdx)
-///           let cap_name_0 = struct.get $self_cast 1
-///           let cap_name_1 = struct.get $self_cast 2
-///           ... inner body ...
-let private wrapWithCaptureExtraction
-        (selfTy       : WType)
+/// Prefix of a lifted body:
+///   let $self_cast = cast($self, ref $closureType)
+///   let cap_i      = struct.get $self_cast (i+1)
+///   let <prelude>  = …            (extra bindings that may use $self / captures)
+///   body
+let private wrapLiftedBody
         (closureTypeIdx: int)
-        (captures     : (string * WType) list)
-        (body         : WExpr)
+        (captures      : (string * WType) list)
+        (prelude       : (string * WExpr) list)
+        (body          : WExpr)
         : WExpr =
-    if captures.IsEmpty then body
+    let withPrelude = List.foldBack (fun (n, e) acc -> WExpr.Let(n, e, acc)) prelude body
+    if captures.IsEmpty then withPrelude
     else
         let castTy  = WType.Ref(closureTypeIdx, false)
-        let selfCast = WExpr.Cast(WExpr.LocalGet("$self", selfTy), castTy)
-        let selfCastLG = WExpr.LocalGet("$self_cast", castTy)
-        // Field indices: code=0, cap_0=1, cap_1=2, ...
-        let extracted =
-            captures |> List.mapi (fun i (name, ty) ->
-                name, WExpr.StructGet(selfCastLG, i + 1, ty))
-        let bodyWithExtracts =
+        let selfCast = WExpr.LocalGet("$self_cast", castTy)
+        let extracts =
             List.foldBack
-                (fun (name, expr) acc -> WExpr.Let(name, expr, acc))
-                extracted body
-        WExpr.Let("$self_cast", selfCast, bodyWithExtracts)
+                (fun (i, (name, ty)) acc -> WExpr.Let(name, WExpr.StructGet(selfCast, i + 1, ty), acc))
+                (List.indexed captures) withPrelude
+        WExpr.Let("$self_cast", WExpr.Cast(WExpr.LocalGet("$self", closureSelfTy), castTy), extracts)
 
 // ─────────────────────────────────────────────────────────────────
 // Core: emit one lifted function + register its closure types
@@ -92,7 +78,7 @@ let private wrapWithCaptureExtraction
 type ClosureSpec = {
     /// Unique name for the lifted Wasm function (e.g. "$closure_42").
     FuncName     : string
-    /// Formal lambda parameters (excluding $self and captures).
+    /// Formal lambda parameters (excluding $self and captures; void params already dropped).
     ArgParams    : (string * WType) list
     /// Captured variables (name + type).
     Captures     : (string * WType) list
@@ -101,37 +87,36 @@ type ClosureSpec = {
 }
 
 /// Build and register one lifted function + its closure struct types.
+/// `prelude` are extra `let`s evaluated at function entry (after capture extraction).
 /// Returns WExpr.Closure(funcName, captureExprs, ref $closureTypeIdx).
-let buildOne (ctx: Ctx) (spec: ClosureSpec) (body: WExpr) : WExpr =
-    let selfTy      = WType.Ref(AnyFnTypeIdx, false)
-    let argTys      = spec.ArgParams |> List.map snd
-    let funcTypeIdx = ctx.GetOrAddFuncType(selfTy :: argTys, spec.RetType)
+let buildOneWith (ctx: Ctx) (spec: ClosureSpec) (prelude: (string * WExpr) list) (body: WExpr) : WExpr =
+    let funcTypeIdx = closureFuncType ctx (spec.ArgParams |> List.map snd) spec.RetType
     let codeFieldTy = WType.Ref(funcTypeIdx, false)
-
-    let baseIdx = getOrAddClosureBase ctx funcTypeIdx codeFieldTy
-    let typeIdx = addConcreteClosureType ctx spec.FuncName baseIdx codeFieldTy spec.Captures
+    let baseIdx     = getOrAddClosureBase ctx funcTypeIdx
+    let typeIdx     = addConcreteClosureType ctx baseIdx codeFieldTy spec.Captures
 
     ctx.ClosureRegistry.[spec.FuncName] <- (typeIdx, funcTypeIdx, spec.Captures.Length)
-    if not (ctx.FuncTypeToClosureMap.ContainsKey(funcTypeIdx)) then
-        ctx.FuncTypeToClosureMap.[funcTypeIdx] <- baseIdx
 
-    // Build full param list: $self + user args
-    let allParams = ("$self", selfTy) :: spec.ArgParams
-
-    // Wrap body with capture extraction
-    let liftedBody = wrapWithCaptureExtraction selfTy typeIdx spec.Captures body
-
+    // Tail calls (incl. closure calls → return_call_ref) keep `let rec` / mutually recursive local
+    // functions in constant stack space; before, only module-level functions got this treatment.
+    let liftedBody = wrapLiftedBody typeIdx spec.Captures prelude body
     let func =
-        { Name = spec.FuncName; Params = allParams; Result = spec.RetType
-          Locals = []; Body = liftedBody; Exported = false }
+        { Name = spec.FuncName
+          Params = ("$self", closureSelfTy) :: spec.ArgParams
+          Result = spec.RetType
+          Locals = []
+          Body = (if spec.RetType <> WType.Void then WasmGc.Core.Traverse.markTailCalls spec.RetType liftedBody else liftedBody)
+          Exported = false }
         |> Lc.resolveLocals
-    ctx.Functions.Add(func)
+    ctx.Functions.Add func
 
     let captureExprs = spec.Captures |> List.map (fun (n, ty) -> WExpr.LocalGet(n, ty))
     WExpr.Closure(spec.FuncName, captureExprs, WType.Ref(typeIdx, false))
 
+let buildOne (ctx: Ctx) (spec: ClosureSpec) (body: WExpr) : WExpr = buildOneWith ctx spec [] body
+
 // ─────────────────────────────────────────────────────────────────
-// High-level helpers used by TransformClosure.fs
+// High-level helpers used by TransformClosure.fs / TransformExpr.fs
 // ─────────────────────────────────────────────────────────────────
 
 /// Filter free variable names to those that are actual captures
@@ -139,14 +124,27 @@ let buildOne (ctx: Ctx) (spec: ClosureSpec) (body: WExpr) : WExpr =
 let filterCaptures (ctx: Ctx) (freeVarNames: string list) : (string * WType) list =
     freeVarNames
     |> List.filter (isCapturable ctx)
-    |> List.map (fun name ->
-        name, Map.tryFind name ctx.Locals |> Option.defaultValue WType.I32)
+    |> List.map (fun name -> name, Map.tryFind name ctx.Locals |> Option.defaultValue WType.I32)
     |> List.filter (snd >> (<>) WType.Void)
 
 /// Build a unique closure function name from a base name and current TypeDefs count.
 let closureName (baseName: string) (ctx: Ctx) : string =
     let counter = System.Threading.Interlocked.Increment(ctx.ClosureCounter)
     sprintf "%s_%d" baseName counter
+
+let private argParamsOf (ctx: Ctx) (args: Ident list) =
+    args |> List.choose (fun a ->
+        let ty = mapTypeKnown ctx a.Type
+        if ty = WType.Void then None else Some(a.Name, ty))
+
+/// Evaluation context for a lifted body: params + captures (+ extra closure-typed names).
+let private liftedCtx (ctx: Ctx) funcName (argParams: (string * WType) list) captures extraLocals =
+    let c =
+        ctx
+        |> withLocals (("$self", closureSelfTy) :: argParams)
+        |> withLocals captures
+        |> withLocals extraLocals
+    { c with CurrentFunc = Some funcName }
 
 /// Build a closure for a plain lambda/delegate.
 /// `eval` is transformExpr — passed to break the circular reference.
@@ -157,29 +155,22 @@ let buildClosure
         (body     : Fable.Expr)
         (nameHint : string option)
         : WExpr =
-
     let funcName = closureName (defaultArg nameHint "$closure") ctx
     let argNames = args |> List.map (fun a -> a.Name) |> Set.ofList
     let captures = collectFreeVars argNames body |> Set.toList |> filterCaptures ctx
-    let argParams =
-        args |> List.choose (fun a ->
-            let ty = mapTypeKnown ctx a.Type
-            if ty = WType.Void then None else Some(a.Name, ty))
-    let retType  = mapResultTypeKnown ctx body.Type
+    let argParams = argParamsOf ctx args
+    let spec = { FuncName = funcName; ArgParams = argParams; Captures = captures
+                 RetType = mapResultTypeKnown ctx body.Type }
+    buildOne ctx spec (eval (liftedCtx ctx funcName argParams captures []) body)
 
-    let spec = { FuncName = funcName; ArgParams = argParams; Captures = captures; RetType = retType }
-
-    // Build eval context: params + captures accessible as locals
-    let ctx' =
-        ctx
-        |> withLocals (("$self", WType.Ref(AnyFnTypeIdx, false)) :: argParams)
-        |> withLocals captures
-        |> fun c -> { c with CurrentFunc = Some funcName }
-
-    buildOne ctx spec (eval ctx' body)
-
-/// Build mutually-recursive closures from LetRec bindings.
-/// Shared cells strategy: each closure captures the ref-cells of its siblings.
+/// Build the closures of a `let rec f = fun … [and g = fun …]` group and bind them around `contBody`.
+///
+///   n = 1:  let f = closure_f           (inside: `f` ≡ $self — no cell needed)
+///   n > 1:  let cell_f = {null}; let cell_g = {null}          // all cells exist first
+///           let f = closure_f(cell_g, …); let g = closure_g(cell_f, …)
+///           cell_f.contents <- f; cell_g.contents <- g          // then they are tied
+///           contBody
+///           inside closure_f:  g ≡ (cast (cell_g.contents)), f ≡ $self
 let buildLetRecLambdas
         (ctx      : Ctx)
         (eval     : Ctx -> Fable.Expr -> WExpr)
@@ -188,22 +179,27 @@ let buildLetRecLambdas
         : WExpr =
 
     let anyFnNullTy = WType.Ref(AnyFnTypeIdx, true)
-    let anyFnTy     = WType.Ref(AnyFnTypeIdx, false)
-    let cellTypeIdx = getOrAddRefCellType ctx anyFnNullTy
-    let cellTy      = WType.Ref(cellTypeIdx, false)
+    let anyFnTy     = closureSelfTy
 
     // Decompose each binding into (ident, args, lambdaBody, nameHint)
     let lambdas =
         bindings |> List.map (fun (id, expr) ->
             match expr with
-            | Lambda(arg, body, name)          -> id, [arg], body, name
-            | Delegate(args, body, name, _)    -> id, args,  body, name
+            | Lambda(arg, body, name)       -> id, [arg], body, name
+            | Delegate(args, body, name, _) -> id, args, body, name
             | _ -> failwithf "buildLetRecLambdas: binding '%s' is not a lambda" id.Name)
 
-    let bindingNames  = lambdas |> List.map (fun (id, _, _, _) -> id.Name) |> Set.ofList
-    let cellLocalNames= lambdas |> List.map (fun (id, _, _, _) -> sprintf "$letrec_cell_%s" id.Name)
+    let n = lambdas.Length
+    let names = lambdas |> List.map (fun (id, _, _, _) -> id.Name)
+    let bindingNames = Set.ofList names
+    let needCells = n > 1
+    let cellTypeIdx = if needCells then getOrAddRefCellType ctx anyFnNullTy else -1
+    let cellTy = WType.Ref(cellTypeIdx, false)
+    // Unique per group: the same binding name (`loop`) is routinely reused by several groups.
+    let groupId = System.Threading.Interlocked.Increment(ctx.ClosureCounter)
+    let cellNames = names |> List.map (fun nm -> sprintf "$letrec_cell_%s_%d" nm groupId)
 
-    // Common free variables across ALL bodies (minus binding names and per-lambda params)
+    // Free variables of all bodies (minus binding names and the lambda's own params)
     let commonCaptures =
         lambdas
         |> List.collect (fun (_, args, lbody, _) ->
@@ -212,62 +208,105 @@ let buildLetRecLambdas
         |> List.distinct
         |> filterCaptures ctx
 
-    // Build one lifted closure for binding at index i
-    let buildOne_ (i: int) : WExpr =
+    let buildAt (i: int) : WExpr =
         let (id, args, lbody, nameHint) = lambdas.[i]
         let funcName = closureName (defaultArg nameHint (sprintf "$letrec_%s" id.Name)) ctx
+        let argParams = argParamsOf ctx args
 
-        let siblingCells =
-            cellLocalNames
-            |> List.mapi (fun j n -> j, n)
-            |> List.choose (fun (j, n) -> if j = i then None else Some(n, cellTy))
+        // Own cell is never needed (own name ≡ $self); siblings are reached through their cells.
+        let siblingCells = if needCells then [ for j in 0 .. n - 1 do if j <> i then yield cellNames.[j], cellTy ] else []
+        let captures = siblingCells @ commonCaptures
 
-        let allCaptures = siblingCells @ commonCaptures
-        let argParams =
-            args |> List.choose (fun a ->
-                let ty = mapTypeKnown ctx a.Type
-                if ty = WType.Void then None else Some(a.Name, ty))
-        let retType = mapResultTypeKnown ctx lbody.Type
+        let prelude =
+            [ for j in 0 .. n - 1 ->
+                names.[j],
+                if j = i then WExpr.LocalGet("$self", anyFnTy)
+                else WExpr.Cast(WExpr.StructGet(WExpr.LocalGet(cellNames.[j], cellTy), 0, anyFnNullTy), anyFnTy) ]
 
-        let spec = { FuncName = funcName; ArgParams = argParams; Captures = allCaptures; RetType = retType }
+        let spec = { FuncName = funcName; ArgParams = argParams; Captures = captures
+                     RetType = mapResultTypeKnown ctx lbody.Type }
+        let bodyCtx = liftedCtx ctx funcName argParams captures (names |> List.map (fun nm -> nm, anyFnTy))
+        buildOneWith ctx spec prelude (eval bodyCtx lbody)
 
-        let ctx' =
-            ctx
-            |> withLocals (("$self", WType.Ref(AnyFnTypeIdx, false)) :: argParams)
-            |> withLocals allCaptures
-            // Resolve sibling closures from their cells inside the lifted body
-            |> fun c ->
-                cellLocalNames |> List.mapi (fun j cellName ->
-                    // Each binding resolves to: struct.get (cell) 0  (unwrap the ref cell)
-                    let closureExpr = WExpr.StructGet(WExpr.LocalGet(cellName, cellTy), 0, anyFnTy)
-                    lambdas.[j] |> (fun (id, _, _, _) -> id.Name), closureExpr)
-                |> List.fold (fun (c: Ctx) (n, _) -> c.WithLocal(n, anyFnTy)) c
-            |> fun c -> { c with CurrentFunc = Some funcName }
+    let closures = [ for i in 0 .. n - 1 -> buildAt i ]
 
-        buildOne ctx spec (eval ctx' lbody)
+    let contCtx = ctx |> withLocals (names |> List.map (fun nm -> nm, anyFnTy))
+    let wCont = eval contCtx contBody
 
-    // Build all closures
-    let closureExprs = lambdas |> List.mapi (fun i _ -> buildOne_ i)
+    let tie =
+        if needCells then
+            [ for j in 0 .. n - 1 ->
+                WExpr.StructSet(WExpr.LocalGet(cellNames.[j], cellTy), 0, WExpr.LocalGet(names.[j], anyFnTy)) ]
+        else []
+    let inner = if tie.IsEmpty then wCont else WExpr.Sequence(tie @ [ wCont ])
+    let bound = List.foldBack2 (fun nm clo acc -> WExpr.Let(nm, clo, acc)) names closures inner
+    if not needCells then bound
+    else
+        List.foldBack
+            (fun cn acc -> WExpr.Let(cn, WExpr.StructNew(cellTypeIdx, [ WExpr.Const(WConst.Null anyFnNullTy) ], cellTy), acc))
+            cellNames bound
 
-    // Initialize: let $cell_i = ref(null); ... fill cells; then body
-    // Wrap everything in LetMut bindings for each cell
-    let initCells =
-        List.zip cellLocalNames closureExprs
-        |> List.map (fun (cellName, closureExpr) ->
-            cellName, WExpr.StructNew(cellTypeIdx, [closureExpr], cellTy))
+/// A module-level function used as a first-class value.
+/// The raw function has no `$self` parameter, so a closure cannot point at it directly; a tiny
+/// wrapper `(self, a…) -> f(a…)` is generated once per function and wrapped in a 0-capture closure.
+let buildKnownFuncClosure (ctx: Ctx) (qn: string) (paramTys: WType list) (retTy: WType) : WExpr =
+    let key = "$kf:" + qn
+    let wrapperName = sprintf "$kfclo_%s" qn
+    match ctx.ClosureRegistry.TryGetValue key with
+    | true, (typeIdx, _, _) -> WExpr.Closure(wrapperName, [], WType.Ref(typeIdx, false))
+    | _ ->
+        let ps = paramTys |> List.filter (fun t -> t <> WType.Void)
+        let funcTypeIdx = closureFuncType ctx ps retTy
+        let baseIdx = getOrAddClosureBase ctx funcTypeIdx
+        let typeIdx = addConcreteClosureType ctx baseIdx (WType.Ref(funcTypeIdx, false)) []
+        let argParams = ps |> List.mapi (fun i t -> sprintf "$a%d" i, t)
+        ctx.Functions.Add
+            { Name = wrapperName
+              Params = ("$self", closureSelfTy) :: argParams
+              Result = retTy
+              Locals = []
+              Body =
+                (let call = WExpr.Call(qn, argParams |> List.map WExpr.LocalGet, retTy)
+                 if retTy <> WType.Void then WasmGc.Core.Traverse.markTailCalls retTy call else call)
+              Exported = false }
+        ctx.ClosureRegistry.[key] <- (typeIdx, funcTypeIdx, 0)
+        WExpr.Closure(wrapperName, [], WType.Ref(typeIdx, false))
 
-    // The continuation body with binding names resolved to cell dereferences
-    let ctx'' =
-        ctx
-        |> fun c ->
-            lambdas |> List.mapi (fun i (id, _, _, _) ->
-                id.Name, WExpr.StructGet(WExpr.LocalGet(cellLocalNames.[i], cellTy), 0, anyFnTy))
-            |> List.fold (fun (c: Ctx) (n, _) -> c.WithLocal(n, anyFnTy)) c
-        |> withLocals (cellLocalNames |> List.map (fun n -> n, cellTy))
+/// The first `n` parameter types of a function type (curried `LambdaType` chain or an exactly
+/// matching `DelegateType`).
+let rec private declaredParams (t: Fable.Type) (n: int) : Fable.Type list option =
+    if n = 0 then Some []
+    else
+        match t with
+        | Fable.LambdaType(a, r) -> declaredParams r (n - 1) |> Option.map (fun rest -> a :: rest)
+        | Fable.DelegateType(ps, _) when ps.Length = n -> Some ps
+        | _ -> None
 
-    let wCont = eval ctx'' contBody
+let private isOpaque (t: Fable.Type) =
+    match t with
+    | Fable.GenericParam _ | Fable.Any -> true
+    | _ -> false
 
-    // Nest: let $cell_0 = ...; let $cell_1 = ...; continuation
-    List.foldBack
-        (fun (name, expr) acc -> WExpr.Let(name, expr, acc))
-        initCells wCont
+/// Call closure `wClosure` (static Fable type `calleeTy`) with `wArgs`.
+///
+/// The func type is derived from the callee's DECLARED parameter types — the same source the
+/// lifted function's signature came from — so `call_ref` and the code field always agree.
+/// (Deriving it from the argument *expressions* breaks as soon as an argument's WASM type is a
+/// subtype/nullability variant of the declared one, e.g. a concrete closure struct passed where
+/// `ref $AnyFn` is declared.)  Opaque declared types (generic/any) fall back to the argument type.
+let applyClosure (ctx: Ctx) (calleeTy: Fable.Type) (wClosure: WExpr) (fableArgs: Fable.Type list) (wArgs: WExpr list) (retTy: WType) : WExpr =
+    // Declared types are only trusted when they line up 1:1 with the supplied arguments.
+    let declared =
+        if fableArgs.Length = wArgs.Length then declaredParams calleeTy wArgs.Length else None
+    let argTys =
+        wArgs
+        |> List.mapi (fun i w ->
+            let argTy = exprWType w
+            match declared with
+            | Some ds -> if isOpaque ds.[i] then argTy else mapTypeKnown ctx ds.[i]
+            | None -> argTy)
+    // Void-typed (unit) arguments are not passed at all.
+    let kept = List.zip argTys wArgs |> List.filter (fun (t, w) -> t <> WType.Void && exprWType w <> WType.Void)
+    let funcTypeIdx = closureFuncType ctx (kept |> List.map fst) retTy
+    let cti = getOrAddClosureBase ctx funcTypeIdx
+    WExpr.ClosureApply(wClosure, kept |> List.map snd, funcTypeIdx, cti, 0, retTy)

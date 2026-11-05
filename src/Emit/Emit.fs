@@ -28,6 +28,8 @@ type EmitCtx =
         ArrayElemTypes: Map<int, WType>
         /// Index of the generic F# exception tag (for throw/catch)
         ExceptionTagIdx: int
+        /// Join points in scope: join label → (WASM block label to `br` to, parameter locals)
+        Joins: Map<string, string * (string * WType) list>
     }
 
     member this.GetFuncIdx(name: string) =
@@ -59,6 +61,11 @@ type EmitCtx =
 // Type encoding helpers
 // ─────────────────────────────────────────────────────────────────
 
+/// Stable key of a function signature (never `sprintf "%A"`: slow and truncates long lists).
+let funcKey (ps: WType list) (rs: WType list) : string =
+    let k = List.map wTypeKey >> String.concat ","
+    k ps + "->" + k rs
+
 let wtypeToBlockType (ty: WType) : BlockType =
     match ty with
     | WType.Void -> BlockType.Empty
@@ -67,7 +74,11 @@ let wtypeToBlockType (ty: WType) : BlockType =
     | WType.F32 -> BlockType.Val WType.F32
     | WType.F64 -> BlockType.Val WType.F64
     | WType.Ref(idx, nullable) -> BlockType.Val(WType.Ref(idx, nullable))
-    | _ -> BlockType.Empty
+    // A block that yields a value MUST declare it.  `| _ -> Empty` here silently produced
+    // invalid modules for any if/loop/try whose result is anyref / eqref / i31ref / externref.
+    | WType.AnyRef | WType.EqRef | WType.I31ref | WType.Externref -> BlockType.Val ty
+    | WType.I16 | WType.Func _ | WType.Struct _ | WType.Array _ ->
+        failwithf "Emit: %A is not a valid block result type" ty
 
 // ─────────────────────────────────────────────────────────────────
 // Shared Emission Helpers
@@ -96,6 +107,9 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         | WConst.F64 f -> [Instr.F64Const f]
         | WConst.Null(WType.Ref(typeIdx, _)) -> [Instr.RefNull(HeapType.TypeIdx typeIdx)]
         | WConst.Null WType.AnyRef -> [Instr.RefNull HeapType.Any]
+        | WConst.Null WType.EqRef -> [Instr.RefNull HeapType.Eq]
+        | WConst.Null WType.I31ref -> [Instr.RefNull HeapType.I31]
+        | WConst.Null WType.Externref -> [Instr.RefNull HeapType.Extern]
         | WConst.Null _ -> [Instr.RefNull HeapType.None_]
         | WConst.Unit -> [] // unit produces no value
         // If this path is hit, something went wrong upstream.
@@ -331,16 +345,42 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
     | WExpr.Nop -> []
 
     // ── Join points ───────────────────────────────────────
-    | WExpr.JoinPoint(_label, _parms, _body, cont, _ty) ->
-        // For Phase 1, we inline join points into blocks
-        // The DecisionTreeSuccess → JoinApply dispatches to the right target
-        // For simplicity, emit the continuation which contains JoinApply nodes
-        emitExpr ctx cont
+    | WExpr.JoinPoint(label, parms, body, cont, ty) ->
+        // Shared decision-tree target used from several leaves:
+        //
+        //   block $done (result T)
+        //     block $jp                 ;; JoinApply = set parameter locals; br $jp
+        //       <cont>  br $done        ;; normal completion carries T out
+        //     end
+        //     <body>                    ;; runs with the parameter locals set
+        //   end
+        //
+        // (Optimize inlines join points that are used once; this handles the rest.  The old code
+        // emitted only `cont` and turned JoinApply into "push the args" — the target body was
+        // dropped and the stack was left unbalanced.)
+        if WasmGc.Core.Traverse.count (function WExpr.JoinApply(l, _, _) when l = label -> true | _ -> false) cont = 0 then
+            emitExpr ctx cont
+        else
+            let bt = wtypeToBlockType ty
+            let ctxOuter = ctx.PushLabel("$jp_done_" + label)
+            let ctxInner = ctxOuter.PushLabel("$jp_" + label)
+            let ctxInner = { ctxInner with Joins = Map.add label ("$jp_" + label, parms) ctxInner.Joins }
+            let contInstrs = emitExpr ctxInner cont
+            let bodyInstrs = emitExpr ctxOuter body
+            [Instr.Block(bt, [Instr.Block(BlockType.Empty, contInstrs @ [Instr.Br(ctxInner.GetLabelDepth("$jp_done_" + label))])] @ bodyInstrs)]
 
     | WExpr.JoinApply(label, args, _ty) ->
-        // This is handled by decision tree lowering — see transformDecisionTree
-        // For now, inline: emit args, emit the target body
-        args |> List.collect (emitExpr ctx)
+        match Map.tryFind label ctx.Joins with
+        | None -> failwithf "Emitter: JoinApply to unknown join point '%s'" label
+        | Some(blockLabel, parms) ->
+            // Evaluate every argument first (parallel assignment), then store right-to-left.
+            let argInstrs = args |> List.collect (emitExpr ctx)
+            let stores =
+                List.zip (parms |> List.map fst) args
+                |> List.filter (fun (_, a) -> exprResultType a <> WType.Void)
+                |> List.rev
+                |> List.map (fun (n, _) -> Instr.LocalSet(ctx.GetLocalIdx n))
+            argInstrs @ stores @ [Instr.Br(ctx.GetLabelDepth blockLabel)]
 
     // ── Pattern matching ──────────────────────────────────
     // | WExpr.SwitchInt(scrutinee, cases, default_, retTy) ->
@@ -466,6 +506,10 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         // bitwise NOT i64: x XOR -1L
         | WUnaryOp.Not, WType.I64 ->
             operandInstrs @ [Instr.I64Const -1L; Instr.I64Xor]
+        // The RESULT of eqz is i32 for both widths, so `ty` cannot tell them apart:
+        // pick the instruction from the operand type (i64.eqz vs i32.eqz).
+        | WUnaryOp.Eqz, _ ->
+            operandInstrs @ [ (match exprResultType operand with WType.I64 -> Instr.I64Eqz | _ -> Instr.I32Eqz) ]
         | _ ->
             let opInstr = emitUnaryOp op ty
             operandInstrs @ [opInstr]
@@ -501,10 +545,14 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         //     handler           ;; produces T
         //   )
         let resultBt = wtypeToBlockType ty
-        let bodyInstrs = emitExpr ctx body
+        // Break/Continue inside the body or handler count these structured blocks, so the label
+        // stack has to know about them (it previously did not: depth was off by 3 / 1).
+        let ctxBody = ctx.PushLabel("$try_end").PushLabel("$try_catch").PushLabel("$try_body")
+        let ctxHandler = ctx.PushLabel("$try_end")
+        let bodyInstrs = emitExpr ctxBody body
         let handlerInstrs =
             match catchOpt with
-            | Some (_, handlerExpr) -> emitExpr ctx handlerExpr
+            | Some (_, handlerExpr) -> emitExpr ctxHandler handlerExpr
             // catch_all has no payload, so the catch variable binding is zero-initialized
             | None -> []
         [Instr.Block(resultBt,
@@ -512,6 +560,11 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
                 [Instr.TryTable(resultBt, [Catch.All 0], bodyInstrs)]
                 @ [Instr.Br 1])]
             @ handlerInstrs)]
+
+    // `throw Nop` = raise whatever the caller already put into $fsharp_exn_carrier
+    // (TransformExpr: `Sequence [carrier := exn; Throw Nop]`, finally-rethrow, reraise).
+    // It must NOT touch the carrier — clearing it here destroyed every exception payload.
+    | WExpr.Throw WExpr.Nop -> [Instr.Throw ctx.ExceptionTagIdx]
 
     | WExpr.Throw(exnExpr) ->
         // Evaluate exception, store in carrier global for typed catch, then throw.
@@ -687,6 +740,10 @@ and emitCompareOp (op: WCompareOp) (ty: WType) : Instr =
     | WCompareOp.GeU, WType.I32   -> Instr.I32GeU
     | WCompareOp.Eq,  WType.I64   -> Instr.I64Eq
     | WCompareOp.Ne,  WType.I64   -> Instr.I64Ne
+    | WCompareOp.LtU, WType.I64   -> Instr.I64LtU
+    | WCompareOp.GtU, WType.I64   -> Instr.I64GtU
+    | WCompareOp.LeU, WType.I64   -> Instr.I64LeU
+    | WCompareOp.GeU, WType.I64   -> Instr.I64GeU
     | WCompareOp.LtS, WType.I64   -> Instr.I64LtS
     | WCompareOp.GtS, WType.I64   -> Instr.I64GtS
     | WCompareOp.LeS, WType.I64   -> Instr.I64LeS
@@ -709,7 +766,9 @@ and emitCompareOp (op: WCompareOp) (ty: WType) : Instr =
     // | WCompareOp.Ne, WType.Ref _ -> Instr.RefEq
     | WCompareOp.Ne, WType.Ref _ ->
         failwith "Emit: Compare(Ne, Ref) must be handled in emitExpr, not emitCompareOp"
-    | _ -> Instr.I32Eq // fallback
+    | _ ->
+        // Previously a silent `i32.eq`, i.e. a wrong answer instead of an error.
+        failwithf "Emit: no instruction for comparison %A on %A" op ty
 
 // ─────────────────────────────────────────────────────────────────
 // WASM value type encoding byte (for type section)
@@ -806,13 +865,13 @@ let emitModule (wmod: WModule) : WasmModule =
         | WTypeDef.Func(parms, result) ->
             let paramTypes = parms |> List.filter (fun t -> t <> WType.Void)
             let resultTypes = match result with | WType.Void -> [] | t -> [t]
-            let key = sprintf "%A->%A" paramTypes resultTypes
+            let key = funcKey paramTypes resultTypes
             if not (funcTypeMap.ContainsKey(key)) then
                 funcTypeMap.[key] <- i
         | _ -> ()
 
     let getOrAddFuncType (paramTypes: WType list) (resultTypes: WType list) =
-        let key = sprintf "%A->%A" paramTypes resultTypes
+        let key = funcKey paramTypes resultTypes
         match funcTypeMap.TryGetValue(key) with
         | true, idx -> idx
         | false, _ ->
@@ -928,6 +987,7 @@ let emitModule (wmod: WModule) : WasmModule =
                     TypeIndex = typeIndex
                     LocalIndex = localIndex
                     LabelStack = []
+                    Joins = Map.empty
                     ImportFuncCount = importFuncCount
                     GlobalIndex = globalIndex
                     ArrayElemTypes = arrayElemTypes
@@ -962,6 +1022,7 @@ let emitModule (wmod: WModule) : WasmModule =
                     TypeIndex = typeIndex
                     LocalIndex = Map.empty
                     LabelStack = []
+                    Joins = Map.empty
                     ImportFuncCount = importFuncCount
                     GlobalIndex = globalIndex
                     ArrayElemTypes = arrayElemTypes
@@ -1030,4 +1091,5 @@ let emitModule (wmod: WModule) : WasmModule =
         Tags = tagTypeIndices
         HasLinearMemory = wmod.HasLinearMemory
     }
+
 

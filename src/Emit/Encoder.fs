@@ -3,6 +3,7 @@
 /// function section, export section, code section, etc.
 module WasmGc.Emit.Encoder
 
+open WasmGc.Core
 open WasmGc.Core.AST
 
 // ─────────────────────────────────────────────────────────────────
@@ -71,8 +72,9 @@ let rec encodeValType (buf: ResizeArray<byte>) (ty: WType) =
     | WType.F32 -> buf.Add(0x7Duy)
     | WType.F64 -> buf.Add(0x7Cuy)
     // Packed i16 type — only valid as an array element storage type.
-    // Encoding: 0x79 (storagetype = packedi16) per the GC extension spec.
-    | WType.I16 -> buf.Add(0x79uy)
+    // Final GC spec: packedtype i8 = 0x78, i16 = 0x77.  (0x79 was the pre-standard draft value and
+    // is rejected by every current engine.)
+    | WType.I16 -> buf.Add(0x77uy)
     | WType.Ref(typeIdx, nullable) ->
         if nullable then
             buf.Add(0x63uy) // ref null typeIdx
@@ -477,11 +479,12 @@ let rec encodeInstr (buf: ResizeArray<byte>) (instr: Instr) =
         buf.Add(0xFBuy); encodeLEB128Unsigned buf 0x15u
         encodeHeapType buf rt.HeapType
 
+    // 0xFB 0x1A = any.convert_extern, 0xFB 0x1B = extern.convert_any (these were swapped).
     | Instr.ExternConvertAny ->
-        buf.Add(0xFBuy); encodeLEB128Unsigned buf 26u
+        buf.Add(0xFBuy); encodeLEB128Unsigned buf 27u
 
     | Instr.AnyConvertExtern ->
-        buf.Add(0xFBuy); encodeLEB128Unsigned buf 27u
+        buf.Add(0xFBuy); encodeLEB128Unsigned buf 26u
 
     | Instr.I31New ->
         buf.Add(0xFBuy); encodeLEB128Unsigned buf 28u
@@ -615,16 +618,30 @@ let encodeGcTypeDef (buf: ResizeArray<byte>) (def: WTypeDef) =
 /// ref types (ref null $Base) — they don't need explicit rec-group wrapping.
 let encodeTypeSection (buf: ResizeArray<byte>) (structTypes: WTypeDeclEntry list) (funcTypes: (WType list * WType list) list) =
     let content = ResizeArray<byte>()
-    let totalCount = structTypes.Length + funcTypes.Length
-    encodeLEB128Unsigned content (uint32 totalCount)
-    // 1. Struct/GC types first (occupying indices 0..N-1)
-    for entry in structTypes do
-        encodeGcTypeDef content entry.Def
-    // 2. Function types (from call_indirect and closure dispatch)
-    for (parms, results) in funcTypes do
-        content.Add(0x60uy) // func type tag
-        encodeResultType content parms
-        encodeResultType content results
+    let nStruct = structTypes.Length
+    let structArr = Array.ofList structTypes
+    let funcArr = Array.ofList funcTypes
+    // Forward references (a struct mentioning a later type — mutually recursive records/unions)
+    // are only valid inside a rec group.
+    let refs =
+        Array.append
+            (structArr |> Array.map (fun e -> Traverse.typeDefRefs e.Def))
+            (funcArr |> Array.map (fun (ps, rs) -> (ps @ rs) |> List.collect Traverse.wTypeRefs))
+    let encodeOne (i: int) =
+        if i < nStruct then encodeGcTypeDef content structArr.[i].Def
+        else
+            let (parms, results) = funcArr.[i - nStruct]
+            content.Add(0x60uy) // func type tag
+            encodeResultType content parms
+            encodeResultType content results
+    let groups = Traverse.recGroups refs
+    encodeLEB128Unsigned content (uint32 groups.Length)
+    for (first, last) in groups do
+        if first = last then encodeOne first
+        else
+            content.Add(0x4Euy)  // rec
+            encodeLEB128Unsigned content (uint32 (last - first + 1))
+            for i in first .. last do encodeOne i
     writeSection buf SectionId.Type content
 
 /// Encode the Function Section (section 3): maps func idx → type idx
@@ -861,3 +878,4 @@ let encodeModule (wmod: Emit.WasmModule) : byte array =
         encodeNameSection buf wmod.Functions (List.length wmod.Imports)
 
     buf.ToArray()
+

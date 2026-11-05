@@ -107,6 +107,28 @@ let identityTests = testList "Optimize / algebraic identities" [
     test "x - x → 0 (same local)" {
         Expect.equal (opt (bin WBinaryOp.Sub (g "x") (g "x"))) (i32 0) ""
     }
+    test "Int32.MinValue / -1 is not folded (overflow) and does not throw" {
+        let e = bin WBinaryOp.DivS (i32 System.Int32.MinValue) (i32 -1)
+        Expect.equal (opt e) e ""
+    }
+    test "if <non-zero constant> picks the then-branch" {
+        Expect.equal (opt (WExpr.If(i32 5, i32 1, i32 2, WType.I32))) (i32 1) ""
+        Expect.equal (opt (WExpr.If(i32 0, i32 1, i32 2, WType.I32))) (i32 2) ""
+    }
+    test "f64 x - x is NOT folded to an i32 zero (NaN / type)" {
+        let x = WExpr.LocalGet("x", WType.F64)
+        let e = WExpr.Binary(WBinaryOp.Sub, x, x, WType.F64)
+        Expect.equal (opt e) e ""
+    }
+    test "f64 x == x is not folded (NaN)" {
+        let x = WExpr.LocalGet("x", WType.F64)
+        let e = WExpr.Compare(WCompareOp.Eq, x, x)
+        Expect.equal (opt e) e ""
+    }
+    test "call * 0 keeps the call (side effect)" {
+        let e = bin WBinaryOp.Mul (WExpr.Call("f", [], WType.I32)) (i32 0)
+        Expect.equal (opt e) e ""
+    }
     test "x ^ x → 0 (same local)" {
         Expect.equal (opt (WExpr.Binary(WBinaryOp.Xor, g "x", g "x", WType.I32))) (i32 0) ""
     }
@@ -147,13 +169,14 @@ let strengthTests = testList "Optimize / strength reduction" [
         let result = opt (bin WBinaryOp.Mul (i32 4) (g "x"))
         Expect.equal result (WExpr.Binary(WBinaryOp.Shl, g "x", i32 2, WType.I32)) ""
     }
-    test "x / 2 → x >> 1 (signed)" {
-        let result = opt (WExpr.Binary(WBinaryOp.DivS, g "x", i32 2, WType.I32))
-        Expect.equal result (WExpr.Binary(WBinaryOp.ShrS, g "x", i32 1, WType.I32)) ""
+    // x / 2^n → x >> n is WRONG for negative x (F#: -7 / 2 = -3, but -7 >> 1 = -4).
+    test "signed x / 2 is left alone (no unsound shift)" {
+        let e = WExpr.Binary(WBinaryOp.DivS, g "x", i32 2, WType.I32)
+        Expect.equal (opt e) e ""
     }
-    test "x / 8 → x >> 3 (signed)" {
-        let result = opt (WExpr.Binary(WBinaryOp.DivS, g "x", i32 8, WType.I32))
-        Expect.equal result (WExpr.Binary(WBinaryOp.ShrS, g "x", i32 3, WType.I32)) ""
+    test "signed x / 8 is left alone (no unsound shift)" {
+        let e = WExpr.Binary(WBinaryOp.DivS, g "x", i32 8, WType.I32)
+        Expect.equal (opt e) e ""
     }
     test "x * 3 is NOT strength-reduced (not power of two)" {
         // 3 is not a power of two — must not be reduced
@@ -244,6 +267,39 @@ let aliasTests = testList "Optimize / let-alias removal" [
         match result with
         | WExpr.Let("x", _, _) -> ()  // preserved
         | _ -> failtestf "let x = y must be preserved when x is reassigned: %A" result
+    }
+    test "!!x on a non-boolean is x <> 0, not x" {
+        // Eqz(Eqz(popcnt(-1))) is 1, not 32
+        let e = WExpr.Unary(WUnaryOp.Eqz, WExpr.Unary(WUnaryOp.Eqz, g "x", WType.I32), WType.I32)
+        Expect.equal (opt e) (WExpr.Compare(WCompareOp.Ne, g "x", i32 0)) ""
+    }
+    test "!!(a < b) collapses to a < b (already boolean)" {
+        let c = WExpr.Compare(WCompareOp.LtS, g "a", g "b")
+        let e = WExpr.Unary(WUnaryOp.Eqz, WExpr.Unary(WUnaryOp.Eqz, c, WType.I32), WType.I32)
+        Expect.equal (opt e) c ""
+    }
+    test "join inlining terminates on an expression containing NaN" {
+        // F# float equality is IEEE: nan <> nan, so a `pass = expr` fixpoint test never converged.
+        let jp =
+            WExpr.JoinPoint("j", [ "p", WType.I32 ],
+                bin WBinaryOp.Mul (bin WBinaryOp.Add (g "p") (g "p")) (bin WBinaryOp.Add (g "p") (i32 3)),
+                WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.Const(WConst.F64 nan), WExpr.Const(WConst.F64 1.0)),
+                         WExpr.JoinApply("j", [ i32 1 ], WType.I32),
+                         WExpr.JoinApply("j", [ i32 2 ], WType.I32), WType.I32), WType.I32)
+        let t = System.Threading.Tasks.Task.Run(fun () -> opt jp |> ignore)
+        Expect.isTrue (t.Wait 5000) "optimizer did not terminate"
+    }
+    test "alias not removed when the SOURCE is reassigned" {
+        // let j = i; i <- i + 1; j   — j must keep the OLD value of i
+        let body =
+            WExpr.Let("j", g "i",
+                WExpr.Sequence [
+                    WExpr.Assign("i", WExpr.Binary(WBinaryOp.Add, g "i", i32 1, WType.I32))
+                    g "j"
+                ])
+        match opt body with
+        | WExpr.Let("j", _, _) -> ()
+        | r -> failtestf "let j = i must be preserved when i is reassigned: %A" r
     }
 ]
 

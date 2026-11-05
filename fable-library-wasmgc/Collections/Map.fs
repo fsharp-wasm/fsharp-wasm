@@ -1,3 +1,4 @@
+
 /// fable-library-wasmgc — Generic Map collection.
 /// Written in pure F# — compiled by the WasmGC Fable backend.
 /// Unbalanced BST with an explicit comparison function stored in the handle.
@@ -191,4 +192,5 @@ let rec private ofListAcc (cmp: 'K -> 'K -> int) (acc: MapHandle<'K,'V>) (pairs:
 /// Fable injects the comparer as the first argument via ReplacementsInject.
 let ofList (cmp: 'K -> 'K -> int) (pairs: ('K * 'V) list) : MapHandle<'K,'V> =
     ofListAcc cmp (empty cmp) pairs
+
 
