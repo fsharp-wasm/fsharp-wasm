@@ -24,15 +24,12 @@
       We reference as library (OutputType=Exe is fine for project references).
     -->
 
-    <Compile Include="../../vendor/Fable/src/Fable.Cli/Contributors.fs" />
-    <Compile Include="../../vendor/Fable/src/Fable.Cli/Printers.fs" />
-    <Compile Include="../../vendor/Fable/src/Fable.Cli/FileWatchers.fsi" />
-    <Compile Include="../../vendor/Fable/src/Fable.Cli/FileWatchers.fs" />
-    <!-- <Compile Include="../../vendor/Fable/src/Fable.Cli/Pipeline.fs" /> -->
+    <Compile Include="Printers.fs" />
+    <Compile Include="FileWatchers.fsi" />
+    <Compile Include="FileWatchers.fs" />
     <Compile Include="Pipeline.fs" />
-    <Compile Include="../../vendor/Fable/src/Fable.Cli/Main.fs" />
-    <Compile Include="../../vendor/Fable/src/Fable.Cli/CustomLogging.fs" />
-    <!-- <Compile Include="../../vendor/Fable/src/Fable.Cli/Entry.fs" /> -->
+    <Compile Include="Main.fs" />
+    <Compile Include="CustomLogging.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -53,7 +50,7 @@
       Reference our WasmGc backend — provides WasmGcPipeline.compileFile.
       PrivateAssets="none" so that this CLI can load it in-process.
     -->
-    <ProjectReference Include="..\..\src\WasmGc.fsproj">
+    <ProjectReference Include="../../src/WasmGc.fsproj">
       <!-- Verhindert, dass das FSharp.Core von WasmGc in dein Hauptprojekt fließt -->
       <!-- <PrivateAssets>all</PrivateAssets> -->
       <!-- <ExcludeAssets>runtime</ExcludeAssets> -->

@@ -77,12 +77,15 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
                 (i32Const 1)
                 (wasmIf (ltS tmp (i32Const 0)) (i32Const (-1)) (i32Const 0))
         }
+    // Transcendentals: software implementations in fable-library-wasmgc/Math/MathHelpers.fs.
+    // Emitted as plain calls; if MathHelpers.fs is not part of the compiled project the module
+    // fails WAT/WASM validation (unknown function) instead of silently computing wrong values.
+    | ("exp" | "asin" | "acos" | "atan" | "atan2" | "sinh" | "cosh" | "tanh"), _, WType.F64 ->
+        WExpr.Call("MathHelpers_" + name, wArgs, WType.F64)
     | _ ->
-        eprintfn "[WasmGc] WARNING: unhandled Math call '%s' — emitting zero constant" name
-        match ty with
-        | WType.F64 -> WExpr.Const(WConst.F64 0.0)
-        | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
-        | _ -> WExpr.Const(WConst.I32 0)
+        // Never fabricate a value: a silent 0.0 is indistinguishable from a real result.
+        eprintfn "[WasmGc] ERROR: unhandled Math call '%s' — emitting a trap (throws at runtime)" name
+        WExpr.Throw(WExpr.Nop)
 
 // ─────────────────────────────────────────────────────────────────
 // Map module intercept

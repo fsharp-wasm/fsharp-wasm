@@ -1,4 +1,4 @@
-// TODO: borrowed from Fable.Cli
+// Source from https://github.com/fable-compiler/Fable/src/Fable.Cli/Main.fs
 module Fable.Cli.Main
 
 open System
@@ -6,13 +6,13 @@ open System.Collections.Concurrent
 open System.Collections.Generic
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Diagnostics
-open FSharp.Compiler.SourceCodeServices
 open FSharp.Compiler.Symbols
 
 open Fable
+open Fable.Compiler
 open Fable.AST
-open Fable.Transforms
 open Fable.Transforms.State
+open Fable.Compiler
 open Fable.Compiler.ProjectCracker
 open Fable.Compiler.Util
 
@@ -39,8 +39,8 @@ module private Util =
         s :> _
 
     let splitVersion (version: string) =
-        match Version.TryParse(version) with
-        | true, v -> v.Major, v.Minor, v.Revision
+        match Version.TryParse(version |> Option.ofObj |> Option.defaultValue "") with
+        | true, v when not (isNull v) -> v.Major, v.Minor, v.Revision
         | _ -> 0, 0, 0
 
     // let checkFableCoreVersion (checkedProject: FSharpCheckProjectResults) =
@@ -54,11 +54,13 @@ module private Util =
     //             // else printfn "Fable.Core version matches"
 
     let formatException file ex =
-        let rec innerStack (ex: Exception) =
-            if isNull ex.InnerException then
-                ex.StackTrace
-            else
-                innerStack ex.InnerException
+        let rec innerStack (ex: Exception | null) =
+            match Option.ofObj ex with
+            | None -> ""
+            | Some e ->
+                match Option.ofObj e.InnerException with
+                | None -> Option.ofObj e.StackTrace |> Option.defaultValue ""
+                | Some inner -> innerStack inner
 
         let stack = innerStack ex
         $"[ERROR] %s{file}{Log.newLine}%s{ex.Message}{Log.newLine}%s{stack}"
@@ -89,120 +91,19 @@ module private Util =
         |> Seq.filter (fun log -> log.Severity = Severity.Error)
         |> Seq.iter (fun log -> Log.error (formatLog rootDir log))
 
-    let getFSharpDiagnostics (diagnostics: FSharpDiagnostic array) =
-        diagnostics
-        |> Array.map (fun er ->
-            let severity =
-                match er.Severity with
-                | FSharpDiagnosticSeverity.Hidden
-                | FSharpDiagnosticSeverity.Info -> Severity.Info
-                | FSharpDiagnosticSeverity.Warning -> Severity.Warning
-                | FSharpDiagnosticSeverity.Error -> Severity.Error
-
-            let range =
-                SourceLocation.Create(
-                    start =
-                        {
-                            line = er.StartLine
-                            column = er.StartColumn + 1
-                        },
-                    ``end`` =
-                        {
-                            line = er.EndLine
-                            column = er.EndColumn + 1
-                        }
-                )
-
-            let msg = $"%s{er.Message} (code %i{er.ErrorNumber})"
-
-            LogEntry.Make(severity, msg, fileName = er.FileName, range = range, tag = "FSHARP")
-        )
-
     let getOutPath (cliArgs: CliArgs) pathResolver file =
-        match cliArgs.CompilerOptions.Language with
-#if !FABLE_CORE_ONLY
-        // For Python we must have an outDir since all compiled files must be inside the same subdir, so if `outDir` is not
-        // set we set `outDir` to the directory of the project file being compiled.
-        | Python ->
-            let fileExt = cliArgs.CompilerOptions.FileExtension
+        let changeExtension path fileExt = Path.ChangeExtension(path, fileExt)
+
+        let fileExt = cliArgs.CompilerOptions.FileExtension
+
+        match cliArgs.OutDir with
+        | Some outDir ->
             let projDir = IO.Path.GetDirectoryName cliArgs.ProjectFile
 
-            let outDir =
-                match cliArgs.OutDir with
-                | Some outDir -> outDir
-                | None -> IO.Path.GetDirectoryName cliArgs.ProjectFile
+            let absPath = Imports.getTargetAbsolutePath pathResolver file projDir outDir
 
-            let absPath =
-                let absPath = Imports.getTargetAbsolutePath pathResolver file projDir outDir
-
-                let fileName = IO.Path.GetFileName(file)
-
-                let modules =
-                    absPath
-                        .Substring(outDir.Length, absPath.Length - outDir.Length - fileName.Length)
-                        .Trim([| '/'; '\\' |])
-                        .Split([| '/'; '\\' |])
-                    |> Array.map (fun m ->
-                        match m with
-                        | "." -> ""
-                        | m -> m.Replace(".", "_")
-                    )
-                    |> IO.Path.Join
-
-
-                let fileName = fileName |> Pipeline.Python.getTargetPath cliArgs
-
-                IO.Path.Join(outDir, modules, fileName)
-
-            Path.ChangeExtension(absPath, fileExt)
-        | Beam ->
-            let fileExt = cliArgs.CompilerOptions.FileExtension
-
-            if Naming.isInFableModules file then
-                // Library files in fable_modules: preserve subdirectory structure
-                // so they stay in fable_modules/fable-library-beam/src/
-                let projDir = IO.Path.GetDirectoryName cliArgs.ProjectFile
-
-                let outDir =
-                    match cliArgs.OutDir with
-                    | Some outDir -> outDir
-                    | None -> projDir
-
-                let absPath = Imports.getTargetAbsolutePath pathResolver file projDir outDir
-                let dir = IO.Path.GetDirectoryName(absPath)
-                let fileName = Pipeline.Beam.normalizeFileName absPath
-                IO.Path.Combine(dir, "src", fileName + fileExt)
-            else
-                // Project files: go into src/ so rebar3 picks them up
-                let fileName = Pipeline.Beam.normalizeFileName file
-
-                match cliArgs.OutDir with
-                | Some outDir -> IO.Path.Combine(IO.Path.GetFullPath outDir, "src", fileName + fileExt)
-                | None ->
-                    let projDir = IO.Path.GetDirectoryName cliArgs.ProjectFile
-                    IO.Path.Combine(projDir, "src", fileName + fileExt)
-#endif
-
-        | lang ->
-            let changeExtension path fileExt =
-                match lang with
-                | JavaScript
-                | TypeScript ->
-                    let isInFableModules = Naming.isInFableModules file
-
-                    File.changeExtensionButUseDefaultExtensionInFableModules lang isInFableModules path fileExt
-                | _ -> Path.ChangeExtension(path, fileExt)
-
-            let fileExt = cliArgs.CompilerOptions.FileExtension
-
-            match cliArgs.OutDir with
-            | Some outDir ->
-                let projDir = IO.Path.GetDirectoryName cliArgs.ProjectFile
-
-                let absPath = Imports.getTargetAbsolutePath pathResolver file projDir outDir
-
-                changeExtension absPath fileExt
-            | None -> changeExtension file fileExt
+            changeExtension absPath fileExt
+        | None -> changeExtension file fileExt
 
     let compileFile (com: CompilerImpl) (cliArgs: CliArgs) pathResolver isSilent =
         async {
@@ -427,19 +328,8 @@ OUTPUT TYPE: {result.OutputType}
     %s{result.ProjectOptions.SourceFiles |> String.concat $"{Log.newLine}    "}{Log.newLine}"""
         )
 
-        // If targeting Python, make sure users are not compiling the project as library by mistake
-        // (imports won't work when running the code)
-        match cliArgs.CompilerOptions.Language, result.OutputType with
-        | Python, OutputType.Library ->
-            Log.always
-                "Compiling project as Library. If you intend to run the code directly, please set OutputType to Exe."
-        | _ -> ()
 
-        let sourceFiles = 
-            result.ProjectOptions.SourceFiles 
-            |> Array.map Fable.Compiler.File
-            |> List.fold (fun acc file -> file :: acc) []
-            |> List.rev
+        let sourceFiles = result.ProjectOptions.SourceFiles |> Array.map Fable.Compiler.File
 
         ProjectCracked(cliArgs, result, sourceFiles)
 
@@ -485,6 +375,9 @@ type FableCompilerState =
         FilesCheckedButNotCompiled: Set<string>
         FableFilesToCompileExpectedCount: int
         FableFilesCompiledCount: int
+        /// For Rust: the project's last file, held back until every other file
+        /// has compiled. See the note where it is set.
+        DelayedLastFile: string option
         FSharpLogs: LogEntry[]
         FableResults: FableCompileResult list
         HasFSharpCompilationFinished: bool
@@ -504,6 +397,7 @@ type FableCompilerState =
             FilesCheckedButNotCompiled = Set.empty
             FableFilesToCompileExpectedCount = filesToCompile |> Array.filter isImplementationFile |> Array.length
             FableFilesCompiledCount = 0
+            DelayedLastFile = None
             FSharpLogs = [||]
             FableResults = []
             HasFSharpCompilationFinished = false
@@ -606,15 +500,10 @@ and FableCompiler(checker: InteractiveChecker, projCracked: ProjectCracked, fabl
                         // It seems when there's a pair .fsi/.fs the F# compiler gives the .fsi extension to the implementation file
                         let fileName = file.FileName |> Path.normalizePath |> Path.ensureFsExtension
 
-                        // For Rust and WasmGc, delay last file's compilation so other files can finish compiling.
+                        // delay last file's compilation so other files can finish compiling.
                         // WasmGc uses a shared accumulation context (sharedCtxs in WasmGcPipeline) that requires
                         // all prior files to be fully processed before the last file emits the final module.
-                        let isLastFileDelayLang =
-                            projCracked.CliArgs.CompilerOptions.Language = Rust
-                            || projCracked.CliArgs.CompilerOptions.Language = WasmGc
-                        if
-                            isLastFileDelayLang
-                            && fileName = Array.last state.FilesToCompile
+                        if fileName = Array.last state.FilesToCompile
                             && state.FableFilesCompiledCount < state.FableFilesToCompileExpectedCount - 1
                         then
                             do! Async.Sleep(1000)
@@ -634,7 +523,28 @@ and FableCompiler(checker: InteractiveChecker, projCracked: ProjectCracked, fabl
                                 state
                             else
                                 let state = { state with FableProj = state.FableProj.Update([ file ]) }
-                                fableCompile state fileName
+
+                                // For Rust the last file has to compile after every other
+                                // one: it re-exports the namespaces the other files
+                                // register into a shared registry while they compile, so
+                                // compiling it early silently drops whatever had not
+                                // registered yet. It is held back here and released by
+                                // FableFileCompiled once the rest are done -- a wait on
+                                // the actual condition, where the fixed sleep this
+                                // replaces only shrank the race for small projects.
+                                if
+                                    projCracked.CliArgs.CompilerOptions.Language = WasmGc
+                                    && fileName = Array.last state.FilesToCompile
+                                    && state.FableFilesCompiledCount < state.FableFilesToCompileExpectedCount - 1
+                                then
+                                    { state with
+                                        DelayedLastFile = Some fileName
+                                        // Marked pending so the finished check keeps
+                                        // waiting for it.
+                                        FilesCheckedButNotCompiled = Set.add fileName state.FilesCheckedButNotCompiled
+                                    }
+                                else
+                                    fableCompile state fileName
 
                         return! loop state
 
@@ -643,7 +553,7 @@ and FableCompiler(checker: InteractiveChecker, projCracked: ProjectCracked, fabl
 
                         let state =
                             { state with
-                                FSharpLogs = getFSharpDiagnostics results.Diagnostics
+                                FSharpLogs = CodeServices.getFSharpDiagnostics results.Diagnostics
                                 HasFSharpCompilationFinished = true
                             }
 
@@ -678,6 +588,16 @@ and FableCompiler(checker: InteractiveChecker, projCracked: ProjectCracked, fabl
                                 FableFilesCompiledCount = state.FableFilesCompiledCount + 1
                                 FilesCheckedButNotCompiled = Set.remove fileName state.FilesCheckedButNotCompiled
                             }
+
+                        // Everything else is compiled: release the held-back Rust
+                        // last file (see FSharpFileTypeChecked).
+                        let state =
+                            match state.DelayedLastFile with
+                            | Some delayed when
+                                state.FableFilesCompiledCount = state.FableFilesToCompileExpectedCount - 1
+                                ->
+                                fableCompile { state with DelayedLastFile = None } delayed
+                            | _ -> state
 
                         if not state.IsSilent then
                             let msg =
@@ -975,158 +895,6 @@ let private areCompiledFilesUpToDate (state: State) (filesToCompile: string[]) =
         Log.warning ("Cannot check timestamp of compiled files: " + er.Message)
         false
 
-#if !FABLE_CORE_ONLY
-// Library .erl files now live in src/ subdirectories (rebar3 convention).
-let private erlLibSrcRelDir =
-    IO.Path.Combine("fable_modules", "fable-library-beam", "src")
-
-let private compileBeamFiles (workingDir: string) =
-    let erlLibSrcDir = IO.Path.Combine(workingDir, erlLibSrcRelDir)
-
-    // Compile fable-library-beam .erl files if any .beam files are missing
-    if IO.Directory.Exists(erlLibSrcDir) then
-        let erlFiles = IO.Directory.GetFiles(erlLibSrcDir, "*.erl")
-
-        let needsCompile =
-            erlFiles
-            |> Array.exists (fun f -> not (IO.File.Exists(IO.Path.ChangeExtension(f, ".beam"))))
-
-        if needsCompile then
-            let erlFileNames = erlFiles |> Array.map IO.Path.GetFileName |> Array.toList
-
-            Process.runSyncWithEnv
-                []
-                erlLibSrcDir
-                "erlc"
-                ("+nowarn_ignored" :: "+nowarn_failed" :: "+nowarn_shadow_vars" :: erlFileNames)
-            |> ignore
-
-    // Compile all .erl files in src/ (project output files go there now)
-    let mainSrcDir = IO.Path.Combine(workingDir, "src")
-
-    let mainErlFiles =
-        if IO.Directory.Exists(mainSrcDir) then
-            IO.Directory.GetFiles(mainSrcDir, "*.erl")
-            |> Array.map IO.Path.GetFileName
-            |> Array.toList
-        else
-            []
-
-    if not mainErlFiles.IsEmpty then
-        // -pa path is relative to the directory erlc is invoked from (mainSrcDir)
-        let relLibPath = IO.Path.Combine("..", "fable_modules", "fable-library-beam", "src")
-
-        Process.runSyncWithEnv
-            []
-            mainSrcDir
-            "erlc"
-            ("+nowarn_ignored"
-             :: "+nowarn_failed"
-             :: "+nowarn_shadow_vars"
-             :: "-pa"
-             :: relLibPath
-             :: mainErlFiles)
-        |> ignore
-
-let private generateBeamScaffold (cliArgs: CliArgs) =
-    let outDir =
-        cliArgs.OutDir
-        |> Option.defaultWith (fun () -> IO.Path.GetDirectoryName cliArgs.ProjectFile)
-
-    let projectName =
-        IO.Path.GetFileNameWithoutExtension(cliArgs.ProjectFile)
-        |> Pipeline.Beam.normalizeAppName
-
-    let generatedMarker = "%% Generated by Fable - safe to regenerate"
-    let fableModulesDir = IO.Path.Combine(outDir, "fable_modules")
-
-    let isFableGenerated (path: string) =
-        if IO.File.Exists(path) then
-            use reader = new IO.StreamReader(path)
-            let firstLine = reader.ReadLine()
-
-            firstLine <> null
-            && firstLine.StartsWith(generatedMarker, StringComparison.Ordinal)
-        else
-            false
-
-    let writeIfChanged (path: string) (content: string) =
-        if not (IO.File.Exists(path)) || IO.File.ReadAllText(path) <> content then
-            IO.File.WriteAllText(path, content)
-
-    let appContent (appName: string) (version: string) =
-        $"""{generatedMarker}
-{{application, {appName}, [
-  {{description, "Fable compiled application"}},
-  {{vsn, "{version}"}},
-  {{modules, []}},
-  {{registered, []}},
-  {{applications, [kernel, stdlib]}}
-]}}.
-"""
-
-    let depRebarConfig () =
-        $"""{generatedMarker}
-{{erl_opts, [debug_info]}}.
-"""
-
-    // Discover fable_modules dep directories
-    let deps =
-        if IO.Directory.Exists(fableModulesDir) then
-            IO.Directory.GetDirectories(fableModulesDir)
-            |> Array.map (fun dir ->
-                let dirName = IO.Path.GetFileName(dir)
-                dirName, Pipeline.Beam.deriveDepAppName dirName, Pipeline.Beam.extractDepVersion dirName
-            )
-            |> Array.toList
-        else
-            []
-
-    // Write src/<project>.app.src
-    let srcDir = IO.Path.Combine(outDir, "src")
-    IO.Directory.CreateDirectory(srcDir) |> ignore
-    writeIfChanged (IO.Path.Combine(srcDir, projectName + ".app.src")) (appContent projectName "0.1.0")
-
-    // Write root rebar.config
-    let rootRebarConfig = IO.Path.Combine(outDir, "rebar.config")
-
-    let rootRebarConfigContent () =
-        $"""{generatedMarker}
-{{erl_opts, [debug_info]}}.
-
-{{project_app_dirs, [".", "fable_modules/*"]}}.
-"""
-
-    if not (IO.File.Exists(rootRebarConfig)) then
-        IO.File.WriteAllText(rootRebarConfig, rootRebarConfigContent ())
-        Log.always $"[BEAM] Generated rebar.config"
-    elif isFableGenerated rootRebarConfig then
-        let newContent = rootRebarConfigContent ()
-
-        if IO.File.ReadAllText(rootRebarConfig) <> newContent then
-            IO.File.WriteAllText(rootRebarConfig, newContent)
-            Log.always "[BEAM] Updated rebar.config"
-    else
-        Log.warning
-            "[BEAM] rebar.config exists and was not generated by Fable — skipping update. \
-             Delete it to let Fable regenerate it."
-
-    // Write per-dep src/<app>.app.src and rebar.config
-    for (dirName, appName, version) in deps do
-        let depDir = IO.Path.Combine(fableModulesDir, dirName)
-        let depSrcDir = IO.Path.Combine(depDir, "src")
-        IO.Directory.CreateDirectory(depSrcDir) |> ignore
-
-        // src/<app>.app.src — always regenerated; rebar3 uses this when building the dep as a project app
-        writeIfChanged (IO.Path.Combine(depSrcDir, appName + ".app.src")) (appContent appName version)
-
-        // dep rebar.config — regenerated when absent or Fable-generated
-        let depRebarConfigPath = IO.Path.Combine(depDir, "rebar.config")
-
-        if not (IO.File.Exists(depRebarConfigPath)) || isFableGenerated depRebarConfigPath then
-            writeIfChanged depRebarConfigPath (depRebarConfig ())
-#endif
-
 let private runProcessAndForget (cliArgs: CliArgs) (runProc: RunProcess) =
     let workingDir = cliArgs.RootDir
 
@@ -1156,52 +924,8 @@ let private checkRunProcess (state: State) (projCracked: ProjectCracked) (compil
         let findLastFileRelativePath () =
             findLastFileFullPath () |> Path.getRelativeFileOrDirPath true workingDir false
 
-        let exeFile, args =
-            match cliArgs.CompilerOptions.Language, runProc.ExeFile with
-#if !FABLE_CORE_ONLY
-            | Python, Naming.placeholder ->
-                let lastFilePath = findLastFileRelativePath ()
-                "python", lastFilePath :: runProc.Args
-            | Rust, Naming.placeholder ->
-                let lastFileDir = IO.Path.GetDirectoryName(findLastFileFullPath ())
-
-                let args =
-                    match File.tryFindUpwards "Cargo.toml" lastFileDir with
-                    | Some path -> "--manifest-path" :: path :: runProc.Args
-                    | None -> runProc.Args
-
-                "cargo", "run" :: args
-            | Dart, Naming.placeholder ->
-                let lastFilePath = findLastFileRelativePath ()
-                "dart", "run" :: lastFilePath :: runProc.Args
-            | JavaScript, Naming.placeholder ->
-                let lastFilePath = findLastFileRelativePath ()
-                "node", lastFilePath :: runProc.Args
-            | Beam, Naming.placeholder ->
-                let moduleName = IO.Path.GetFileNameWithoutExtension(findLastFileFullPath ())
-                compileBeamFiles workingDir
-
-                "erl",
-                [
-                    "-noshell"
-                    "-pa"
-                    "src" // project .beam files are compiled into src/
-                    "-pa"
-                    erlLibSrcRelDir // library .beam files are in fable_modules/.../src/
-                    "-eval"
-                    $"{moduleName}:main()"
-                    "-s"
-                    "init"
-                    "stop"
-                ]
-                @ runProc.Args
-            | (JavaScript | TypeScript), exeFile ->
-                File.tryNodeModulesBin workingDir exeFile |> Option.defaultValue exeFile, runProc.Args
-#endif
-            | _, exeFile -> exeFile, runProc.Args
-
         if Option.isSome state.Watcher then
-            Process.startWithEnv cliArgs.RunProcessEnv workingDir exeFile args
+            Process.startWithEnv cliArgs.RunProcessEnv workingDir runProc.ExeFile runProc.Args
 
             let runProc =
                 if runProc.IsWatch then
@@ -1212,9 +936,10 @@ let private checkRunProcess (state: State) (projCracked: ProjectCracked) (compil
             0, { state with CliArgs = { cliArgs with RunProcess = runProc } }
         else
             // TODO: When not in watch mode, run process out of this scope to free memory used by Fable/F# compiler
-            let exitCode = Process.runSyncWithEnv cliArgs.RunProcessEnv workingDir exeFile args
+            let exitCode = Process.runSyncWithEnv cliArgs.RunProcessEnv workingDir runProc.ExeFile runProc.Args
 
             exitCode, state
+
 
 let private compilationCycle (state: State) (changes: ISet<string>) =
     async {
@@ -1225,7 +950,7 @@ let private compilationCycle (state: State) (changes: ISet<string>) =
             | None ->
                 // #if DEBUG
                 // let evaluateOnly = true
-                // #else
+                // #elsef
                 let evaluateOnly = false
                 // #endif
                 let projCracked = ProjectCracked.Init(cliArgs, evaluateOnly)
@@ -1438,7 +1163,7 @@ let private compilationCycle (state: State) (changes: ISet<string>) =
 
                             match result with
                             | Some ex ->
-                                getFSharpDiagnostics diagnostics |> logErrors cliArgs.RootDir
+                                CodeServices.getFSharpDiagnostics diagnostics |> logErrors cliArgs.RootDir
                                 Log.error (ex.Message)
                                 return 1
                             | None ->
@@ -1476,11 +1201,6 @@ let private compilationCycle (state: State) (changes: ISet<string>) =
                                 return 0
                     | _ -> return 0
                 }
-#if !FABLE_CORE_ONLY
-            // Generate rebar3 scaffold for BEAM target after successful compilation
-            if cliArgs.CompilerOptions.Language = Beam && not hasError then
-                generateBeamScaffold cliArgs
-#endif
             // Run process
             let exitCode, state =
                 if hasError then
