@@ -77,6 +77,9 @@ module Code =
     let NonVoidNop         = "WGC008"
     /// Call through a computed callee that is neither a closure nor a handled member call.
     let UnhandledCallee    = "WGC009"
+    /// A non-Unit `let` whose value compiled to nothing — the local keeps its default
+    /// and fails validation later as an uninitialized local.
+    let ValuelessBinding   = "WGC010"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Diagnostic bag
@@ -196,3 +199,21 @@ let unhandledCallee
         msg  = sprintf "Call through a callee that is not a function value: %s" desc,
         hint = "Not a closure (LambdaType/DelegateType) and not a handled member call. \
                 Add a case for this callee shape in TransformDispatch.transformCall.")
+
+let valuelessBinding
+        (bag: DiagnosticBag)
+        (identName: string)
+        (valueDescription: string)
+        (funcName: string option)
+        (range: SourceLocation option)
+        : unit =
+    let loc = range |> Option.map SourceLoc.FromFable |> Option.defaultValue SourceLoc.Unknown
+    let desc =
+        let flat = valueDescription.Replace("\r", "").Replace("\n", " ")
+        if flat.Length > 160 then flat.Substring(0, 160) + " …" else flat
+    bag.Error(
+        Code.ValuelessBinding, loc,
+        func = defaultArg funcName "<global>",
+        msg  = sprintf "Binding '%s' has a non-Unit type but its value compiled to nothing: %s" identName desc,
+        hint = "The value expression is unhandled in TransformExpr/TransformDispatch, so the local \
+                is never initialized and the function WILL fail WAT/WASM validation.")
