@@ -18,6 +18,9 @@
     <PackageReference Update="FSharp.Core" Version="11.0.100" />
 
     <ProjectReference Include="../Core/WasmGc.Core.fsproj" />
+    <!-- WasmGc.Core's assembly mentions Fable.AST types (ICompilerCore) in its signatures, so every consumer needs the
+         reference to type-check (FS0074). PrivateAssets keeps it from flowing on to this project's own consumers. -->
+    <ProjectReference Include="../../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" PrivateAssets="all" />
     <ProjectReference Include="../Builder/WasmGc.Builder.fsproj" />
     <ProjectReference Include="../Ir/WasmGc.Ir.fsproj" />
   </ItemGroup>
