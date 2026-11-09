@@ -118,7 +118,15 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         match res with
         | Scope.Resolution.Local(name, ty)          -> WExpr.LocalGet(name, ty)
         | Scope.Resolution.CapturedVar(name, ty)    -> WExpr.LocalGet(name, ty)
-        | Scope.Resolution.ModuleValue(qn, retTy)   -> WExpr.Call(qn, [], retTy)
+        | Scope.Resolution.ModuleValue(qn, retTy)   ->
+            // `let f () = …` is registered WITHOUT parameters (unit params are dropped), i.e. exactly
+            // like a module value `let x = …`.  A reference whose Fable type is `unit -> R` is a
+            // first-class FUNCTION: wrap it in a closure.  Calling it here ran it eagerly and, for
+            // `unit -> unit`, produced no value at all (binding skipped → "uninitialized local").
+            match ident.Type with
+            | Fable.Type.LambdaType(Fable.Type.Unit, resT) when mapTypeKnown ctx resT = retTy ->
+                ClosureBuilder.buildKnownFuncClosure ctx qn [] retTy
+            | _ -> WExpr.Call(qn, [], retTy)
         | Scope.Resolution.KnownFunc(qn, ps, retTy) ->
             // First-class function reference.  `ref.func qn` cannot be stored in a closure directly:
             // closure code pointers take `$self` as an extra first parameter, a module function
@@ -146,6 +154,12 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     // ── Let bindings ──
     | Let(ident, value, body) ->
         let wValue = transformExpr ctx value
+        // A non-unit binding whose value produced nothing keeps the local's default and later fails
+        // validation as "uninitialized local".  (A plain Nop is already reported by transformExpr.)
+        if wValue <> WExpr.Nop && exprWType wValue = WType.Void
+           && ident.Type <> Fable.Type.Unit && value.Type <> Fable.Type.Unit then
+            WasmGc.Core.Diagnostics.valuelessBinding
+                ctx.Diagnostics ident.Name (sprintf "%A" value) ctx.CurrentFunc value.Range
         let declaredTy = mapTypeKnown ctx ident.Type
         // Prefer the actual WExpr type (from the value) over the declared type;
         // this correctly handles Let-bound record/DU values.

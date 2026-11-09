@@ -75,7 +75,7 @@ module WasmGcCompilationPipeline =
             let ctx      = WasmGc.Runtime.Types.Ctx.Create(com)
             // processFileIntoCtx now accepts ICompilerCore
             let finalCtx = WasmGc.Transforms.Fable2Wasm.processFileIntoCtx ctx com file true
-            finalCtx.Diagnostics.Flush()
+            finalCtx.Diagnostics.FailOnErrors("Fable → WExpr")
             let raw  = WasmGc.Transforms.Fable2Wasm.buildWModule finalCtx
             let opts = { Phases.defaultOptions with Quiet = true }
             match Phases.runPipeline finalCtx file.Declarations opts with

@@ -627,6 +627,31 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
 // Call translation
 // ─────────────────────────────────────────────────────────────────
 
+/// Call through a computed callee — a record/class field holding a closure, the result of another
+/// call, … Function-typed callees are applied as closures (same path as a closure-typed local);
+/// anything else is a compiler gap: it is reported (WGC009) instead of emitting an ill-typed `call_ref`.
+let private indirectCall
+        (ctx: Ctx)
+        (eval: Ctx -> Expr -> WExpr)
+        (callee: Expr)
+        (info: CallInfo)
+        (wArgs: WExpr list)
+        (ty: WType)
+        : WExpr =
+    let wCallee = eval ctx callee
+
+    let isClosure =
+        match callee.Type, exprWType wCallee with
+        | (Fable.Type.LambdaType _ | Fable.Type.DelegateType _), _ -> true
+        | _, WType.Ref(idx, _) -> idx = AnyFnTypeIdx
+        | _ -> false
+
+    if isClosure then
+        ClosureBuilder.applyClosure ctx callee.Type wCallee (info.Args |> List.map (fun a -> a.Type)) wArgs ty
+    else
+        WasmGc.Core.Diagnostics.unhandledCallee ctx.Diagnostics (sprintf "%A" callee) ctx.CurrentFunc callee.Range
+        WExpr.Nop
+
 /// Main-Dispatcher for all C
 // ── Builder/Locals.fs (~line 61) — FS0026 rule never matched ─────────────
 // Same issue.  The Locals.fs collectLocals has a catch-all that shadows a
@@ -697,6 +722,28 @@ let transformCall
                 | None -> wArgs
             dispatchImportCall ctx eval importInfo info typ fullWArgs
 
+        // ── console.log/info/warn/error/debug ────────────────────────────────────
+        // Fable's `printfn "literal"` shortcut (no format arguments) is `console.log(str)`.
+        // Formatted printfn goes through String.toConsole → $consolePrint; route this one the same way.
+        | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "console" }, GetKind.FieldGet fi, _, _)
+            when (match fi.Name with
+                  | "log" | "info" | "warn" | "error" | "debug" -> true
+                  | _ -> false) ->
+            match wArgs with
+            | [ str ] when (match exprWType str with
+                            | WType.Ref(si, _) -> si = StringTypeIdx
+                            | _ -> false) ->
+                WExpr.Call("consolePrint", [ str ], WType.Void)
+            | _ -> indirectCall ctx eval callee info wArgs ty
+        // ── StringBuilder.ToString() ─────────────────────────────────────────────
+        // Fable's generic Object.ToString replacement yields `sb.toString()` (a FieldGet callee on
+        // the instance), not the `StringBuilder__ToString` import handled in dispatchImportCall.
+        | Fable.Expr.Get(sbExpr, GetKind.FieldGet fi, _, _)
+            when (fi.Name = "toString" || fi.Name = "ToString")
+                 && (match sbExpr.Type with
+                     | Fable.Type.DeclaredType(entRef, _) -> entRef.FullName = "System.Text.StringBuilder"
+                     | _ -> false) ->
+            WExpr.Call(ctx.UseHelper("$sbToString"), [ eval ctx sbExpr ], WType.Ref(StringTypeIdx, false))
         // TODO: why is this part skippd? till the default match `| _ -> let wCallee`
         // ── Numeric .toString() — for string(n), n.ToString(), sprintf, etc. ────
         | Fable.Expr.Get(numExpr, GetKind.FieldGet fi, _, _)
@@ -899,23 +946,18 @@ let transformCall
                         match tryArrayInstanceCall eval ctx fi.Name arrExpr info.Args typ with
                         | Some result -> result
                         | None ->
-                            let wCallee = eval ctx callee
-                            WExpr.CallIndirect(wCallee, wArgs, ty)
+                            indirectCall ctx eval callee info wArgs ty
                 | None ->
                     match tryArrayInstanceCall eval ctx fi.Name arrExpr info.Args typ with
                     | Some result -> result
                     | None ->
-                        let wCallee = eval ctx callee
-                        WExpr.CallIndirect(wCallee, wArgs, ty)
+                        indirectCall ctx eval callee info wArgs ty
             | _ ->
                 match tryArrayInstanceCall eval ctx fi.Name arrExpr info.Args typ with
                 | Some result -> result
                 | None ->
-                    let wCallee = eval ctx callee
-                    WExpr.CallIndirect(wCallee, wArgs, ty)
+                    indirectCall ctx eval callee info wArgs ty
 
         | _ ->
-            // Indirect call (TODO: closure apply)
-            let wCallee = eval ctx callee
-            WExpr.CallIndirect(wCallee, wArgs, ty)
+            indirectCall ctx eval callee info wArgs ty
 

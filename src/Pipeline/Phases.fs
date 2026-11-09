@@ -26,6 +26,7 @@ open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Pipeline.ScopeAnalyzer
 open WasmGc.Pipeline.Normalizer
+open WasmGc.Pipeline.UniqueLocals
 open WasmGc.Pipeline.Lower
 
 module Dump    = WasmGc.Pipeline.Dumps
@@ -234,6 +235,23 @@ let phase4b_Lower (opts: PipelineOptions) (wmod: WModule) =
         low)
 
 // ─────────────────────────────────────────────────────────────────
+// Phase 4c — Unique locals
+// ─────────────────────────────────────────────────────────────────
+
+/// Make every binder name unique per function (scope-aware renaming).  WASM locals are flat, the
+/// builders scope names lexically and reuse fixed temporaries (`$limit`, loop counters of nested
+/// array helpers, lambda parameters of inlined HOFs): without this, nested `for` loops and nested
+/// array helpers overwrite each other's locals.  Phase 5 recomputes `Locals` from the result.
+let phase4c_UniqueLocals (opts: PipelineOptions) (wmod: WModule) : WModule =
+    timed opts "Phase4c-UniqueLocals" (fun () ->
+        let uniq = WasmGc.Pipeline.UniqueLocals.uniqueModule wmod
+        dumpIf opts 43 (fun dir ->
+            let p = Path.Combine(dir, "dump-phase4c-unique.sexp")
+            WasmGc.Util.IrDump.dumpToFile p uniq
+            log opts "  [Phase 4c] %s" p)
+        uniq)
+
+// ─────────────────────────────────────────────────────────────────
 // Phase 5 — Locals Collection - Resolve locals
 // ─────────────────────────────────────────────────────────────────
 
@@ -330,8 +348,11 @@ let runPipeline
 
     let lir       = phase4b_Lower opts norm        // ← new
 
+    // Phase 4c — one binder, one name per function (flat WASM locals vs. lexical builders)
+    let uniq      = phase4c_UniqueLocals opts lir
+
     // Phase 5 — resolve locals on normalized tree
-    let withLoc   = phase5_ResolveLocals opts lir  // ← after Lower
+    let withLoc   = phase5_ResolveLocals opts uniq  // ← after Lower + UniqueLocals
 
     // Phase 6 — validate
     match phase6_Validate opts withLoc with

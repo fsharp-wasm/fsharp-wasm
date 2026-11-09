@@ -200,7 +200,7 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 // ── Flush accumulated diagnostics from all processed files ────────
                 // Each processFileIntoCtx call accumulates into finalCtx.Diagnostics.
                 // Print here (after last file) so all warnings are visible together.
-                finalCtx.Diagnostics.Flush()
+                finalCtx.Diagnostics.FailOnErrors("Fable → WExpr")
 
                 // Call the full pipeline defined in Phases.fs
                 // This properly runs:

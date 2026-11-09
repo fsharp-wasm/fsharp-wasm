@@ -237,3 +237,6 @@ tests/React/Components.Copied.fs
 
 output/
 docs/internal/
+
+# nested checkout, not a registered submodule (a bare gitlink breaks `git submodule` / actions/checkout)
+/fsharp-wasm-backend/
