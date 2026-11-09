@@ -23,27 +23,13 @@ jobs:
         with:
           submodules: false
 
-      # vendor/Fable and vendor/fsharp are public and all that is needed to build the patched compiler,
-      # the CLI and tests/QuickTest.
-      - name: Init public submodules
-        run: git submodule update --init --depth 1 vendor/Fable vendor/fsharp
-
-      # The other submodules are private repos: the default GITHUB_TOKEN cannot read them. Provide a
-      # token with Contents: read on them as the SUBMODULES_TOKEN secret to run the full pipeline.
-      - name: Init private submodules (needs SUBMODULES_TOKEN)
-        id: private
-        env:
-          SUBMODULES_TOKEN: ${{ secrets.SUBMODULES_TOKEN }}
-        run: |
-          if [ -z "$SUBMODULES_TOKEN" ]; then
-            echo "SUBMODULES_TOKEN not set: private submodules skipped, running the public subset only."
-            echo "available=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$SUBMODULES_TOKEN" | base64 -w0)"
-          echo "::add-mask::$(printf 'x-access-token:%s' "$SUBMODULES_TOKEN" | base64 -w0)"
-          git -c "http.https://github.com/.extraheader=$auth" submodule update --init --depth 1 \
-            fsharp-glyph-aura fsharp-wasm-core fsharp-wasm-graphics fsharp-wasm-runtime fsharp-wasmecto
-          echo "available=true" >> "$GITHUB_OUTPUT"
+      # Public submodules always; the private ones (fsharp-wasm-core, -graphics, -runtime, fsharp-glyph-aura,
+      # fsharp-wasmecto) only when the SUBMODULES_TOKEN secret exists. Without it the public subset runs.
+      - name: Init submodules
+        id: submodules
+        uses: ./.github/actions/init-submodules
+        with:
+          token: ${{ secrets.SUBMODULES_TOKEN }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -84,14 +70,14 @@ jobs:
 
       # Full pipeline (needs the private fsharp-wasm-core for BuildCore).
       - name: Build + QuickTest + Showcase
-        if: steps.private.outputs.available == 'true'
+        if: steps.submodules.outputs.private == 'true'
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: dotnet fake run build.fsx --target Showcase
 
       # Public subset: compile Fable.WasmGc + the CLI with the patched compiler, then run the QuickTest suite.
       - name: Build CLI + QuickTest (public subset)
-        if: steps.private.outputs.available != 'true'
+        if: steps.submodules.outputs.private != 'true'
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: |

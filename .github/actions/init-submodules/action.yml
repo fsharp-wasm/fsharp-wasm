@@ -1,0 +1,45 @@
+name: Init submodules
+description: >-
+  Initialises the public submodules (vendor/Fable, vendor/fsharp) and, when a token is given,
+  the private ones. Deliberately non-recursive: fsharp-wasm-core declares submodules of its own
+  (vendor/fsharp, vendor/fsharp-wasm) that point back at this repository.
+
+inputs:
+  token:
+    description: Token with Contents:read on the private submodule repos (the SUBMODULES_TOKEN secret).
+    required: false
+    default: ''
+  require-private:
+    description: Fail instead of skipping when the private submodules cannot be initialised.
+    required: false
+    default: 'false'
+
+outputs:
+  private:
+    description: "'true' when the private submodules were initialised"
+    value: ${{ steps.private.outputs.available }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: git submodule update --init --depth 1 vendor/Fable vendor/fsharp
+
+    - id: private
+      shell: bash
+      env:
+        SUBMODULES_TOKEN: ${{ inputs.token }}
+        REQUIRE_PRIVATE: ${{ inputs.require-private }}
+      run: |
+        if [ -z "$SUBMODULES_TOKEN" ]; then
+          if [ "$REQUIRE_PRIVATE" = "true" ]; then
+            echo "::error::SUBMODULES_TOKEN is required here but not set (Contents:read on fsharp-wasm-core, -graphics, -runtime, fsharp-glyph-aura, fsharp-wasmecto)."; exit 1
+          fi
+          echo "SUBMODULES_TOKEN not set: private submodules skipped, running the public subset only."
+          echo "available=false" >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        b64=$(printf 'x-access-token:%s' "$SUBMODULES_TOKEN" | base64 -w0)
+        echo "::add-mask::$b64"
+        git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $b64" submodule update --init --depth 1 \
+          fsharp-glyph-aura fsharp-wasm-core fsharp-wasm-graphics fsharp-wasm-runtime fsharp-wasmecto
+        echo "available=true" >> "$GITHUB_OUTPUT"

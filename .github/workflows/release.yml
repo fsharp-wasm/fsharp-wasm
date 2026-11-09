@@ -18,8 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          submodules: recursive
-          token: ${{ secrets.SUBMODULES_TOKEN || github.token }}
+          submodules: false
+
+      - name: Init submodules
+        uses: ./.github/actions/init-submodules
+        with:
+          token: ${{ secrets.SUBMODULES_TOKEN }}
+          require-private: 'true'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
