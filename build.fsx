@@ -12,9 +12,6 @@
 ///   NUGET_API_KEY      — NuGet.org push API key (for Release target)
 ///   FSHARP_COMPILER    — path to patched fsc.dll (set by .envrc automatically)
 
-// fake-cli 6.1.3 runs on FSharp.Core 8.0.x; without this Paket resolves FSharp.Core 11 and the script
-// fails to load ("Could not load file or assembly 'Fake.Core.Environment'").
-#r "nuget: FSharp.Core,               8.0.400"
 #r "nuget: Fake.Core.Target,         6.1.3"
 #r "nuget: Fake.Core.Process,        6.1.3"
 #r "nuget: Fake.Core.ReleaseNotes,   6.1.3"

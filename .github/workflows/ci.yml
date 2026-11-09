@@ -34,10 +34,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          # FAKE 6 runs on net6.0 and needs its targeting pack, which the current runner image no longer ships.
-          dotnet-version: |
-            6.0.x
-            10.0.x
+          dotnet-version: '10.0.x'
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -65,24 +62,28 @@ jobs:
           find . -maxdepth 2 -name wasm-tools -type f | head -1 | xargs -I{} sudo install -m755 {} /usr/local/bin/wasm-tools
           wasm-tools --version
 
-      - name: Restore dotnet tools (FAKE)
-        run: dotnet tool restore
-
-      # Full pipeline (needs the private fsharp-wasm-core for BuildCore).
-      - name: Build + QuickTest + Showcase
-        if: steps.submodules.outputs.private == 'true'
+      # build.fsx (FAKE) remains the local entry point; CI runs the same steps directly. FAKE 6 needs a net6.0
+      # targeting pack and a locked FSharp.Core, and both kept breaking on the runner image (see build.fsx).
+      - name: Build Fable.WasmGc, CLI and (with private submodules) fsharp-wasm-core
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
-        run: dotnet fake run build.fsx --target Showcase
-
-      # Public subset: compile Fable.WasmGc + the CLI with the patched compiler, then run the QuickTest suite.
-      - name: Build CLI + QuickTest (public subset)
-        if: steps.submodules.outputs.private != 'true'
-        env:
-          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          HAVE_PRIVATE: ${{ steps.submodules.outputs.private }}
         run: |
-          dotnet fake run build.fsx --target BuildCli
-          bash tests/QuickTest/run.sh
+          dotnet build src/WasmGc.fsproj -c Release
+          dotnet build tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj -c Release
+          if [ "$HAVE_PRIVATE" = "true" ]; then
+            dotnet build fsharp-wasm-core/FSharp.Wasm.Core/FSharp.WasmCore.fsproj -c Release
+          fi
+
+      - name: QuickTest
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/QuickTest/run.sh
+
+      - name: Showcase
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/Showcase/run.sh
 
       - name: Component Embed
         env:
