@@ -65,6 +65,7 @@ jobs:
       # build.fsx (FAKE) remains the local entry point; CI runs the same steps directly. FAKE 6 needs a net6.0
       # targeting pack and a locked FSharp.Core, and both kept breaking on the runner image (see build.fsx).
       - name: Build Fable.WasmGc, CLI and (with private submodules) fsharp-wasm-core
+        id: build
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
           HAVE_PRIVATE: ${{ steps.submodules.outputs.private }}
@@ -76,21 +77,25 @@ jobs:
           fi
 
       - name: QuickTest
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: bash tests/QuickTest/run.sh
 
       - name: Showcase
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: bash tests/Showcase/run.sh
 
       - name: Component Embed
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: cd examples/component-embed && bash run.sh
 
       - name: Component Linking
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: cd examples/component-linking && bash run.sh
