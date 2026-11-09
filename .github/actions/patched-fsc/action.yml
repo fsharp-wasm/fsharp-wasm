@@ -20,7 +20,7 @@ runs:
         echo "fsc=$GITHUB_WORKSPACE/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll" >> "$GITHUB_OUTPUT"
 
     - id: cache
-      uses: actions/cache@v5
+      uses: actions/cache/restore@v5
       with:
         path: vendor/fsharp/artifacts/bin/fsc/Release/net10.0
         key: fsc-${{ runner.os }}-${{ steps.meta.outputs.sha }}
@@ -38,3 +38,11 @@ runs:
         mkdir -p artifacts   # a local NuGet feed in the test projects points here; restore needs it to exist
         ./build/build.sh -c Release
         test -f artifacts/bin/fsc/Release/net10.0/fsc.dll
+
+    # Saved here instead of by actions/cache's post step, which only runs when the whole job succeeds:
+    # later steps (tests) can then be iterated without rebuilding the compiler each time.
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: vendor/fsharp/artifacts/bin/fsc/Release/net10.0
+        key: fsc-${{ runner.os }}-${{ steps.meta.outputs.sha }}
