@@ -48,7 +48,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '10.0.x'
+          # FAKE 6 runs on net6.0 and needs its targeting pack, which the current runner image no longer ships.
+          dotnet-version: |
+            6.0.x
+            10.0.x
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
