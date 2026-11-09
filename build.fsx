@@ -13,6 +13,7 @@
 ///   FSHARP_COMPILER    — path to patched fsc.dll (set by .envrc automatically)
 
 #r "nuget: Fake.Core.Target,         6.1.3"
+#r "nuget: Fake.Core.Process,        6.1.3"
 #r "nuget: Fake.Core.ReleaseNotes,   6.1.3"
 #r "nuget: Fake.DotNet.Cli,          6.1.3"
 #r "nuget: Fake.IO.FileSystem,       6.1.3"
@@ -51,7 +52,8 @@ let version =
                 if l.StartsWith("## [") then
                     let s = l.TrimStart("## [".ToCharArray())
                     let e = s.IndexOf(']')
-                    if e > 0 then Some (s.[..e-1]) else None)
+                    if e > 0 then Some (s.[..e-1]) else None
+                else None)
             |> Option.defaultValue "0.0.0-local"
         else "0.0.0-local"
 
@@ -71,6 +73,15 @@ let dotnetOpts (o: DotNet.Options) =
 let inline runDotNet cmd workDir =
     let result = DotNet.exec (fun o -> dotnetOpts o |> fun o -> { o with WorkingDirectory = workDir }) cmd ""
     if result.ExitCode <> 0 then failwithf "dotnet %s failed in %s (exit %d)" cmd workDir result.ExitCode
+
+/// Run `bash <script>` in <dir> and fail the current target on a non-zero exit code.
+let runBashScript (dir: string) (script: string) =
+    let result =
+        CreateProcess.fromRawCommand "bash" [ script ]
+        |> CreateProcess.withWorkingDirectory dir
+        |> CreateProcess.withTimeout (TimeSpan.FromMinutes 10.0)
+        |> Proc.run
+    if result.ExitCode <> 0 then failwithf "%s failed in %s (exit %d)" script dir result.ExitCode
 
 // ── Target: Clean ───────────────────────────────────────────────────────────
 Target.create "Clean" (fun _ ->
@@ -113,26 +124,12 @@ Target.create "BuildCore" (fun _ ->
 
 // ── Target: Tests ────────────────────────────────────────────────────────────
 Target.create "QuickTest" (fun _ ->
-    let result =
-        Process.execSimple (fun p ->
-            { p with
-                FileName = "bash"
-                Arguments = "run.sh"
-                WorkingDirectory = Path.combine testsDir "QuickTest" }
-        ) (TimeSpan.FromMinutes 10.0)
-    if result <> 0 then failwith "QuickTest failed"
+    runBashScript (Path.combine testsDir "QuickTest") "run.sh"
     Trace.log "✅ QuickTest passed"
 )
 
 Target.create "Showcase" (fun _ ->
-    let result =
-        Process.execSimple (fun p ->
-            { p with
-                FileName = "bash"
-                Arguments = "run.sh"
-                WorkingDirectory = Path.combine testsDir "Showcase" }
-        ) (TimeSpan.FromMinutes 10.0)
-    if result <> 0 then failwith "Showcase failed"
+    runBashScript (Path.combine testsDir "Showcase") "run.sh"
     Trace.log "✅ Showcase passed"
 )
 
