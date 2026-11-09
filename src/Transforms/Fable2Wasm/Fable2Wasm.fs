@@ -440,8 +440,8 @@ let transformFile (com: ICompilerCore) (file: Fable.File) : WModule =
     // ── Flush diagnostics before emit ────────────────────────────────────────
     // Warnings are printed but don't abort; errors fail fast here before any
     // WASM binary is produced. This replaces the old scattered eprintfn calls.
-    finalCtx.Diagnostics.Flush()
-    // Note: FailOnErrors is intentionally NOT called here — the validator in
+    finalCtx.Diagnostics.FailOnErrors("Fable → WExpr")
+    // (Errors abort here; WASMGC_ALLOW_ERRORS=1 to emit anyway.) Formerly: not called here — the validator in
     // buildWModule will catch structural errors more precisely. Use strict
     // validate flag instead for hard failures.
     buildWModule finalCtx

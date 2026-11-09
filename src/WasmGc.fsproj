@@ -112,18 +112,19 @@
     <Compile Include="Pipeline/ScopeAnalyzer.fs" />
     <Compile Include="Pipeline/Normalizer.fs" />
     <Compile Include="Pipeline/Lower.fs" />
+    <Compile Include="Pipeline/UniqueLocals.fs" />
     <Compile Include="Pipeline/Scope.fs" />
     <Compile Include="Pipeline/Validator.fs" />
     <Compile Include="Pipeline/Dumps.fs" />
 
     <!-- Transforms -->
     <Compile Include="Transforms/MathMap.fs" />
-    <Compile Include="Transforms\OptionResultTransforms.fs" />
-    <Compile Include="Transforms\ListTransforms.fs" />
+    <Compile Include="Transforms/OptionResultTransforms.fs" />
+    <Compile Include="Transforms/ListTransforms.fs" />
     <Compile Include="Transforms/ListOps.fs" />
     <Compile Include="Transforms/ArrayReplacements.fs" />
     <Compile Include="Transforms/FSharpCoreReplacements.fs" />
-    <Compile Include="Transforms\TransformHelpers.fs" />
+    <Compile Include="Transforms/TransformHelpers.fs" />
 
     <!-- New modularized Fable2Wasm components -->
     <Compile Include="Transforms/Fable2Wasm/TransformConstruct.fs" />
@@ -140,10 +141,11 @@
     <!-- TODO: split Phases.fs and Fable2Wasm for better code order -->
     <Compile Include="Pipeline/Phases.fs" />
 
+    <Compile Include="Transforms/FableNormalize.fs" />
     <!-- WasmGC-safe Fable-stage transform pipeline.
          Must come AFTER Pipeline/Phases.fs (no dep on it, but logically grouped here)
          and BEFORE Pipeline.fs which calls WasmTransformPipeline.transformFileForWasm. -->
-    <Compile Include="Transforms\FableAstGate.fs" />
+    <Compile Include="Transforms/FableAstGate.fs" />
 
     <!-- Top-level Pipeline -->
     <Compile Include="Pipeline.fs" />

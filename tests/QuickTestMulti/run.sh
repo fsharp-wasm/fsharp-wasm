@@ -74,14 +74,21 @@ run_domain() {
     # Full detail by default — no grep filter. Tee so it's visible live AND
     # saved for later inspection without re-running.
     local log="$domain_out/compile.log"
+    rm -f "$domain_out"/*.wasm "$domain_out"/*.wat   # never validate a stale artifact
     if ! $FABLE "$fsproj" --outDir "$domain_out" --noCache --verbose 2>&1 | tee "$log"; then
         echo "  ✗ FAILED: compilation error (see $log)"
         return 1
     fi
 
-    local wasm="$domain_out/QuickTest_${d}.wasm"
+    # The CLI names the module after the LAST source file (Tests<Domain>.wasm), not after the
+    # generated project.  Prefer that name, else take the newest .wasm in the output dir.
+    local wasm="$domain_out/Tests${d}.wasm"
     if [ ! -f "$wasm" ]; then
-        echo "  ✗ FAILED: $wasm not produced"
+        wasm="$(find "$domain_out" -maxdepth 1 -name '*.wasm' -printf '%T@ %p\n' 2>/dev/null \
+                 | sort -nr | head -n1 | cut -d' ' -f2- || true)"
+    fi
+    if [ -z "$wasm" ] || [ ! -f "$wasm" ]; then
+        echo "  ✗ FAILED: no .wasm produced in $domain_out (see $log)"
         return 1
     fi
 

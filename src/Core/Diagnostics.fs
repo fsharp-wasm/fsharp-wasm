@@ -75,6 +75,8 @@ module Code =
     /// transformExpr returned Nop for a non-Unit-typed expression — the
     /// enclosing Let/If/struct.new will be missing a stack value.
     let NonVoidNop         = "WGC008"
+    /// Call through a computed callee that is neither a closure nor a handled member call.
+    let UnhandledCallee    = "WGC009"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Diagnostic bag
@@ -177,3 +179,20 @@ let nonVoidNop
         hint = "This expression shape is unhandled in TransformExpr/TransformDispatch. \
                 The enclosing Let/If/struct.new now has a missing operand and the \
                 function WILL fail WAT/WASM validation. Add a case for this expression.")
+
+let unhandledCallee
+        (bag: DiagnosticBag)
+        (calleeDescription: string)
+        (funcName: string option)
+        (range: SourceLocation option)
+        : unit =
+    let loc = range |> Option.map SourceLoc.FromFable |> Option.defaultValue SourceLoc.Unknown
+    let desc =
+        let flat = calleeDescription.Replace("\r", "").Replace("\n", " ")
+        if flat.Length > 240 then flat.Substring(0, 240) + " …" else flat
+    bag.Error(
+        Code.UnhandledCallee, loc,
+        func = defaultArg funcName "<global>",
+        msg  = sprintf "Call through a callee that is not a function value: %s" desc,
+        hint = "Not a closure (LambdaType/DelegateType) and not a handled member call. \
+                Add a case for this callee shape in TransformDispatch.transformCall.")
