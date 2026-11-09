@@ -16,7 +16,9 @@
             The main FCS package.  Includes the compiler, symbol APIs, and the
             FSharpChecker public surface that InteractiveChecker.fs now uses.
         -->
-        <PackageReference Update="FSharp.Compiler.Service" Version="43.12.204" />
+        <!-- 43.12.100 requires exactly FSharp.Core 11.0.100 (matches the pin above and Fable's feature/wasmgc-backend);
+             43.12.204 requires FSharp.Core = 10.1.204 and fails restore with NU1107. -->
+        <PackageReference Update="FSharp.Compiler.Service" Version="43.12.100" />
         <!--
             DependencyManager is a separate package in recent FCS releases.
             It is still needed for script resolution inside FSharpChecker.
