@@ -1,0 +1,40 @@
+name: Patched F# compiler
+description: >-
+  Builds the CE-desugar F# compiler from the vendor/fsharp submodule with its own
+  build script (build/build.sh) and exposes the resulting fsc.dll. The build is
+  cached per submodule commit.
+
+outputs:
+  fsc:
+    description: Absolute path to the patched fsc.dll (use as FSHARP_COMPILER)
+    value: ${{ steps.meta.outputs.fsc }}
+
+runs:
+  using: composite
+  steps:
+    - id: meta
+      shell: bash
+      run: |
+        # hashFiles() only hashes files, so it cannot key a submodule directory; use the pinned commit.
+        echo "sha=$(git -C vendor/fsharp rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        echo "fsc=$GITHUB_WORKSPACE/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll" >> "$GITHUB_OUTPUT"
+
+    - id: cache
+      uses: actions/cache@v5
+      with:
+        path: vendor/fsharp/artifacts/bin/fsc/Release/net10.0
+        key: fsc-${{ runner.os }}-${{ steps.meta.outputs.sha }}
+
+    # vendor/fsharp/global.json pins the 10.0.3xx band (no roll-forward); 10.0.303 is the SDK its CI builds with.
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '10.0.303'
+
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: vendor/fsharp
+      run: |
+        mkdir -p artifacts   # a local NuGet feed in the test projects points here; restore needs it to exist
+        ./build/build.sh -c Release
+        test -f artifacts/bin/fsc/Release/net10.0/fsc.dll

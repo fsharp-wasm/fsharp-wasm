@@ -1,9 +1,11 @@
 [submodule "vendor/Fable"]
 	path = vendor/Fable
-	url = https://github.com/fsharp-wasm/Fable.git
+	url = https://github.com/aiqs4/Fable.git
+	branch = feature/wasmgc-backend
 [submodule "vendor/fsharp"]
 	path = vendor/fsharp
 	url = ../fsharp
+	branch = features/ce-desugar
 [submodule "fsharp-wasm-graphics"]
 	path = fsharp-wasm-graphics
 	url = ../fsharp-wasm-graphics/

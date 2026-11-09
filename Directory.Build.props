@@ -29,9 +29,9 @@
     When FSHARP_COMPILER env var is set (done by .envrc when the binary exists),
     override FscToolPath to use the patched fsc.dll from vendor/fsharp.
 
-    To build the patched compiler:
+    To build the patched compiler (needs the SDK band from vendor/fsharp/global.json; CI uses 10.0.303):
       cd vendor/fsharp
-      DOTNET_INSTALL_DIR=dotnet-root ./build.sh -configuration Release
+      ./build/build.sh -c Release
 
     FSHARP_COMPILER is set to:
       vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll

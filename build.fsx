@@ -87,8 +87,8 @@ Target.create "Build" (fun _ ->
         { o with
             Configuration = DotNet.BuildConfiguration.Release
             Common = dotnetOpts o.Common }
-    ) (Path.combine srcDir "Fable.WasmGc.fsproj")
-    Trace.log "✅ Fable.WasmGc build complete"
+    ) (Path.combine srcDir "WasmGc.fsproj")
+    Trace.log "✅ WasmGc build complete"
 )
 
 // ── Target: Build CLI ────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ Target.create "Pack" (fun _ ->
             OutputPath     = Some (Path.combine publishDir "nuget")
             Common         = dotnetOpts o.Common
             MSBuildParams  = { o.MSBuildParams with Properties = [ "Version", version ] } }
-    ) (Path.combine srcDir "Fable.WasmGc.fsproj")
+    ) (Path.combine srcDir "WasmGc.fsproj")
 
     // Pack CLI tool
     DotNet.pack (fun o ->

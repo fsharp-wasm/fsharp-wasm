@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          token: ${{ secrets.SUBMODULES_TOKEN || github.token }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -37,21 +38,9 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.fsproj', '**/global.json') }}
           restore-keys: nuget-${{ runner.os }}-
 
-      # Cache patched fsc.dll — only rebuild when vendor/fsharp submodule changes.
-      - name: Cache patched fsc.dll
-        id: cache-fsc
-        uses: actions/cache@v5
-        with:
-          path: vendor/fsharp/artifacts/bin/fsc/Release/net10.0
-          key: fsc-${{ runner.os }}-${{ hashFiles('vendor/fsharp') }}
-
-      - name: Build patched fsharp compiler (if not cached)
-        if: steps.cache-fsc.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/fsharp
-          chmod +x build.sh
-          ./build.sh -c Release -projects src/Compiler/FSharp.Compiler.Service.fsproj
-          ls artifacts/bin/fsc/Release/net10.0/fsc.dll
+      - name: Patched F# compiler
+        id: fsc
+        uses: ./.github/actions/patched-fsc
 
       - name: Install wasm-tools
         continue-on-error: true
@@ -68,13 +57,13 @@ jobs:
 
       - name: Run full release build (Build + Test + Pack)
         env:
-          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
           VERSION: ${{ github.ref_name }}
         run: dotnet fake run build.fsx --target Pack
 
       - name: Publish self-contained CLI binaries
         env:
-          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
           VERSION: ${{ github.ref_name }}
         run: dotnet fake run build.fsx --target PublishBinaries
 

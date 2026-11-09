@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop, claude/adoring-meitner-3oy6pn]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -18,9 +19,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Several submodules are private repos: the default GITHUB_TOKEN cannot read them, so a PAT
+      # (Contents: read on those repos) can be supplied as the SUBMODULES_TOKEN secret.
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          token: ${{ secrets.SUBMODULES_TOKEN || github.token }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -39,22 +43,9 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.fsproj', '**/global.json') }}
           restore-keys: nuget-${{ runner.os }}-
 
-      # Cache the patched fsc.dll — only rebuild when vendor/fsharp submodule HEAD changes.
-      - name: Cache patched fsc.dll
-        id: cache-fsc
-        uses: actions/cache@v5
-        with:
-          path: vendor/fsharp/artifacts/bin/fsc/Release/net10.0
-          key: fsc-${{ runner.os }}-${{ hashFiles('vendor/fsharp') }}
-
-      - name: Build patched fsharp compiler (if not cached)
-        if: steps.cache-fsc.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/fsharp
-          chmod +x build.sh
-          ./build.sh -c Release -projects src/Compiler/FSharp.Compiler.Service.fsproj
-          echo "fsc.dll rebuilt:"
-          ls artifacts/bin/fsc/Release/net10.0/fsc.dll
+      - name: Patched F# compiler
+        id: fsc
+        uses: ./.github/actions/patched-fsc
 
       - name: Install wasm-tools
         continue-on-error: true
@@ -71,15 +62,15 @@ jobs:
 
       - name: Build + QuickTest + Showcase
         env:
-          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: dotnet fake run build.fsx --target Showcase
 
       - name: Component Embed
         env:
-          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: cd examples/component-embed && bash run.sh
 
       - name: Component Linking
         env:
-          FSHARP_COMPILER: ${{ github.workspace }}/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: cd examples/component-linking && bash run.sh
