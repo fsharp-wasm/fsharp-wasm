@@ -325,6 +325,29 @@ let main _ =
          | Sequential [ CurriedApply(Q.PrintfFormatter _, _, _, _); CurriedApply(Q.PrintfFormatter _, _, _, _) ] -> true
          | _ -> false)
 
+    // 6c. several arguments: F# curries them — let clo_1 = clo a in clo_1 b — which must collapse to ONE application
+    let multi =
+        Let(ident "clo" fmtClosureT, formatter,
+            Let(ident "arg" intT, num 3,
+                Let(ident "clo_1" fmtClosureT, app clo [ var "arg" intT ] fmtClosureT,
+                    Let(ident "arg_1" intT, num 7,
+                        app (var "clo_1" fmtClosureT) [ var "arg_1" intT ] Unit))))
+    check "printfn: curried chain collapses into the formatter applied to all arguments"
+        (match norm [] multi with
+         | Let(a, _, Let(b, _, CurriedApply(Q.PrintfApply("toConsole", "%d", [ IdentExpr x ]), [ IdentExpr y ], _, _))) ->
+            x.Name = a.Name && y.Name = b.Name
+         | _ -> false)
+    // a mutable argument must NOT be moved past a possible reassignment
+    let mutArg = { ident "m" intT with IsMutable = true }
+    let withMutable =
+        Let(mutArg, num 1,
+            Let(ident "clo_1" fmtClosureT, app (formatter) [ IdentExpr mutArg ] fmtClosureT,
+                Sequential [ Set(IdentExpr mutArg, ValueSet, intT, num 2, None); app (var "clo_1" fmtClosureT) [ num 9 ] Unit ]))
+    check "printfn: partial application over a mutable variable keeps its binding"
+        (match norm [] withMutable with
+         | Let(_, _, Let(c, _, _)) -> c.Name = "clo_1"
+         | _ -> false)
+
     // 7. decision-tree targets reuse names: all unique afterwards
     let dt = DecisionTree(num 0, [ [ ident "v" intT ], var "v" intT; [ ident "v" intT ], plus (var "v" intT) (num 1) ])
     let dt' = norm [] dt

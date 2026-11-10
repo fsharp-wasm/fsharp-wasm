@@ -62,6 +62,15 @@ let (|PrintfFormatter|_|) (e: Expr) : (string * string) option =
         | _ -> None
     | _ -> None
 
+/// A printf formatter applied to arguments, possibly one at a time (F# curries `printfn "%d %d" a b`):
+///   CurriedApply(CurriedApply(formatter, [a]), [b])  ⇒  (selector, fmt, [a; b])
+/// A bare formatter matches with no arguments.
+let rec (|PrintfApply|_|) (e: Expr) : (string * string * Expr list) option =
+    match e with
+    | PrintfFormatter(sel, fmt) -> Some(sel, fmt, [])
+    | Expr.CurriedApply(PrintfApply(sel, fmt, applied), more, _, _) -> Some(sel, fmt, applied @ more)
+    | _ -> None
+
 // ─────────────────────────────────────────────────────────────────
 // Type shapes
 // ─────────────────────────────────────────────────────────────────

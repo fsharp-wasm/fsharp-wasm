@@ -540,10 +540,10 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     //   CurriedApply(Call(Import("toText"|"toConsole"), [TypeCast(Call(Import("printf"), [StringConst fmt]))]), formatArgs)
     // We intercept this and expand the format string inline.
     | Fable.Expr.CurriedApply(callee, args, typ, _) ->
-        let sprintfFmt =
+        let sprintfFmt, args =
             match callee with
-            | Q.PrintfFormatter(sel, fmt) -> Some(sel, fmt)
-            | _ -> None
+            | Q.PrintfApply(sel, fmt, applied) -> Some(sel, fmt), applied @ args
+            | _ -> None, args
         match sprintfFmt with
         | Some(sel, fmt) ->
             let strRef = WType.Ref(StringTypeIdx, false)

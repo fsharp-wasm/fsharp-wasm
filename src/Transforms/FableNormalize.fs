@@ -238,18 +238,32 @@ module FableNormalize =
         | Delegate _ -> true
         | _ -> false
 
+    /// Constants and immutable identifiers: evaluating them has no effect and yields the same value anywhere
+    /// in their scope (a mutable identifier could be reassigned between the binding and a later use).
+    let private isAtom (e: Expr) =
+        match e with
+        | IdentExpr i -> not i.IsMutable
+        | Value((NumberConstant _ | StringConstant _ | BoolConstant _ | CharConstant _ | UnitConstant), _) -> true
+        | _ -> false
+
     /// Effect-free values the handlers must see at their use site.
     ///  * a literal lambda: moved to its single use (duplicating one would duplicate code and allocation)
-    ///  * a printf formatter: `printfn "…%d" x` reaches us as `let clo = toConsole(printf "…") in clo x`;
-    ///    the format is constant, so it is safe to substitute at every use
-    let private inlinePureBinding (e: Expr) : Expr =
+    ///  * a printf formatter, possibly partially applied to atoms: `printfn "%d %d" a b` reaches us as
+    ///        let clo = toConsole(printf "…") in let clo_1 = clo a in clo_1 b
+    ///    Nothing is printed before the last argument and the format is constant, so it is safe to
+    ///    substitute at every use.
+    let private inlinable (i: Ident) (value: Expr) (body: Expr) =
+        not i.IsMutable
+        && (match value with
+            | Q.PrintfApply(_, _, applied) -> List.forall isAtom applied
+            | _ -> isLambda value && countRefs i.Name body = 1)
+
+    /// Top-down on purpose: substituting `clo` exposes `let clo_1 = <formatter> a` one level further in,
+    /// which must be looked at again (a bottom-up pass would already have passed it).
+    let rec private inlinePure (e: Expr) : Expr =
         match e with
-        | Let(i, value, body) when not i.IsMutable ->
-            match value with
-            | Q.PrintfFormatter _ -> subst (Map [ i.Name, value ]) body
-            | _ when isLambda value && countRefs i.Name body = 1 -> subst (Map [ i.Name, value ]) body
-            | _ -> e
-        | _ -> e
+        | Let(i, value, body) when inlinable i value body -> inlinePure (subst (Map [ i.Name, value ]) body)
+        | _ -> visit inlinePure e
 
     // ─────────────────────────────────────────────────────────────────
     // Entry points
@@ -262,7 +276,7 @@ module FableNormalize =
         body
         |> uniq namer Map.empty
         |> visitFromInsideOut beta
-        |> visitFromInsideOut inlinePureBinding
+        |> inlinePure
 
     let private normalizeMember (m: MemberDecl) : MemberDecl =
         { m with Body = normalizeBody (m.Args |> List.map (fun a -> a.Name)) m.Body }
