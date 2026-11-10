@@ -323,6 +323,8 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         | _ ->
             numericCompare a b argTy
     // toString for numbers (via LibCall path)
+    | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx && (match info.Args with [ a ] -> a.Type = Fable.Type.Char | _ -> false) ->
+        charToString arg
     | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx ->
         WExpr.Call(ctx.UseHelper(if info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) then "$uintToStr" else "$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
     | "toString", [arg], _ ->

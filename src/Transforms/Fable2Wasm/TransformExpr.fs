@@ -691,6 +691,8 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         | Fable.Type.Number(NumberKind.UInt32, _), Fable.Type.Number((NumberKind.Int64 | NumberKind.UInt64), _)
             when exprWType w = WType.I32 ->
             WExpr.Unary(WUnaryOp.ExtendI32U, w, WType.I64)
+        // char → string
+        | Fable.Type.Char, Fable.Type.String when exprWType w = WType.I32 -> charToString w
         | _ -> buildTypeCast ctx w targetTy
 
     // ── Import as value ─────────────────────────────────────────

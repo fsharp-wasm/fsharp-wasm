@@ -60,6 +60,10 @@ let numericCompare (a: WExpr) (b: WExpr) (argTy: WType) : WExpr =
             WExpr.If(cmp WCompareOp.Eq x y, i32 0, WExpr.If(cmp WCompareOp.LtS x y, i32 -1, i32 1, WType.I32), WType.I32)
     WExpr.Let("$cmp_a", a, WExpr.Let("$cmp_b", b, body))
 
+/// `string c` for a char: a one-element string (chars are i32 code points here).
+let charToString (c: WExpr) : WExpr =
+    WExpr.ArrayNewFixed(StringTypeIdx, [ c ], WType.Ref(StringTypeIdx, false))
+
 /// Convert one printf / interpolation hole value to a string.
 ///   %f %F     fixed decimals — `%.Nf`, default 6 (`$floatToFixed`)
 ///   %g %e     approximate: up to 6 significant digits (`$floatToStr`)
