@@ -287,6 +287,22 @@ let private isOpaque (t: Fable.Type) =
     | Fable.GenericParam _ | Fable.Any -> true
     | _ -> false
 
+/// Func type `(index, params incl. $self, result)` of a statically known closure: the code field of its concrete
+/// `ClosureType_n` / `ClosureBase_n` struct.  That is how the closure was BUILT, whatever the use site believes.
+let private knownFuncType (ctx: Ctx) (clo: WExpr) : (int * WType list * WType) option =
+    match exprWType clo with
+    | WType.Ref(idx, _) when idx > AnyFnTypeIdx && idx < ctx.TypeDefs.Count && ctx.TypeDefs.[idx].Name.StartsWith "Closure" ->
+        match ctx.TypeDefs.[idx].Def with
+        | WTypeDef.Struct(f :: _, _) ->
+            match f.Type with
+            | WType.Ref(fti, _) ->
+                match ctx.TypeDefs.[fti].Def with
+                | WTypeDef.Func(ps, r) -> Some(fti, ps, r)
+                | _ -> None
+            | _ -> None
+        | _ -> None
+    | _ -> None
+
 /// Call closure `wClosure` (static Fable type `calleeTy`) with `wArgs`.
 ///
 /// The func type is derived from the callee's DECLARED parameter types — the same source the
@@ -310,6 +326,14 @@ let applyClosure (ctx: Ctx) (calleeTy: Fable.Type) (wClosure: WExpr) (fableArgs:
     let funcTypeIdx = closureFuncType ctx (kept |> List.map fst) retTy
     let cti = getOrAddClosureBase ctx funcTypeIdx
     let direct (clo: WExpr) (args: WExpr list) = WExpr.ClosureApply(clo, args, funcTypeIdx, cti, 0, retTy)
+
+    match knownFuncType ctx wClosure with
+    // Built with a different signature than the use site derives — typically a generic body such as
+    // `let boom () = failwith "…"` (`unit -> 'a`, built returning i32) used as `unit -> unit`.  Call it as built.
+    | Some(fti, ps, res) when fti <> funcTypeIdx && ps.Length - 1 = kept.Length ->
+        let call = WExpr.ClosureApply(wClosure, kept |> List.map snd, fti, getOrAddClosureBase ctx fti, 0, res)
+        if retTy = WType.Void && res <> WType.Void then WExpr.Sequence [ call; WExpr.Nop ] else call
+    | _ ->
 
     if kept.Length < 2 || kept.Length <> wArgs.Length then
         direct wClosure (List.map snd kept)
