@@ -62,7 +62,11 @@ let buildTypeCast (ctx: Ctx) (wExpr: WExpr) (targetFableType: Fable.Type) : WExp
     // Use mapTypeKnown so DeclaredType → Ref(typeIdx) when registered (vs. mapType → I32).
     let dstTyKnown = mapTypeKnown ctx targetFableType
     let dstTy = mapType targetFableType
-    if srcTy = dstTyKnown then wExpr
+    // `ignore x` arrives as a cast to unit: evaluate for effect and discard the value.  Test the Fable type —
+    // unit may map to i32 as a value, in which case the types below would look equal and the value would stay
+    // on the stack (e.g. when it is the whole body of a unit lambda).
+    if targetFableType = Fable.Type.Unit && srcTy <> WType.Void then WExpr.Sequence [wExpr; WExpr.Nop]
+    elif srcTy = dstTyKnown then wExpr
     else
         match srcTy, dstTyKnown with
         // ── AnyRef → concrete struct ref: ref.cast (used in exception catch bindings) ─
