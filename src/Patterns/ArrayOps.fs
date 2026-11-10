@@ -139,7 +139,8 @@ let arrayExists
         (pred : WExpr -> WExpr)
         : WExpr =
     wasm {
-        let src = WArray.wrap a.ElemTy arr
+        let! arrRef = arr   // bind once: WArray.wrap does not, so `src.[i]` would re-evaluate `arr` every iteration
+        let src = WArray.wrap a.ElemTy arrRef
         let! n  = src.Len
         let! i  = mut (i32Const 0)
         return! Wasm.labeledBlock gen "blk" WType.I32 (fun ctrl -> wasm {
@@ -159,7 +160,8 @@ let arrayForAll
         (pred : WExpr -> WExpr)
         : WExpr =
     wasm {
-        let src = WArray.wrap a.ElemTy arr
+        let! arrRef = arr   // bind once: WArray.wrap does not, so `src.[i]` would re-evaluate `arr` every iteration
+        let src = WArray.wrap a.ElemTy arrRef
         let! n  = src.Len
         let! i  = mut (i32Const 0)
         return! Wasm.labeledBlock gen "blk" WType.I32 (fun ctrl -> wasm {
@@ -176,7 +178,8 @@ let arrayForAll
 // arrayFilter — two-pass filter (count + fill)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Two-pass filter: count matching elements, allocate, fill.
+/// Filter in ONE pass: matches go into a worst-case scratch buffer, then a single `array.copy` yields the
+/// exact-size result.  The predicate runs once per element (as in F#) and `arr` is evaluated once.
 let arrayFilter
         (gen  : LabelGen)
         (a    : ArrayShape)
@@ -184,28 +187,19 @@ let arrayFilter
         (pred : WExpr -> WExpr)
         : WExpr =
     wasm {
-        let src = WArray.wrap a.ElemTy arr
-        let! n   = src.Len
-
-        // Pass 1: count
+        let! src = arr
+        let! n   = a.Len src
+        let! buf = a.New(n, makeNumericZero a.ElemTy)
         let! cnt = mut (i32Const 0)
-        let! i   = mut (i32Const 0)
-        while (i.Val <. n) do
-            if (pred src.[i.Val]) then
-                do! cnt <== (cnt.Val +. i32Const 1)
-            do! i <== (i.Val +. i32Const 1)
-
-        // Pass 2: allocate + fill
-        let res = WArray.wrap a.ElemTy (a.New(cnt.Val, makeNumericZero a.ElemTy))
-        let! wi = mut (i32Const 0)
-        do! i   <== i32Const 0
-        while (i.Val <. n) do
-            if (pred src.[i.Val]) then
-                do! res.Set(wi.Val) src.[i.Val]
-                do! wi <== (wi.Val +. i32Const 1)
-            do! i <== (i.Val +. i32Const 1)
-
-        return res.Expr
+        do! indexedLoop gen n (fun i ->
+                let elem = a.Get(src, i)
+                wasmWhen (pred elem) (wasm {
+                    do! a.Set(buf, cnt.Val, elem)
+                    do! cnt <== (cnt.Val +. i32Const 1)
+                }))
+        let! res = a.New(cnt.Val, makeNumericZero a.ElemTy)
+        do! arrayCopy res (i32Const 0) buf (i32Const 0) cnt.Val
+        return res
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,7 +218,8 @@ let arraySearch
         (onNotFound : WExpr)
         : WExpr =
     wasm {
-        let src = WArray.wrap a.ElemTy arr
+        let! arrRef = arr   // bind once: WArray.wrap does not, so `src.[i]` would re-evaluate `arr` every iteration
+        let src = WArray.wrap a.ElemTy arrRef
         let! n  = src.Len
         let! i  = mut (i32Const 0)
         return! Wasm.labeledBlock gen "search" resTy (fun ctrl -> wasm {
