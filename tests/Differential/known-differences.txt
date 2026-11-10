@@ -1,1 +1,5 @@
 # name  reason   — a disagreement between .NET and wasm that is understood and tracked
+testExternAdd      host import (testEnv.wasmAdd): implemented by the wasm host only, `nativeOnly` throws on .NET
+testExternAddNeg   host import (testEnv.wasmAdd): implemented by the wasm host only, `nativeOnly` throws on .NET
+testExternChain    host import (testEnv.wasmAdd/wasmMul): implemented by the wasm host only, `nativeOnly` throws on .NET
+testExternMul      host import (testEnv.wasmMul): implemented by the wasm host only, `nativeOnly` throws on .NET
