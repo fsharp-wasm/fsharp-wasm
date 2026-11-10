@@ -93,6 +93,14 @@ let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
 
 and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     match expr with
+    // ── Emit: integer width casts (byte / sbyte / int16 / uint16 / uint32) ──
+    | Fable.Expr.Emit(info, _, _)
+          when (match info.CallInfo.Args with
+                | [ _ ] -> (TransformOperation.integerCast info.Macro (WExpr.Nop)).IsSome
+                | _ -> false) ->
+        match info.CallInfo.Args with
+        | [ arg ] -> (TransformOperation.integerCast info.Macro (transformExpr ctx arg)).Value
+        | _ -> WExpr.Nop
     // ── Emit: ResizeArray.Add(x) emits "void ($0)" wrapping a .push() InstanceCall ──
     | Fable.Expr.Emit(info, _, _)
           when info.Macro = "void ($0)" ->

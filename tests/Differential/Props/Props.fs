@@ -48,3 +48,14 @@ let prop_int16 (a: int) : int = int (int16 a)
 let prop_uint32 (a: int) : int = int (uint32 a)
 let prop_uintDiv (a: int) (b: int) : int = if b = 0 then 0 else int ((uint32 a) / (uint32 b))
 let prop_uintLt (a: int) (b: int) : bool = (uint32 a) < (uint32 b)
+
+// ── small and unsigned integer arithmetic ───────────────────────────────────────────────────────
+let prop_byteAdd (a: int) (b: int) : int = int (byte a + byte b)          // wraps at 256
+let prop_byteMul (a: int) (b: int) : int = int (byte a * byte b)
+let prop_uint16Sub (a: int) (b: int) : int = int (uint16 a - uint16 b)    // wraps at 65536
+let prop_uintRem (a: int) (b: int) : int = if b = 0 then 0 else int ((uint32 a) % (uint32 b))
+let prop_uintShr (a: int) (n: int) : int = int ((uint32 a) >>> n)
+let prop_uintGe (a: int) (b: int) : bool = (uint32 a) >= (uint32 b)
+let prop_uintMax (a: int) (b: int) : int = int (max (uint32 a) (uint32 b))
+let prop_uintToFloat (a: int) : float = float (uint32 a)
+let prop_uintStrLen (a: int) : int = (string (uint32 a)).Length
