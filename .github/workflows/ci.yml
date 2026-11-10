@@ -88,6 +88,16 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: bash tests/Showcase/run.sh
 
+      # The same F# functions on .NET (reference) and as wasm: values must be identical.  Catches wrong
+      # behaviour that hand-written expectations can encode (e.g. `%f` without its 6 decimals).
+      - name: Differential (.NET vs wasm)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: |
+          bash tests/Differential/run.sh tests/QuickTest tests/QuickTest/output/QuickTestWasmGc.wasm test
+          bash tests/Differential/run.sh tests/Showcase tests/Showcase/output/Showcase.wasm showcase
+
       - name: Component Embed
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
