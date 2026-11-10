@@ -72,7 +72,7 @@ for (const [name, fn] of Object.entries(reference)) {
 const disagreeing = problems.reduce((n, p) => n + p.bad.length, 0);
 console.log(`differential: ${stats.functions} functions, ${stats.calls} calls`);
 console.log(`  ✓ identical             ${stats.identical}`);
-console.log(`  ✗ disagreements         ${disagreeing}  (${problems.length} functions)`);
+console.log(`  ${disagreeing ? "✗" : "✓"} disagreements         ${disagreeing}  (${problems.length} functions)`);   // ✗ only when there are some: run-all.sh greps for it
 console.log(`  ~ both sides failed     ${stats.bothFail}`);
 console.log(`  ~ known differences     ${stats.known}`);
 console.log(`  - not exported by wasm  ${stats.notExported}`);
