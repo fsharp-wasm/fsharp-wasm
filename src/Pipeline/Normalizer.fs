@@ -34,7 +34,13 @@ let rec flattenSequences (exprs: WExpr list) : WExpr list =
 let removeUnnecessaryNops (exprs: WExpr list) : WExpr list =
     match exprs |> List.filter (fun e -> e <> WExpr.Nop) with
     | [] -> [WExpr.Nop]  // Empty sequence → keep one Nop
-    | filtered -> filtered
+    | filtered ->
+        // A TRAILING Nop makes the sequence void: it discards the value of the last real element (that is how
+        // `ignore (f ())` is expressed).  Dropping it would let the value escape — e.g. a unit lambda whose whole
+        // body is the call would leave a value on the stack.
+        match List.last exprs, WasmGc.Runtime.Types.exprWType (List.last filtered) with
+        | WExpr.Nop, t when t <> WType.Void -> filtered @ [WExpr.Nop]
+        | _ -> filtered
 
 /// Recursively normalize an expression tree.
 /// Returns the normalized version.
