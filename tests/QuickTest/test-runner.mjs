@@ -20,7 +20,16 @@ const importObject = {
     wasmAdd: (a, b) => (a + b) | 0,   wasmMul: (a, b) => (a * b) | 0, },
 };
 const { instance } = await WebAssembly.instantiate(buf, importObject);
-const exp = instance.exports;
+// A trap in one test must not hide the rest of the suite: it becomes that test's actual value
+// ("trap: illegal cast"), so the check reports it as failed and the run continues.
+const exp = Object.fromEntries(
+  Object.entries(instance.exports).map(([name, v]) => [
+    name,
+    typeof v === "function"
+      ? (...args) => { try { return v(...args); } catch (e) { return `trap: ${e.message}`; } }
+      : v,
+  ]),
+);
 
 let pass = 0, fail = 0;
 function check(label, expected, actual) {
