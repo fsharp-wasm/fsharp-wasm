@@ -75,11 +75,11 @@ let rec (|PrintfApply|_|) (e: Expr) : (string * string * Expr list) option =
 // Number kinds
 // ─────────────────────────────────────────────────────────────────
 
-/// uint8 / uint16 / uint32.  Their values are zero-extended in an i32, so comparison, division, remainder, logical
+/// uint8 / uint16 / uint32 / uint64.  Their values are zero-extended in an i32, so comparison, division, remainder, logical
 /// right shift, min / max and the conversion to float / int64 / string need the unsigned variants.
 let isUnsignedInt (t: Type) =
     match t with
-    | Type.Number((NumberKind.UInt8 | NumberKind.UInt16 | NumberKind.UInt32), _) -> true
+    | Type.Number((NumberKind.UInt8 | NumberKind.UInt16 | NumberKind.UInt32 | NumberKind.UInt64), _) -> true
     | _ -> false
 
 // ─────────────────────────────────────────────────────────────────

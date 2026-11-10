@@ -118,6 +118,7 @@
     <Compile Include="Pipeline/Dumps.fs" />
 
     <!-- Transforms -->
+    <Compile Include="Transforms/NumericCasts.fs" />
     <Compile Include="Transforms/MathMap.fs" />
     <Compile Include="Transforms/OptionResultTransforms.fs" />
     <Compile Include="Transforms/ListTransforms.fs" />
@@ -125,6 +126,7 @@
     <Compile Include="Transforms/ArrayReplacements.fs" />
     <Compile Include="Transforms/FSharpCoreReplacements.fs" />
     <Compile Include="Transforms/TransformHelpers.fs" />
+    <Compile Include="Transforms/BigIntMap.fs" />
 
     <!-- New modularized Fable2Wasm components -->
     <Compile Include="Transforms/Fable2Wasm/TransformConstruct.fs" />

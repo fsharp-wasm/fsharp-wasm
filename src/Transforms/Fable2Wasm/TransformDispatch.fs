@@ -9,6 +9,7 @@ open WasmGc.Runtime.Locals // TODO: should they be renamed to Builder
 open WasmGc.Runtime.Types
 open WasmGc.Runtime.Equality
 open WasmGc.Transforms.ArrayReplacements
+open WasmGc.Transforms.BigIntMap
 open WasmGc.Transforms.OptionResultTransforms
 open WasmGc.Transforms.ListTransforms
 open WasmGc.Transforms.ListOps
@@ -125,6 +126,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     let r =
         tryFirst [
             // ── Map/Set module: must come first to prevent List combinators matching Set/Map DeclaredTypes ──
+            fun () -> tryBigIntInline importStem sel wArgs (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) || WasmGc.Util.FableQuery.isUnsignedInt typ)
             fun () -> tryMapInline               ctx importStem sel wArgs
             fun () -> trySetInline               ctx importStem sel wArgs
             // ── List combinators ────────────────────────────────────────────────────
@@ -807,6 +809,10 @@ let transformCall
                 WExpr.Unary(WUnaryOp.DemoteF64, WExpr.Call(ctx.UseHelper("$mathAtan2"), [yD; xD], WType.F64), WType.F32)
             | _,         _      -> WExpr.Call(ctx.UseHelper("$mathAtan2"), wArgs, WType.F64)
         // BitOperations.LeadingZeroCount → Math.clz32 (GlobalCall "Math" route)
+        // `char n` / `string.fromCharCode` : chars already ARE i32 code points
+        | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "String" }, GetKind.FieldGet fi, _, _)
+            when (fi.Name = "fromCharCode" || fi.Name = "fromCodePoint") && wArgs.Length = 1 ->
+            List.head wArgs
         | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _)
             when fi.Name = "clz32" ->
             WExpr.Unary(WUnaryOp.Clz, List.head wArgs, WType.I32)
