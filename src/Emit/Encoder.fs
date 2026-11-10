@@ -263,6 +263,9 @@ let rec encodeInstr (buf: ResizeArray<byte>) (instr: Instr) =
     | Instr.I32WrapI64 -> buf.Add(0xA7uy)
     | Instr.I32TruncF64S -> buf.Add(0xAAuy)
     | Instr.I32TruncF32S -> buf.Add(0xA8uy)
+    // non-trapping float-to-int: 0xFC prefix, then the sub-opcode
+    | Instr.I32TruncSatF32S -> buf.Add(0xFCuy); buf.Add(0uy)
+    | Instr.I32TruncSatF64S -> buf.Add(0xFCuy); buf.Add(2uy)
     | Instr.I32Clz -> buf.Add(0x67uy)
     | Instr.I32Ctz -> buf.Add(0x68uy)
     | Instr.I32Popcnt -> buf.Add(0x69uy)
@@ -301,6 +304,8 @@ let rec encodeInstr (buf: ResizeArray<byte>) (instr: Instr) =
     | Instr.I64ExtendI32S -> buf.Add(0xACuy)
     | Instr.I64ExtendI32U -> buf.Add(0xADuy)
     | Instr.I64TruncF64S -> buf.Add(0xB0uy)
+    | Instr.I64TruncSatF32S -> buf.Add(0xFCuy); buf.Add(4uy)
+    | Instr.I64TruncSatF64S -> buf.Add(0xFCuy); buf.Add(6uy)
     | Instr.I64Clz -> buf.Add(0x79uy)
     | Instr.I64Ctz -> buf.Add(0x7Auy)
     | Instr.I64Popcnt -> buf.Add(0x7Buy)

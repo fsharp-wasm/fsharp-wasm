@@ -301,17 +301,8 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         | WType.Ref(si, _) when si = StringTypeIdx ->
             WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
         | _ ->
-            // Numeric compare: <0/0/>0 result, used e.g. for int64 comparison
-            let xv = "$cmp_a"
-            let yv = "$cmp_b"
-            WExpr.Let(xv, a, WExpr.Let(yv, b,
-                WExpr.If(WExpr.Compare(WCompareOp.Eq,  WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
-                    i32Zero,
-                    WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
-                        i32Const -1,
-                        i32One,
-                        WType.I32),
-                    WType.I32)))
+            // Numeric compare → -1 / 0 / 1 (floats: F# ordering, NaN lowest)
+            numericCompare a b argTy
     // comparePrimitives(a, b) — Fable's generic primitive compare (Util.fs import).
     // Result: -1 / 0 / 1.  Dispatches on runtime arg type.
     | "comparePrimitives", [a; b], WType.I32 ->
@@ -320,16 +311,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         | WType.Ref(si, _) when si = StringTypeIdx ->
             WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
         | _ ->
-            let xv = "$cpx"
-            let yv = "$cpy"
-            WExpr.Let(xv, a, WExpr.Let(yv, b,
-                WExpr.If(WExpr.Compare(WCompareOp.Eq,  WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
-                    i32Zero,
-                    WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.LocalGet(xv, argTy), WExpr.LocalGet(yv, argTy)),
-                        i32Const -1,
-                        i32One,
-                        WType.I32),
-                    WType.I32)))
+            numericCompare a b argTy
     // toString for numbers (via LibCall path)
     | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx ->
         WExpr.Call(ctx.UseHelper(if info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) then "$uintToStr" else "$intToStr"), [arg], WType.Ref(StringTypeIdx, false))

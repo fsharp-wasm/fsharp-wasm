@@ -238,6 +238,8 @@ type WUnaryOp =
     | ExtendI32U    // i32 → i64 (unsigned)
     | TruncF64S     // f64 → i32/i64 (signed)
     | TruncF32S     // f32 → i32/i64 (signed)
+    | TruncSatF64S  // f64 → i32/i64 (signed, saturating: NaN → 0, out of range → MIN/MAX; never traps)
+    | TruncSatF32S  // f32 → i32/i64 (signed, saturating)
     | ConvertI32S   // i32 → f32/f64 (signed)
     | ConvertI64S   // i64 → f32/f64 (signed)
     | PromoteF32    // f32 → f64
@@ -464,6 +466,8 @@ type Instr =
     | I32WrapI64
     | I32TruncF64S
     | I32TruncF32S
+    | I32TruncSatF64S
+    | I32TruncSatF32S
     | I32Clz
     | I32Ctz
     | I32Popcnt
@@ -499,6 +503,8 @@ type Instr =
     | I64ExtendI32S
     | I64ExtendI32U
     | I64TruncF64S
+    | I64TruncSatF64S
+    | I64TruncSatF32S
     | I64Clz
     | I64Ctz
     | I64Popcnt

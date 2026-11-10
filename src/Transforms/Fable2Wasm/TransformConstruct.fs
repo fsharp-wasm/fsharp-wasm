@@ -75,11 +75,11 @@ let buildTypeCast (ctx: Ctx) (wExpr: WExpr) (targetFableType: Fable.Type) : WExp
         | WType.Ref(_, true), WType.Ref(typeIdx, false) -> WExpr.Cast(wExpr, WType.Ref(typeIdx, false))
         | _ ->
             match srcTy, dstTy with
-            // ── Truncation (float → int) ───
-            | WType.F64, WType.I32 -> WExpr.Unary(WUnaryOp.TruncF64S,    wExpr, WType.I32)
-            | WType.F32, WType.I32 -> WExpr.Unary(WUnaryOp.TruncF32S,    wExpr, WType.I32)
-            | WType.F64, WType.I64 -> WExpr.Unary(WUnaryOp.TruncF64S,    wExpr, WType.I64)
-            | WType.F32, WType.I64 -> WExpr.Unary(WUnaryOp.TruncF32S,    wExpr, WType.I64)
+            // ── Truncation (float → int): saturating like .NET 9+ (NaN → 0, out of range → MIN / MAX), never traps ───
+            | WType.F64, WType.I32 -> WExpr.Unary(WUnaryOp.TruncSatF64S, wExpr, WType.I32)
+            | WType.F32, WType.I32 -> WExpr.Unary(WUnaryOp.TruncSatF32S, wExpr, WType.I32)
+            | WType.F64, WType.I64 -> WExpr.Unary(WUnaryOp.TruncSatF64S, wExpr, WType.I64)
+            | WType.F32, WType.I64 -> WExpr.Unary(WUnaryOp.TruncSatF32S, wExpr, WType.I64)
             // ── Wrap / Extend (int width changes) ─
             | WType.I64, WType.I32 -> WExpr.Unary(WUnaryOp.WrapI64,      wExpr, WType.I32)
             | WType.I32, WType.I64 -> WExpr.Unary(WUnaryOp.ExtendI32S,   wExpr, WType.I64)

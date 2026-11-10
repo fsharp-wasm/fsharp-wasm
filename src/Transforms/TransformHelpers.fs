@@ -42,6 +42,24 @@ let parseFormatSpecs (fmt: string) : string list * FormatSpec list =
     parts.Add(sb.ToString())
     List.ofSeq parts, List.ofSeq specs
 
+/// `compare a b` on numbers → -1 / 0 / 1.  Floats follow F#'s generic comparison: NaN is below every other value
+/// and equal to itself —  x < y ? -1 : x > y ? 1 : x = y ? 0 : y = y ? -1 : (x = x ? 1 : 0).
+let numericCompare (a: WExpr) (b: WExpr) (argTy: WType) : WExpr =
+    let x, y = WExpr.LocalGet("$cmp_a", argTy), WExpr.LocalGet("$cmp_b", argTy)
+    let cmp op l r = WExpr.Compare(op, l, r)
+    let i32 n = WExpr.Const(WConst.I32 n)
+    let body =
+        match argTy with
+        | WType.F64 | WType.F32 ->
+            WExpr.If(cmp WCompareOp.LtS x y, i32 -1,
+                WExpr.If(cmp WCompareOp.GtS x y, i32 1,
+                    WExpr.If(cmp WCompareOp.Eq x y, i32 0,
+                        WExpr.If(cmp WCompareOp.Eq y y, i32 -1,
+                            WExpr.If(cmp WCompareOp.Eq x x, i32 1, i32 0, WType.I32), WType.I32), WType.I32), WType.I32), WType.I32)
+        | _ ->
+            WExpr.If(cmp WCompareOp.Eq x y, i32 0, WExpr.If(cmp WCompareOp.LtS x y, i32 -1, i32 1, WType.I32), WType.I32)
+    WExpr.Let("$cmp_a", a, WExpr.Let("$cmp_b", b, body))
+
 /// Convert one printf / interpolation hole value to a string.
 ///   %f %F     fixed decimals — `%.Nf`, default 6 (`$floatToFixed`)
 ///   %g %e     approximate: up to 6 significant digits (`$floatToStr`)

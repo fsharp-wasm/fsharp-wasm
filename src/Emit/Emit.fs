@@ -659,6 +659,10 @@ and emitUnaryOp (op: WUnaryOp) (ty: WType) : Instr =
     | WUnaryOp.TruncF64S, WType.I32   -> Instr.I32TruncF64S
     | WUnaryOp.TruncF64S, WType.I64   -> Instr.I64TruncF64S
     | WUnaryOp.TruncF32S, WType.I32   -> Instr.I32TruncF32S
+    | WUnaryOp.TruncSatF64S, WType.I32 -> Instr.I32TruncSatF64S
+    | WUnaryOp.TruncSatF64S, WType.I64 -> Instr.I64TruncSatF64S
+    | WUnaryOp.TruncSatF32S, WType.I32 -> Instr.I32TruncSatF32S
+    | WUnaryOp.TruncSatF32S, WType.I64 -> Instr.I64TruncSatF32S
     | WUnaryOp.ConvertI32S, WType.F64 -> Instr.F64ConvertI32S
     | WUnaryOp.ConvertI32S, WType.F32 -> Instr.F32ConvertI32S
     | WUnaryOp.ConvertI64S, WType.F64 -> Instr.F64ConvertI64S

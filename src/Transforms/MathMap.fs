@@ -74,6 +74,16 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) (unsigned: b
             let! tb = b
             return wasmIf (if unsigned then WExpr.Compare(WCompareOp.GtU, ta, tb) else gtS ta tb) ta tb
         }
+    // sign of a float: -1 / 0 / 1; NaN raises (ArithmeticException on .NET)
+    | "sign", [arg], _ when (match exprWType arg with WType.F64 | WType.F32 -> true | _ -> false) ->
+        wasm {
+            let! tmp = arg
+            let zero = if exprWType arg = WType.F32 then WExpr.Const(WConst.F32 0.0f) else WExpr.Const(WConst.F64 0.0)
+            return wasmIf (WExpr.Compare(WCompareOp.Ne, tmp, tmp))
+                       (WExpr.Throw WExpr.Nop)
+                       (wasmIf (WExpr.Compare(WCompareOp.GtS, tmp, zero)) (i32Const 1)
+                               (wasmIf (WExpr.Compare(WCompareOp.LtS, tmp, zero)) (i32Const (-1)) (i32Const 0)))
+        }
     // sign
     | "sign", [arg], _ ->
         wasm {

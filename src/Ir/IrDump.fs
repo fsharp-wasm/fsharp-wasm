@@ -72,6 +72,8 @@ let wUnaryOpToString (op: WUnaryOp) : string =
     | WUnaryOp.ExtendI32U -> "extend_i32_u"
     | WUnaryOp.TruncF64S -> "trunc_f64_s"
     | WUnaryOp.TruncF32S -> "trunc_f32_s"
+    | WUnaryOp.TruncSatF64S -> "trunc_sat_f64_s"
+    | WUnaryOp.TruncSatF32S -> "trunc_sat_f32_s"
     | WUnaryOp.ConvertI32S -> "convert_i32_s"
     | WUnaryOp.ConvertI64S -> "convert_i64_s"
     | WUnaryOp.PromoteF32 -> "promote_f32"
