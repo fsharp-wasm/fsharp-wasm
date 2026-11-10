@@ -6,6 +6,8 @@
 /// Names ending in `_approx` compare floats with a relative tolerance (transcendental functions).
 module Props
 
+open System
+
 // ── int arithmetic: wrap-around, division, remainder ────────────────────────────────────────────
 let prop_add (a: int) (b: int) : int = a + b
 let prop_sub (a: int) (b: int) : int = a - b
@@ -63,3 +65,31 @@ let prop_intStrLen (a: int) : int = (string a).Length                     // inc
 let prop_uint16Neg (a: int) : int = int (~~~(uint16 a))                   // bitwise not wraps at 16 bits
 let prop_sbyteMul (a: int) (b: int) : int = int (sbyte a * sbyte b)       // wraps at -128..127
 let prop_int16Add (a: int) (b: int) : int = int (int16 a + int16 b)
+
+// ── float arithmetic and conversions ────────────────────────────────────────────────────────────
+// IEEE operations must agree bit for bit.  Conversions out of range (NaN, ∞, > Int32.MaxValue) are where the
+// platforms differ: .NET saturates / returns a fixed value, a trapping wasm opcode raises.
+let prop_fadd (a: float) (b: float) : float = a + b
+let prop_fsub (a: float) (b: float) : float = a - b
+let prop_fmul (a: float) (b: float) : float = a * b
+let prop_fdiv (a: float) (b: float) : float = a / b
+let prop_fneg (a: float) : float = -a
+let prop_fabs (a: float) : float = abs a
+let prop_fsqrt (a: float) : float = sqrt a
+let prop_ffloor (a: float) : float = floor a
+let prop_fceil (a: float) : float = ceil a
+let prop_ftrunc (a: float) : float = truncate a
+let prop_fmin (a: float) (b: float) : float = min a b
+let prop_fmax (a: float) (b: float) : float = max a b
+let prop_fsign (a: float) : int = sign a
+let prop_flt (a: float) (b: float) : bool = a < b
+let prop_fle (a: float) (b: float) : bool = a <= b
+let prop_feq (a: float) (b: float) : bool = a = b
+let prop_fne (a: float) (b: float) : bool = a <> b
+let prop_fcompare (a: float) (b: float) : int = compare a b
+let prop_fmuladd (a: float) (b: float) (c: float) : float = a * b + c
+let prop_fround (a: float) : float = Math.Round a
+let prop_fintTrunc (a: float) : int = int a                              // out of range / NaN: platform-defined
+let prop_fofInt (a: int) : float = float a
+let prop_fofIntDiv (a: int) (b: int) : float = float a / float b
+let prop_fsum3 (a: float) (b: float) (c: float) : float = (a + b) + c
