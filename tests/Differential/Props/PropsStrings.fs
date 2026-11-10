@@ -45,7 +45,7 @@ let prop_s_intRoundTrip (a: int) : int = int (string a)
 let prop_s_parse (a: int) : int = Int32.Parse(string a)
 let prop_s_sprintfD (a: int) (b: int) : int = (sprintf "%d-%s" a (word b 3)).Length
 let prop_s_sprintfX (a: int) : int = (sprintf "%x" a).Length
-// GAP (see GAPS.md): String.concat over a list — prop_s_concatMany
+let prop_s_concatMany (a: int) (b: int) : int = String.concat "," [ word a 2; word b 3; word (a + b) 4 ] |> fun s -> s.Length
 let prop_s_replicate (a: int) (b: int) : int = (String.replicate (idx a 6) (word b 2)).Length
 let prop_s_char (a: int) : int = int (char (abs (a % 1000)))
 let prop_s_charIsDigit (a: int) : bool = Char.IsDigit(char (abs (a % 128)))

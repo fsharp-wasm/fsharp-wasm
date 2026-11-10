@@ -362,6 +362,34 @@ let makeFloatToFixedHelper () : WFuncDecl =
                         i <- i - 1
                 res @>
 
+/// Runtime helper: $strJoinList(sep, list) → the strings of an F# list joined by `sep`.  This is what
+/// String.concat / String.Join / String.replicate over a list need ($strJoin only takes a string array).
+/// `consIdx` is the ListCons struct of string elements.
+let makeStrJoinListHelper (consIdx: int) () : WFuncDecl =
+    let strRef   = WType.Ref(StringTypeIdx, false)
+    let listRef  = WType.Ref(ListBaseTypeIdx, true)
+    let consRef  = WType.Ref(consIdx, false)
+    let sepGet   = localGet "$sjl_sep" strRef
+    let nodeGet  = localGet "$sjl_node" listRef
+    let firstGet = localGet "$sjl_first" WType.I32
+    let resGet   = localGet "$sjl_res" strRef
+    let cons     = WExpr.Cast(nodeGet, consRef)
+    let emptyStr = WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
+    makeFunc "$strJoinList" [("$sjl_sep", strRef); ("$sjl_list", listRef)] strRef (
+        WExpr.LetMut("$sjl_res", emptyStr,
+        WExpr.LetMut("$sjl_node", localGet "$sjl_list" listRef,
+        WExpr.LetMut("$sjl_first", i32Const 1,
+            sequence [
+                whileLoop "$sjl_loop" (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull nodeGet, WType.I32))
+                    (sequence [
+                        wasmWhen (eq firstGet (i32Const 0)) (localSet "$sjl_res" (call "$strConcat" [resGet; sepGet] strRef))
+                        localSet "$sjl_res" (call "$strConcat" [resGet; WExpr.StructGet(cons, 0, strRef)] strRef)
+                        localSet "$sjl_first" (i32Const 0)
+                        localSet "$sjl_node" (WExpr.StructGet(cons, 1, listRef))
+                    ])
+                resGet
+            ]))))
+
 /// Runtime helper: $strPadLeft(str, width) → pad with spaces on the left.
 let makeStrPadLeftHelper () : WFuncDecl =
     q "$strPadLeft"

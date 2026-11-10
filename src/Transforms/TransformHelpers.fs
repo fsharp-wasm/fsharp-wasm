@@ -60,6 +60,14 @@ let numericCompare (a: WExpr) (b: WExpr) (argTy: WType) : WExpr =
             WExpr.If(cmp WCompareOp.Eq x y, i32 0, WExpr.If(cmp WCompareOp.LtS x y, i32 -1, i32 1, WType.I32), WType.I32)
     WExpr.Let("$cmp_a", a, WExpr.Let("$cmp_b", b, body))
 
+/// `String.concat sep items` / `String.Join`: the items are a string ARRAY or an F# LIST.
+let strJoin (ctx: Ctx) (sep: WExpr) (items: WExpr) : WExpr =
+    let helper =
+        match exprWType items with
+        | WType.Ref(idx, _) when idx = ListBaseTypeIdx -> "$strJoinList"
+        | _ -> "$strJoin"
+    WExpr.Call(ctx.UseHelper helper, [ sep; items ], WType.Ref(StringTypeIdx, false))
+
 /// `string c` for a char: a one-element string (chars are i32 code points here).
 let charToString (c: WExpr) : WExpr =
     WExpr.ArrayNewFixed(StringTypeIdx, [ c ], WType.Ref(StringTypeIdx, false))

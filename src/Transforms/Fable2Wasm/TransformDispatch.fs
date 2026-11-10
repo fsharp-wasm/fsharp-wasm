@@ -491,8 +491,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
         let arrRef = WType.Ref(strArrTypeIdx, false)
         match rest with
-        | [arrExpr] ->
-            WExpr.Call(ctx.UseHelper("$strJoin"), [sep; arrExpr], WType.Ref(StringTypeIdx, false))
+        | [arrExpr] -> strJoin ctx sep arrExpr
         | _ ->
             // joinWithIndices or other overload — not yet supported, emit Nop
             eprintfn "[WasmGc] WARNING: unhandled String.join variant with %d args" rest.Length
@@ -501,7 +500,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | "join", [arrExpr], _ ->
         let strRef = WType.Ref(StringTypeIdx, false)
         let emptyStr = WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
-        WExpr.Call(ctx.UseHelper("$strJoin"), [emptyStr; arrExpr], strRef)
+        strJoin ctx emptyStr arrExpr
     // Int/Long parse: LibCall(Int/Long/Int8/UInt8/..., "parse", [str; style; unsigned; bitsize])
     // We dispatch to $parseInt regardless of style — basic decimal parsing only.
     | "parse", str :: _, WType.I32 ->
