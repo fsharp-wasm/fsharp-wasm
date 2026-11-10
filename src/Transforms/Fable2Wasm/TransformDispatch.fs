@@ -185,6 +185,14 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     // Math helpers imported from fable-library/Double.js, Util.js etc.
     // Route these through dispatchMathCall so they get proper WasmIR.
     | ("abs" | "min" | "max" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest"), _, _ ->
+        // Fable's `sign` library function is int-typed, so it wraps a float argument in a cast to int32; a float
+        // must keep its value (sign 0.5 = 1)
+        let wArgs =
+            match sel, info.Args with
+            | "sign", [ Fable.Expr.TypeCast(inner, _) ]
+                when (match inner.Type with Fable.Type.Number((NumberKind.Float32 | NumberKind.Float64), _) -> true | _ -> false) ->
+                [ eval ctx inner ]
+            | _ -> wArgs
         dispatchMathCall importInfo.Selector wArgs ty (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type))
     // ---------------------------------------------------
     // Maths

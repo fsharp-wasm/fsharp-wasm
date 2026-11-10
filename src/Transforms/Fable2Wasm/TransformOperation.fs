@@ -67,12 +67,12 @@ let transformOperation
         | UnaryNot ->
             WExpr.Unary(WUnaryOp.Eqz, wOperand, ty)
         | UnaryNotBitwise ->
-            // JS bitwise NOT silently truncates floats to int (~~x = Math.trunc(x) for floats).
-            // In WASM we must truncate explicitly before applying integer NOT.
+            // JS bitwise NOT silently truncates floats to int (~~x = Math.trunc(x) for floats); Fable uses `~~~(~~~x)`
+            // for F#'s `int x`.  In WASM we must truncate explicitly — saturating like .NET (NaN → 0), never trapping.
             let wOperand' =
                 match exprWType wOperand with
-                | WType.F64 -> WExpr.Unary(WUnaryOp.TruncF64S, wOperand, WType.I32)
-                | WType.F32 -> WExpr.Unary(WUnaryOp.TruncF32S, wOperand, WType.I32)
+                | WType.F64 -> WExpr.Unary(WUnaryOp.TruncSatF64S, wOperand, WType.I32)
+                | WType.F32 -> WExpr.Unary(WUnaryOp.TruncSatF32S, wOperand, WType.I32)
                 | _ -> wOperand
             wrap (WExpr.Unary(WUnaryOp.Not, wOperand', ty))
         | _ ->
