@@ -105,7 +105,7 @@ run_domain() {
         fi
     fi
 
-    if ! $NODE --experimental-wasm-exnref --experimental-wasm-gc "$wasm" 2>&1 | tee "$domain_out/run.log"; then
+    if ! $NODE --experimental-wasm-exnref "$wasm" 2>&1 | tee "$domain_out/run.log"; then
         echo "  ✗ FAILED: runtime error (see $domain_out/run.log)"
         return 1
     fi
@@ -171,7 +171,7 @@ case "${1:-}" in
 
     echo ""
     echo "=== Running tests ==="
-    $NODE --experimental-wasm-exnref --experimental-wasm-gc "$WASM" 2>&1
+    $NODE --experimental-wasm-exnref "$WASM" 2>&1
     ;;
 
   "")
