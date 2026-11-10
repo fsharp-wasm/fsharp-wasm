@@ -11,5 +11,7 @@
   <ItemGroup>
     <Compile Include="../../../fable-library-wasmgc/Core/Interop.fs" />
     <Compile Include="Props.fs" />
+    <Compile Include="PropsStrings.fs" />
+    <Compile Include="PropsInt64.fs" />
   </ItemGroup>
 </Project>
