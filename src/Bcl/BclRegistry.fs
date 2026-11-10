@@ -20,7 +20,7 @@ open WasmGc.Runtime.Types
 let private deps : (string * string list) list = [
     "$arraySortWith", []  // self-contained
     "$floatToStr",   ["$intToStr"; "$strConcat"]
-    "$floatToFixed", ["$intToStr"]
+    "$floatToFixed", ["$intToStr"; "$strConcat"]
     "$uintToStr",    ["$intToStr"]
     "$strSplit",     ["$strIndexOf"; "$strSubstring"]
     "$strJoin",      ["$strConcat"]

@@ -321,8 +321,10 @@ let makeFloatToStrHelper () : WFuncDecl =
                     else res @>
 
 /// Runtime helper: $floatToFixed(f, decimals) → `f` with exactly `decimals` digits after the point — F# `%f`
-/// (6 decimals) and `%.Nf`.  The fraction is rounded half up.  NaN → "NaN".
-/// Limitations: the integer part is truncated to i32 range (~±2.1×10⁹); `decimals` is clamped to 0..9.
+/// (6 decimals) and `%.Nf`.  The fraction is rounded half up with carry.  NaN → "NaN", ±∞ → "Infinity".
+/// The integer part is kept as hi * 10^9 + lo, so every value below 2.1e18 prints without trapping, and its digits
+/// are exact while |f| < 2^53 (beyond that the low digits are approximate; .NET prints the exact binary value).
+/// `decimals` is clamped to 0..9.
 let makeFloatToFixedHelper () : WFuncDecl =
     q "$floatToFixed"
         <@ fun (f: float) (decimals: int) ->
@@ -332,20 +334,50 @@ let makeFloatToFixedHelper () : WFuncDecl =
                 wsSet nanStr 1 97    // 'a'
                 wsSet nanStr 2 78    // 'N'
                 nanStr
+            elif absF64 f > 1.7976931348623157e308 then
+                let neg = if f < 0.0 then 1 else 0
+                let inf = wsCreate (8 + neg)
+                if neg = 1 then wsSet inf 0 45     // '-'
+                wsSet inf neg 73                   // I
+                wsSet inf (neg + 1) 110            // n
+                wsSet inf (neg + 2) 102            // f
+                wsSet inf (neg + 3) 105            // i
+                wsSet inf (neg + 4) 110            // n
+                wsSet inf (neg + 5) 105            // i
+                wsSet inf (neg + 6) 116            // t
+                wsSet inf (neg + 7) 121            // y
+                inf
             else
                 let d = if decimals < 0 then 0 elif decimals > 9 then 9 else decimals
                 let fa = absF64 f
-                let mutable ip = truncF64 fa
                 let mutable scale = 1
                 let mutable k = 0
                 while k < d do
                     scale <- scale * 10
                     k <- k + 1
-                let mutable fi = truncF64 ((fa - intToF64 ip) * intToF64 scale + 0.5)
+                let hiF = fa / 1000000000.0
+                let mutable hi = if hiF >= 2147483647.0 then 2147483647 else truncF64 hiF
+                let rest = fa - intToF64 hi * 1000000000.0
+                let mutable lo = if rest >= 999999999.0 then 999999999 elif rest < 0.0 then 0 else truncF64 rest
+                let mutable fi = truncF64 ((rest - intToF64 lo) * intToF64 scale + 0.5)
                 if fi >= scale then
-                    ip <- ip + 1
+                    lo <- lo + 1
                     fi <- fi - scale
-                let is = intToStr ip
+                    if lo >= 1000000000 then
+                        lo <- lo - 1000000000
+                        hi <- hi + 1
+                // integer digits: `hi` as is, then `lo` zero-padded to 9 digits (only when hi > 0)
+                let is =
+                    if hi = 0 then intToStr lo
+                    else
+                        let lb = wsCreate 9
+                        let mutable v = lo
+                        let mutable j = 8
+                        while j >= 0 do
+                            wsSet lb j (v % 10 + 48)
+                            v <- v / 10
+                            j <- j - 1
+                        strConcat (intToStr hi) lb
                 let la = wsLen is
                 let neg = if f < 0.0 then 1 else 0
                 let dotLen = if d > 0 then d + 1 else 0
@@ -361,34 +393,6 @@ let makeFloatToFixedHelper () : WFuncDecl =
                         fv <- fv / 10
                         i <- i - 1
                 res @>
-
-/// Runtime helper: $strJoinList(sep, list) → the strings of an F# list joined by `sep`.  This is what
-/// String.concat / String.Join / String.replicate over a list need ($strJoin only takes a string array).
-/// `consIdx` is the ListCons struct of string elements.
-let makeStrJoinListHelper (consIdx: int) () : WFuncDecl =
-    let strRef   = WType.Ref(StringTypeIdx, false)
-    let listRef  = WType.Ref(ListBaseTypeIdx, true)
-    let consRef  = WType.Ref(consIdx, false)
-    let sepGet   = localGet "$sjl_sep" strRef
-    let nodeGet  = localGet "$sjl_node" listRef
-    let firstGet = localGet "$sjl_first" WType.I32
-    let resGet   = localGet "$sjl_res" strRef
-    let cons     = WExpr.Cast(nodeGet, consRef)
-    let emptyStr = WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
-    makeFunc "$strJoinList" [("$sjl_sep", strRef); ("$sjl_list", listRef)] strRef (
-        WExpr.LetMut("$sjl_res", emptyStr,
-        WExpr.LetMut("$sjl_node", localGet "$sjl_list" listRef,
-        WExpr.LetMut("$sjl_first", i32Const 1,
-            sequence [
-                whileLoop "$sjl_loop" (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull nodeGet, WType.I32))
-                    (sequence [
-                        wasmWhen (eq firstGet (i32Const 0)) (localSet "$sjl_res" (call "$strConcat" [resGet; sepGet] strRef))
-                        localSet "$sjl_res" (call "$strConcat" [resGet; WExpr.StructGet(cons, 0, strRef)] strRef)
-                        localSet "$sjl_first" (i32Const 0)
-                        localSet "$sjl_node" (WExpr.StructGet(cons, 1, listRef))
-                    ])
-                resGet
-            ]))))
 
 /// Runtime helper: $int64ToStr(n, unsigned) → decimal string of a 64-bit integer (signed, or read as unsigned).
 /// The magnitude is formatted with unsigned i64 division (so Int64.MinValue works) into a 20-char buffer.

@@ -340,8 +340,8 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     // int32ToString / int64ToString (Util module LibCall path)
     | "int32ToString", [arg], _ ->
         WExpr.Call(ctx.UseHelper("$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
-    | "int64ToString", [arg], _ ->
-        WExpr.Call(ctx.UseHelper("$intToStr"), [WExpr.Unary(WUnaryOp.WrapI64, arg, WType.I32)], WType.Ref(StringTypeIdx, false))
+    | "int64ToString", [arg], _ -> int64ToString ctx arg false
+    | "uint64ToString", [arg], _ -> int64ToString ctx arg true
     // String.padLeft / padRight
     | "padLeft", [str; width], _ ->
         WExpr.Call(ctx.UseHelper("$strPadLeft"), [str; width], WType.Ref(StringTypeIdx, false))
