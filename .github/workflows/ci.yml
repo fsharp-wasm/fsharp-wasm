@@ -98,6 +98,14 @@ jobs:
           bash tests/Differential/run.sh tests/QuickTest tests/QuickTest/output/QuickTestWasmGc.wasm test
           bash tests/Differential/run.sh tests/Showcase tests/Showcase/output/Showcase.wasm showcase
 
+      # Generated inputs (edge values + seeded random) on .NET and as wasm, for int / float / bool functions.
+      # Reproduce a failure locally with the same DIFF_SEED; raise DIFF_CASES for a deeper run.
+      - name: Properties (.NET vs wasm, generated inputs)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/Differential/run-props.sh
+
       - name: Component Embed
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
