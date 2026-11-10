@@ -4,6 +4,7 @@
 /// reported (WGC008) rather than guessed.
 module WasmGc.Transforms.BigIntMap
 
+open Fable.AST
 open Fable.AST.Fable
 open WasmGc.Core.AST
 open WasmGc.Runtime.Types
