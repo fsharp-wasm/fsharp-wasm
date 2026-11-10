@@ -309,4 +309,31 @@ let applyClosure (ctx: Ctx) (calleeTy: Fable.Type) (wClosure: WExpr) (fableArgs:
     let kept = List.zip argTys wArgs |> List.filter (fun (t, w) -> t <> WType.Void && exprWType w <> WType.Void)
     let funcTypeIdx = closureFuncType ctx (kept |> List.map fst) retTy
     let cti = getOrAddClosureBase ctx funcTypeIdx
-    WExpr.ClosureApply(wClosure, kept |> List.map snd, funcTypeIdx, cti, 0, retTy)
+    let direct (clo: WExpr) (args: WExpr list) = WExpr.ClosureApply(clo, args, funcTypeIdx, cti, 0, retTy)
+
+    if kept.Length < 2 || kept.Length <> wArgs.Length then
+        direct wClosure (List.map snd kept)
+    else
+        // The closure object may be n-ary (a delegate) or curried — `fun a -> fun b -> …` is built as one
+        // closure per parameter.  Like F#'s OptimizedClosures.Adapt: take the n-ary entry when the object
+        // has it, otherwise apply one argument at a time.  Closure and arguments are bound first (in the
+        // original evaluation order), so both paths share them and nothing is evaluated twice.
+        let id = System.Threading.Interlocked.Increment(ctx.ClosureCounter)
+        let cloName = sprintf "$ap_clo_%d" id
+        let cloRef = WExpr.LocalGet(cloName, exprWType wClosure)
+        let bound = kept |> List.mapi (fun i (declTy, a) -> sprintf "$ap_arg_%d_%d" id i, declTy, a)
+        let argRefs = bound |> List.map (fun (n, _, a) -> WExpr.LocalGet(n, exprWType a))
+
+        let curried =
+            let rec go (f: WExpr) (rest: (WType * WExpr) list) =
+                match rest with
+                | [] -> f
+                | (declTy, arg) :: tail ->
+                    let ret = if tail.IsEmpty then retTy else closureSelfTy
+                    let fti = closureFuncType ctx [ declTy ] ret
+                    go (WExpr.ClosureApply(f, [ arg ], fti, getOrAddClosureBase ctx fti, 0, ret)) tail
+            go cloRef (List.zip (bound |> List.map (fun (_, t, _) -> t)) argRefs)
+
+        let dispatch = WExpr.If(WExpr.RefTest(cloRef, WType.Ref(cti, false)), direct cloRef argRefs, curried, retTy)
+        let withArgs = List.foldBack (fun (n, _, a) body -> WExpr.Let(n, a, body)) bound dispatch
+        WExpr.Let(cloName, wClosure, withArgs)
