@@ -20,6 +20,7 @@ open WasmGc.Runtime.Types
 let private deps : (string * string list) list = [
     "$arraySortWith", []  // self-contained
     "$floatToStr",   ["$intToStr"; "$strConcat"]
+    "$floatToFixed", ["$intToStr"]
     "$strSplit",     ["$strIndexOf"; "$strSubstring"]
     "$strJoin",      ["$strConcat"]
     "$parseInt",     ["$strSubstring"]
@@ -68,6 +69,7 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$strJoin",           StringHelpers.makeStrJoinHelper  strArrTypeIdx
         "$intToStr",          StringHelpers.makeIntToStrHelper
         "$floatToStr",        StringHelpers.makeFloatToStrHelper
+        "$floatToFixed",      StringHelpers.makeFloatToFixedHelper
         "$parseInt",          StringHelpers.makeIntParseHelper
         "$parseFloat",        StringHelpers.makeFloatParseHelper
         // ── Char ──────────────────────────────────────────────────────────

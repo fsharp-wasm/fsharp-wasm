@@ -288,6 +288,48 @@ let makeFloatToStrHelper () : WFuncDecl =
                         r
                     else res @>
 
+/// Runtime helper: $floatToFixed(f, decimals) → `f` with exactly `decimals` digits after the point — F# `%f`
+/// (6 decimals) and `%.Nf`.  The fraction is rounded half up.  NaN → "NaN".
+/// Limitations: the integer part is truncated to i32 range (~±2.1×10⁹); `decimals` is clamped to 0..9.
+let makeFloatToFixedHelper () : WFuncDecl =
+    q "$floatToFixed"
+        <@ fun (f: float) (decimals: int) ->
+            if f <> f then
+                let nanStr = wsCreate 3
+                wsSet nanStr 0 78    // 'N'
+                wsSet nanStr 1 97    // 'a'
+                wsSet nanStr 2 78    // 'N'
+                nanStr
+            else
+                let d = if decimals < 0 then 0 elif decimals > 9 then 9 else decimals
+                let fa = absF64 f
+                let mutable ip = truncF64 fa
+                let mutable scale = 1
+                let mutable k = 0
+                while k < d do
+                    scale <- scale * 10
+                    k <- k + 1
+                let mutable fi = truncF64 ((fa - intToF64 ip) * intToF64 scale + 0.5)
+                if fi >= scale then
+                    ip <- ip + 1
+                    fi <- fi - scale
+                let is = intToStr ip
+                let la = wsLen is
+                let neg = if f < 0.0 then 1 else 0
+                let dotLen = if d > 0 then d + 1 else 0
+                let res = wsCreate (neg + la + dotLen)
+                if neg = 1 then wsSet res 0 45     // '-'
+                wsCopy res neg is 0 la
+                if d > 0 then
+                    wsSet res (neg + la) 46        // '.'
+                    let mutable fv = fi
+                    let mutable i = d
+                    while i > 0 do
+                        wsSet res (neg + la + i) (fv % 10 + 48)
+                        fv <- fv / 10
+                        i <- i - 1
+                res @>
+
 /// Runtime helper: $strPadLeft(str, width) → pad with spaces on the left.
 let makeStrPadLeftHelper () : WFuncDecl =
     q "$strPadLeft"

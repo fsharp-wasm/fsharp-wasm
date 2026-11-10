@@ -373,32 +373,6 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         let emitLit (s: string) =
             WExpr.ArrayNewFixed(StringTypeIdx,
                 s |> Seq.map (fun c -> WExpr.Const(WConst.I32(int c))) |> Seq.toList, strRef)
-        // Convert one format hole value to a string WExpr
-        let formatHole (spec: char) (ve: Fable.Expr) =
-            let wv  = eval ctx ve
-            let wty = exprWType wv
-            match spec with
-            | 'f' | 'g' | 'e' ->
-                let wf64 = match wty with
-                            | WType.F64 -> wv
-                            | WType.F32 -> WExpr.Unary(WUnaryOp.PromoteF32, wv, WType.F64)
-                            | _ -> WExpr.Unary(WUnaryOp.ConvertI32S, wv, WType.F64)
-                WExpr.Call(ctx.UseHelper("$floatToStr"), [wf64], strRef)
-            | 'b' ->
-                WExpr.If(wv, emitLit "true", emitLit "false", strRef)
-            | _ ->
-                match wty with
-                | WType.Ref(idx, _) when idx = StringTypeIdx -> wv
-                | WType.I64 ->
-                    WExpr.Call(ctx.UseHelper("$intToStr"),
-                        [WExpr.Unary(WUnaryOp.WrapI64, wv, WType.I32)], strRef)
-                | WType.F64 ->
-                    WExpr.Call(ctx.UseHelper("$floatToStr"), [wv], strRef)
-                | WType.F32 ->
-                    WExpr.Call(ctx.UseHelper("$floatToStr"),
-                        [WExpr.Unary(WUnaryOp.PromoteF32, wv, WType.F64)], strRef)
-                | _ ->
-                    WExpr.Call(ctx.UseHelper("$intToStr"), [wv], strRef)
         // Extract raw Fable args (before transformation) to get format string + value exprs
         let fmtStrOpt, valExprs =
             match info.Args with
@@ -413,13 +387,13 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             eprintfn "[WasmGc] interpolate: unexpected arg shape — falling back to Nop"
             WExpr.Nop
         | Some fmt ->
-            let parts, specs = parseFormatString fmt
+            let parts, specs = parseFormatSpecs fmt
             let nSpecs = List.length specs
             let holeParts =
                 [ for k in 0 .. nSpecs - 1 do
                     yield emitLit parts.[k]
                     if k < valExprs.Length then
-                        yield formatHole specs.[k] valExprs.[k] ]
+                        yield formatHole ctx specs.[k] (eval ctx valExprs.[k]) ]
             let lastPart = if List.isEmpty parts then "" else List.last parts
             let segments = holeParts @ [emitLit lastPart]
             match segments with

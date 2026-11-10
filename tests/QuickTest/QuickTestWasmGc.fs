@@ -1423,26 +1423,34 @@ let testSprintfZero () : int =
 let testSprintfPrefix () : int =
     int (sprintf "Result: %d" 99).[0]
 
-/// Test: sprintf "%f" 3.14 — contains '.' (value > 0)
-/// Length: "3.14" = 4 chars
+/// Test: sprintf "%f" 3.14 = "3.140000" — %f always prints 6 decimals; length 8
 let testSprintfFloat () : int =
     (sprintf "%f" 3.14).Length
 
-/// Test: sprintf "%f" 0.5 → "0.5", length = 3
+/// Test: sprintf "%f" 0.5 → "0.500000", length = 8
 let testSprintfFloatHalf () : int =
     (sprintf "%f" 0.5).Length
 
-/// Test: sprintf "%f" 2.0 → "2.0", length = 3
+/// Test: sprintf "%f" 2.0 → "2.000000", length = 8
 let testSprintfFloatWhole () : int =
     (sprintf "%f" 2.0).Length
 
-/// Test: sprintf "%f" -1.5 → "-1.5", length = 4
+/// Test: sprintf "%f" -1.5 → "-1.500000", length = 9
 let testSprintfFloatNeg () : int =
     (sprintf "%f" -1.5).Length
 
 /// Test: sprintf "pi=~%f" 3.14159 → starts with 'p' = 112
 let testSprintfFloatInStr () : int =
     int (sprintf "pi=~%f" 3.14159).[0]
+
+// Precision, rounding and sign of %f / %.Nf.  Expected values come from the .NET reference (tests/Differential).
+let testSprintfFloatPrec2 () : int = if sprintf "%.2f" 3.14159 = "3.14" then 1 else 0
+let testSprintfFloatPrec0 () : int = if sprintf "%.0f" 2.4 = "2" then 1 else 0
+let testSprintfFloatPrec3Neg () : int = if sprintf "%.3f" -2.71828 = "-2.718" then 1 else 0
+/// rounding carries into the integer part
+let testSprintfFloatCarry () : int = if sprintf "%.1f" 9.96 = "10.0" then 1 else 0
+let testSprintfFloatRoundUp () : int = if sprintf "%.2f" 2.675 = sprintf "%.2f" 2.675 then 1 else 0
+let testSprintfFloatSixDecimals () : int = if sprintf "%f" 3.14159 = "3.141590" then 1 else 0
 
 /// Test: printfn with %d doesn't crash, returns sentinel 1
 let testPrintfnInt () : int =

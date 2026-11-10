@@ -447,10 +447,10 @@ check("sprintfBoolFalse: sprintf '%b' false length = 5", 5, exp.testSprintfBoolF
 check("sprintfMixed: sprintf 'n=%d,s=%s' 7 'hi' length = 8", 8, exp.testSprintfMixed(),);
 check("sprintfZero: sprintf '%d' 0 first char = '0'=48", 48, exp.testSprintfZero(),);
 check("sprintfPrefix: sprintf 'Result: %d' 99 first char = 'R'=82", 82, exp.testSprintfPrefix(),);
-check("sprintfFloat: sprintf '%f' 3.14 length >= 4", 4, exp.testSprintfFloat());
-check("sprintfFloatHalf: sprintf '%f' 0.5 length = 3", 3, exp.testSprintfFloatHalf(),);
-check("sprintfFloatWhole: sprintf '%f' 2.0 length = 3", 3, exp.testSprintfFloatWhole(),);
-check("sprintfFloatNeg: sprintf '%f' -1.5 length = 4", 4, exp.testSprintfFloatNeg(),);
+check("sprintfFloat: sprintf '%f' 3.14 = \"3.140000\" (length 8)", 8, exp.testSprintfFloat());
+check("sprintfFloatHalf: sprintf '%f' 0.5 = \"0.500000\" (length 8)", 8, exp.testSprintfFloatHalf(),);
+check("sprintfFloatWhole: sprintf '%f' 2.0 = \"2.000000\" (length 8)", 8, exp.testSprintfFloatWhole(),);
+check("sprintfFloatNeg: sprintf '%f' -1.5 = \"-1.500000\" (length 9)", 9, exp.testSprintfFloatNeg(),);
 check("sprintfFloatInStr: sprintf 'pi=~%f' 3.14159 first char = 'p'=112", 112, exp.testSprintfFloatInStr(),);
 check("printfnInt: printfn 'count=%d' 42 doesn't crash", 1, exp.testPrintfnInt(),);
 check("printfnStr: printfn 'hello,%s!' 'world' doesn't crash", 1, exp.testPrintfnStr(),);

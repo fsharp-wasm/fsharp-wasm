@@ -550,38 +550,13 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             let emitLit (s: string) =
                 WExpr.ArrayNewFixed(StringTypeIdx,
                     s |> Seq.map (fun c -> WExpr.Const(WConst.I32(int c))) |> Seq.toList, strRef)
-            let partsList, specsList = parseFormatString fmt
-            let formatHole (spec: char) (ve: Fable.Expr) =
-                let wv  = transformExpr ctx ve
-                let wty = exprWType wv
-                match spec with
-                | 'f' | 'g' | 'e' ->
-                    let wf64 = match wty with
-                               | WType.F64 -> wv
-                               | WType.F32 -> WExpr.Unary(WUnaryOp.PromoteF32, wv, WType.F64)
-                               | _ -> WExpr.Unary(WUnaryOp.ConvertI32S, wv, WType.F64)
-                    WExpr.Call(ctx.UseHelper("$floatToStr"), [wf64], strRef)
-                | 'b' ->
-                    WExpr.If(wv, emitLit "true", emitLit "false", strRef)
-                | _ ->
-                    match wty with
-                    | WType.Ref(idx, _) when idx = StringTypeIdx -> wv
-                    | WType.I64 ->
-                        WExpr.Call(ctx.UseHelper("$intToStr"),
-                            [WExpr.Unary(WUnaryOp.WrapI64, wv, WType.I32)], strRef)
-                    | WType.F64 ->
-                        WExpr.Call(ctx.UseHelper("$floatToStr"), [wv], strRef)
-                    | WType.F32 ->
-                        WExpr.Call(ctx.UseHelper("$floatToStr"),
-                            [WExpr.Unary(WUnaryOp.PromoteF32, wv, WType.F64)], strRef)
-                    | _ ->
-                        WExpr.Call(ctx.UseHelper("$intToStr"), [wv], strRef)
+            let partsList, specsList = parseFormatSpecs fmt
             let nSpecs = List.length specsList
             let holeParts =
                 [ for k in 0 .. nSpecs - 1 do
                     yield emitLit partsList.[k]
                     if k < args.Length then
-                        yield formatHole specsList.[k] args.[k] ]
+                        yield formatHole ctx specsList.[k] (transformExpr ctx args.[k]) ]
             let lastPart = if List.isEmpty partsList then "" else List.last partsList
             let segments = holeParts @ [emitLit lastPart]
             let formattedStr =
