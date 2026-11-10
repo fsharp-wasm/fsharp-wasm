@@ -390,6 +390,29 @@ let makeStrJoinListHelper (consIdx: int) () : WFuncDecl =
                 resGet
             ]))))
 
+/// Runtime helper: $strRepeat(str, count) → `str` repeated `count` times (String.replicate).
+/// A negative count raises, like .NET (ArgumentException).
+let makeStrRepeatHelper () : WFuncDecl =
+    let strRef   = WType.Ref(StringTypeIdx, false)
+    let srcGet   = localGet "$sr_s" strRef
+    let nGet     = localGet "$sr_n" WType.I32
+    let iGet     = localGet "$sr_i" WType.I32
+    let resGet   = localGet "$sr_res" strRef
+    let emptyStr = WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
+    makeFunc "$strRepeat" [("$sr_s", strRef); ("$sr_n", WType.I32)] strRef (
+        wasmIf (ltS nGet (i32Const 0))
+            (WExpr.Throw WExpr.Nop)
+            (WExpr.LetMut("$sr_res", emptyStr,
+             WExpr.LetMut("$sr_i", i32Const 0,
+                sequence [
+                    whileLoop "$sr_loop" (ltS iGet nGet)
+                        (sequence [
+                            localSet "$sr_res" (call "$strConcat" [resGet; srcGet] strRef)
+                            localSet "$sr_i" (add iGet (i32Const 1))
+                        ])
+                    resGet
+                ]))))
+
 /// Runtime helper: $strPadLeft(str, width) → pad with spaces on the left.
 let makeStrPadLeftHelper () : WFuncDecl =
     q "$strPadLeft"

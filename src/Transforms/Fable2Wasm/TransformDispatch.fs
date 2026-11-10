@@ -126,6 +126,12 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     let r =
         tryFirst [
             // ── Map/Set module: must come first to prevent List combinators matching Set/Map DeclaredTypes ──
+            // String.replicate must not fall into the List.replicate handler below
+            fun () ->
+                match importStem, sel, wArgs with
+                | "String", "replicate", [ count; str ] ->
+                    Some(WExpr.Call(ctx.UseHelper "$strRepeat", [ str; count ], WType.Ref(StringTypeIdx, false)))
+                | _ -> None
             fun () -> tryBigIntInline importStem sel wArgs (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) || WasmGc.Util.FableQuery.isUnsignedInt typ)
             fun () -> tryMapInline               ctx importStem sel wArgs
             fun () -> trySetInline               ctx importStem sel wArgs
