@@ -19,6 +19,8 @@
     <Compile Include="Main.fs" />
   </ItemGroup>
   <ItemGroup>
+    <!-- WasmGc.Core's signatures mention Fable.AST types, so every consumer needs the reference to type-check (FS0074). -->
+    <ProjectReference Include="../../vendor/Fable/src/Fable.AST/Fable.AST.fsproj" />
     <ProjectReference Include="../../src/WasmGc.fsproj" />
   </ItemGroup>
 </Project>

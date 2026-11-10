@@ -74,11 +74,17 @@ run_domain() {
     # Full detail by default — no grep filter. Tee so it's visible live AND
     # saved for later inspection without re-running.
     local log="$domain_out/compile.log"
-    rm -f "$domain_out"/*.wasm "$domain_out"/*.wat   # never validate a stale artifact
+    rm -f "$domain_out"/*.wasm "$domain_out"/*.wat "$OUT/Tests${d}".wasm "$OUT/Tests${d}".wat   # never validate a stale artifact
     if ! $FABLE "$fsproj" --outDir "$domain_out" --noCache --verbose 2>&1 | tee "$log"; then
         echo "  ✗ FAILED: compilation error (see $log)"
         return 1
     fi
+
+    # The CLI lays its output out relative to the project directory.  The generated project lives in
+    # $domain_out while the sources are one level up, so Tests<Domain>.wasm/.wat land in $OUT: pull them in.
+    for ext in wasm wat; do
+        [ -f "$OUT/Tests${d}.$ext" ] && mv -f "$OUT/Tests${d}.$ext" "$domain_out/"
+    done
 
     # The CLI names the module after the LAST source file (Tests<Domain>.wasm), not after the
     # generated project.  Prefer that name, else take the newest .wasm in the output dir.

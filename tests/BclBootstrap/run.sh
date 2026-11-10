@@ -22,12 +22,12 @@ wasm-tools validate "$OUT"/*.wasm && echo "✓ valid"
 
 echo ""
 echo "=== Running tests ==="
-node - <<'NODEEOF'
+HERE="$HERE" node - <<'NODEEOF'   # stdin script: import.meta.url is the CWD, so pass the directory explicitly
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const __dir = dirname(fileURLToPath(import.meta.url));
+const __dir = process.env.HERE;
 const wasm = readFileSync(resolve(__dir, 'output', 'BclBootstrapTests.wasm'));
 const { instance } = await WebAssembly.instantiate(wasm, {
   env: { consolePrint: () => {} }
