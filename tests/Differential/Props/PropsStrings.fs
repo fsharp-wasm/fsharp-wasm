@@ -51,3 +51,25 @@ let prop_s_char (a: int) : int = int (char (abs (a % 1000)))
 let prop_s_charIsDigit (a: int) : bool = Char.IsDigit(char (abs (a % 128)))
 let prop_s_charIsLetter (a: int) : bool = Char.IsLetter(char (abs (a % 128)))
 let prop_s_charToUpper (a: int) : int = int (Char.ToUpper(char (abs (a % 128))))
+
+// ── contents, not just lengths: a polynomial hash of the produced text ──────────────────────────
+let private hash (s: string) : int =
+    let mutable h = 17
+    for i in 0 .. s.Length - 1 do
+        h <- h * 31 + int s.[i]
+    h
+
+let prop_s_hashInt (a: int) : int = hash (string a)
+let prop_s_hashHex (a: int) : int = hash (sprintf "%x" a)
+let prop_s_hashHexUpper (a: int) : int = hash (sprintf "%X" a)
+let prop_s_hashOctal (a: int) : int = hash (sprintf "%o" a)
+let prop_s_hashUnsigned (a: int) : int = hash (sprintf "%u" a)
+let prop_s_hashInt64 (a: int) (b: int) : int = hash (string (int64 a * int64 b))
+let prop_s_hashPrintfInt64 (a: int) (b: int) : int = hash (sprintf "%d" (int64 a * int64 b))
+let prop_s_hashChar (a: int) : int = hash (sprintf "%c" (char (32 + abs (a % 90))))
+let prop_s_hashFixed (a: int) (b: int) : int = hash (sprintf "%.3f" (float a / 7.0 + float b))
+let prop_s_hashConcat (a: int) (b: int) : int = hash (word a 5 + "-" + word b 3 + string a)
+let prop_s_hashUpper (a: int) : int = hash ((word a 8).ToUpper())
+let prop_s_hashReplace (a: int) (b: int) : int = hash ((word a 9).Replace(string (letter b), "<>"))
+let prop_s_hashSubstring (a: int) (b: int) : int = hash ((word a 10).Substring(idx b 5))
+let prop_s_hashPadLeft (a: int) (b: int) : int = hash ((word a 4).PadLeft(idx b 12))

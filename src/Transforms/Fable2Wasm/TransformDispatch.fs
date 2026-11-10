@@ -132,7 +132,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
                 | "String", "replicate", [ count; str ] ->
                     Some(WExpr.Call(ctx.UseHelper "$strRepeat", [ str; count ], WType.Ref(StringTypeIdx, false)))
                 | _ -> None
-            fun () -> tryBigIntInline importStem sel wArgs (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) || WasmGc.Util.FableQuery.isUnsignedInt typ)
+            fun () -> tryBigIntInline ctx importStem sel wArgs (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) || WasmGc.Util.FableQuery.isUnsignedInt typ)
             fun () -> tryMapInline               ctx importStem sel wArgs
             fun () -> trySetInline               ctx importStem sel wArgs
             // ── List combinators ────────────────────────────────────────────────────
@@ -331,6 +331,8 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     // toString for numbers (via LibCall path)
     | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx && (match info.Args with [ a ] -> a.Type = Fable.Type.Char | _ -> false) ->
         charToString arg
+    | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx && exprWType arg = WType.I64 ->
+        int64ToString ctx arg (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type))
     | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx ->
         WExpr.Call(ctx.UseHelper(if info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) then "$uintToStr" else "$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
     | "toString", [arg], _ ->
@@ -735,7 +737,7 @@ let transformCall
             let wNum = eval ctx numExpr
             let strRef = WType.Ref(StringTypeIdx, false)
             match exprWType wNum with
-            | WType.I64 -> WExpr.Call(ctx.UseHelper("$intToStr"), [WExpr.Unary(WUnaryOp.WrapI64, wNum, WType.I32)], strRef)
+            | WType.I64 -> int64ToString ctx wNum (WasmGc.Util.FableQuery.isUnsignedInt numExpr.Type)
             | WType.F64 | WType.F32 ->
                 WExpr.Call(ctx.UseHelper("$intToStr"), [WExpr.Unary(WUnaryOp.TruncF64S, wNum, WType.I32)], strRef)
             | _ -> WExpr.Call(ctx.UseHelper(if WasmGc.Util.FableQuery.isUnsignedInt numExpr.Type then "$uintToStr" else "$intToStr"), [wNum], strRef)

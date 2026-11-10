@@ -390,6 +390,66 @@ let makeStrJoinListHelper (consIdx: int) () : WFuncDecl =
                 resGet
             ]))))
 
+/// Runtime helper: $int64ToStr(n, unsigned) → decimal string of a 64-bit integer (signed, or read as unsigned).
+/// The magnitude is formatted with unsigned i64 division (so Int64.MinValue works) into a 20-char buffer.
+let makeInt64ToStrHelper () : WFuncDecl =
+    let strRef = WType.Ref(StringTypeIdx, false)
+    let i64    = WType.I64
+    let zero64 = WExpr.Const(WConst.I64 0L)
+    let ten64  = WExpr.Const(WConst.I64 10L)
+    let n      = localGet "$l_n" i64
+    let uns    = localGet "$l_u" WType.I32
+    let neg    = localGet "$l_neg" WType.I32
+    let v      = localGet "$l_v" i64
+    let len    = localGet "$l_len" WType.I32
+    let buf    = localGet "$l_buf" strRef
+    let res    = localGet "$l_res" strRef
+    let digit  =
+        sequence [
+            arraySet buf (sub (i32Const 19) len)
+                (add (i32Const 48) (WExpr.Unary(WUnaryOp.WrapI64, WExpr.Binary(WBinaryOp.RemU, v, ten64, i64), WType.I32)))
+            localSet "$l_v" (WExpr.Binary(WBinaryOp.DivU, v, ten64, i64))
+            localSet "$l_len" (add len (i32Const 1))
+        ]
+    makeFunc "$int64ToStr" [("$l_n", i64); ("$l_u", WType.I32)] strRef (
+        // a negative number (signed only): magnitude = 0 - n, which wraps to 2^63 for MinValue
+        WExpr.LetMut("$l_neg", WExpr.Binary(WBinaryOp.And, eq uns (i32Const 0), WExpr.Compare(WCompareOp.LtS, n, zero64), WType.I32),
+        WExpr.LetMut("$l_v", wasmIf neg (WExpr.Binary(WBinaryOp.Sub, zero64, n, i64)) n,
+        WExpr.LetMut("$l_buf", arrayNew StringTypeIdx (i32Const 20) (i32Const 0) strRef,
+        WExpr.LetMut("$l_len", i32Const 0,
+        WExpr.LetMut("$l_res", arrayNew StringTypeIdx (i32Const 0) (i32Const 0) strRef,
+            sequence [
+                digit                                                       // at least one digit ("0")
+                whileLoop "$l_loop" (WExpr.Compare(WCompareOp.Ne, v, zero64)) digit
+                localSet "$l_res" (arrayNew StringTypeIdx (add len neg) (i32Const 0) strRef)
+                wasmWhen neg (arraySet res (i32Const 0) (i32Const 45))      // '-'
+                arrayCopy res neg buf (sub (i32Const 20) len) len
+                res
+            ]))))))
+
+/// Runtime helper: $uintToRadix(n, bits, upper) → n read as unsigned 32-bit, written in base 2^bits
+/// (4 = hex for %x / %X, 3 = octal for %o).  `upper` = 1 for A-F.  Digits come from shifts and masks, so no
+/// unsigned division is needed.
+let makeUIntToRadixHelper () : WFuncDecl =
+    q "$uintToRadix"
+        <@ fun (n: int) (bits: int) (upper: int) ->
+            if n = 0 then wsCreateFill 1 48
+            else
+                let buf = wsCreate 32
+                let mutable len = 0
+                let mutable i = (32 + bits - 1) / bits - 1
+                while i >= 0 do
+                    let shift = i * bits
+                    let valid = if shift + bits > 32 then 32 - shift else bits
+                    let d = (n >>> shift) &&& ((1 <<< valid) - 1)
+                    if len > 0 || d <> 0 then
+                        wsSet buf len (if d < 10 then 48 + d else (if upper = 1 then 55 else 87) + d)
+                        len <- len + 1
+                    i <- i - 1
+                let res = wsCreate len
+                wsCopy res 0 buf 0 len
+                res @>
+
 /// Runtime helper: $strRepeat(str, count) → `str` repeated `count` times (String.replicate).
 /// A negative count raises, like .NET (ArgumentException).
 let makeStrRepeatHelper () : WFuncDecl =

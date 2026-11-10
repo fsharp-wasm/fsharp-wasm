@@ -11,7 +11,7 @@ open WasmGc.Runtime.Types
 open WasmGc.Transforms.NumericCasts
 open WasmGc.Transforms.TransformHelpers
 
-let tryBigIntInline (stem: string) (sel: string) (wArgs: WExpr list) (unsigned: bool) : WExpr option =
+let tryBigIntInline (ctx: Ctx) (stem: string) (sel: string) (wArgs: WExpr list) (unsigned: bool) : WExpr option =
     if stem <> "BigInt" then None
     else
         let i64 = WType.I64
@@ -55,4 +55,5 @@ let tryBigIntInline (stem: string) (sel: string) (wArgs: WExpr list) (unsigned: 
         | "toFloat32", [ a ] -> Some(WExpr.Unary(WUnaryOp.ConvertI64S, wide a, WType.F32))
         | "fromFloat64", [ a ] -> Some(WExpr.Unary(WUnaryOp.TruncSatF64S, a, i64))
         | "fromFloat32", [ a ] -> Some(WExpr.Unary(WUnaryOp.TruncSatF32S, a, i64))
+        | "toString", [ a ] -> Some(int64ToString ctx (wide a) unsigned)
         | _ -> None

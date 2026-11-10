@@ -68,6 +68,10 @@ let strJoin (ctx: Ctx) (sep: WExpr) (items: WExpr) : WExpr =
         | _ -> "$strJoin"
     WExpr.Call(ctx.UseHelper helper, [ sep; items ], WType.Ref(StringTypeIdx, false))
 
+/// `string (x: int64)` / `%d` of an int64 — the whole 64 bits (a 32-bit conversion truncated them).
+let int64ToString (ctx: Ctx) (x: WExpr) (unsigned: bool) : WExpr =
+    WExpr.Call(ctx.UseHelper "$int64ToStr", [ x; WExpr.Const(WConst.I32(if unsigned then 1 else 0)) ], WType.Ref(StringTypeIdx, false))
+
 /// `string c` for a char: a one-element string (chars are i32 code points here).
 let charToString (c: WExpr) : WExpr =
     WExpr.ArrayNewFixed(StringTypeIdx, [ c ], WType.Ref(StringTypeIdx, false))
@@ -91,9 +95,16 @@ let formatHole (ctx: Ctx) (spec: FormatSpec) (unsigned: bool) (wv: WExpr) : WExp
         WExpr.Call(ctx.UseHelper "$floatToFixed", [ promote (); WExpr.Const(WConst.I32(defaultArg spec.Precision 6)) ], strRef)
     | 'g' | 'e' -> WExpr.Call(ctx.UseHelper "$floatToStr", [ promote () ], strRef)
     | 'b' -> WExpr.If(wv, lit "true", lit "false", strRef)
+    | 'c' -> charToString wv
+    // %x %X %o: the two's-complement bits of a 32-bit integer
+    | ('x' | 'X' | 'o') when exprWType wv = WType.I32 ->
+        let bits, upper = (match spec.Conv with 'o' -> 3, 0 | 'X' -> 4, 1 | _ -> 4, 0)
+        WExpr.Call(ctx.UseHelper "$uintToRadix", [ wv; WExpr.Const(WConst.I32 bits); WExpr.Const(WConst.I32 upper) ], strRef)
+    | 'u' when exprWType wv = WType.I32 -> WExpr.Call(ctx.UseHelper "$uintToStr", [ wv ], strRef)
     | _ ->
         match exprWType wv with
         | WType.Ref(idx, _) when idx = StringTypeIdx -> wv
-        | WType.I64 -> WExpr.Call(ctx.UseHelper "$intToStr", [ WExpr.Unary(WUnaryOp.WrapI64, wv, WType.I32) ], strRef)
+        | WType.I64 ->
+            WExpr.Call(ctx.UseHelper "$int64ToStr", [ wv; WExpr.Const(WConst.I32(if unsigned then 1 else 0)) ], strRef)
         | WType.F64 | WType.F32 -> WExpr.Call(ctx.UseHelper "$floatToStr", [ promote () ], strRef)
         | _ -> WExpr.Call(ctx.UseHelper(if unsigned then "$uintToStr" else "$intToStr"), [ wv ], strRef)

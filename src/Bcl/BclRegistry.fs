@@ -26,6 +26,8 @@ let private deps : (string * string list) list = [
     "$strJoin",      ["$strConcat"]
     "$strJoinList",  ["$strConcat"]
     "$strRepeat",    ["$strConcat"]
+    "$int64ToStr",   []
+    "$uintToRadix",  []
     "$parseInt",     ["$strSubstring"]
     "$strTrimStart", ["$strIndexOf"]
     "$strTrimEnd",   ["$strLastIndexOf"]
@@ -71,6 +73,8 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$strSplit",          StringHelpers.makeStrSplitHelper strArrTypeIdx
         "$strJoin",           StringHelpers.makeStrJoinHelper  strArrTypeIdx
         "$strRepeat",         StringHelpers.makeStrRepeatHelper
+        "$int64ToStr",        StringHelpers.makeInt64ToStrHelper
+        "$uintToRadix",       StringHelpers.makeUIntToRadixHelper
         // the ListCons<string> struct is registered when first needed, not for every module
         "$strJoinList",       (fun () ->
                                   mapTypeKnown ctx (Fable.AST.Fable.Type.List Fable.AST.Fable.Type.String) |> ignore
