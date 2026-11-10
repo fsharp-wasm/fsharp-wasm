@@ -349,7 +349,16 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         let arrRef = WType.Ref(strArrTypeIdx, false)
         // Extract the separator: rest[0] is an array-of-strings; get its first element
         let sepArr = List.tryHead rest
+        // `s.Split('c')`: the separator array is a literal of CHARS — read the element from the Fable AST
+        let literalSep =
+            match info.Args with
+            | _ :: Fable.Expr.Value(Fable.ValueKind.NewArray(Fable.NewArrayKind.ArrayValues [ sep ], _, _), _) :: _ ->
+                let w = eval ctx sep
+                Some(if sep.Type = Fable.Type.Char then charToString w else w)
+            | _ -> None
         match sepArr with
+        | Some _ when literalSep.IsSome ->
+            WExpr.Call(ctx.UseHelper("$strSplit"), [str; literalSep.Value], arrRef)
         | Some sepArrExpr ->
             // sepArrExpr is array of strings; take first element as the delimiter
             let delim = WExpr.ArrayGet(sepArrExpr, i32Zero, WType.Ref(StringTypeIdx, false))
