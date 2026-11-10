@@ -22,7 +22,7 @@ dotnet build "$PROJECT"/*.fsproj -c Release -v q -nologo 2>&1 | grep -E "error|B
 DLL="$(ls -t "$PROJECT"/bin/Release/net*/"$(basename "$PROJECT"/*.fsproj .fsproj)".dll | head -n1)"
 
 echo "=== 2/3  Run on .NET ==="
-dotnet fsi --quiet "$HERE/reference.fsx" "$DLL" "$OUT/reference.json" "$PREFIX"
+dotnet run -c Release --project "$HERE/Reference" -- "$DLL" "$OUT/reference.json" "$PREFIX"
 
 echo "=== 3/3  Run as wasm and compare ==="
 node --experimental-wasm-exnref "$HERE/compare.mjs" "$WASM" "$OUT/reference.json" "$HERE/known-differences.txt"
