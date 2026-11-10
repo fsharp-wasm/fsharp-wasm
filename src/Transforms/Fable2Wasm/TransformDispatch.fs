@@ -826,7 +826,13 @@ let transformCall
         | Fable.Expr.Get(strExpr, GetKind.FieldGet fi, _, _)
             when (match strExpr.Type with | Fable.Type.String -> true | _ -> false) ->
             let wStr = eval ctx strExpr
-            let mArgs = info.Args |> List.map (eval ctx)
+            // `s.IndexOf('c')`, `s.Contains('c')` … pass a char where the helpers search for a string
+            let needsString = [ "indexOf"; "lastIndexOf"; "startsWith"; "endsWith"; "includes"; "contains" ] |> List.contains fi.Name
+            let mArgs =
+                info.Args
+                |> List.map (fun a ->
+                    let w = eval ctx a
+                    if needsString && a.Type = Fable.Type.Char then charToString w else w)
             let strRef = WType.Ref(StringTypeIdx, false)
             match fi.Name, mArgs with
             | "indexOf", [needle] ->
