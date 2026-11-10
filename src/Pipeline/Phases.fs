@@ -78,6 +78,16 @@ let optionsFromDumpFlag (flag: string) (dir: string) : PipelineOptions =
         DumpPhases = phases
         DumpDir = dir }
 
+/// Options from the environment, so every entry point (CLI, tests, CI) can dump without a flag plumbed
+/// through Fable's CLI:  WASMGC_DUMP_PHASES="0,3,8"  WASMGC_DUMP_DIR=<dir>  WASMGC_TIMINGS=1
+let optionsFromEnv () : PipelineOptions =
+    let env name fallback =
+        match Environment.GetEnvironmentVariable name with
+        | null | "" -> fallback
+        | v -> v
+    { optionsFromDumpFlag (env "WASMGC_DUMP_PHASES" "") (env "WASMGC_DUMP_DIR" ".") with
+        Timings = env "WASMGC_TIMINGS" "" <> "" }
+
 // ─────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────

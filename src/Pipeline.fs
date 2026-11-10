@@ -210,7 +210,7 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 //   Phase 5: Resolve locals
                 //   Phase 6: Validate
                 //   Phase 7: Optimize
-                match Phases.runPipeline finalCtx declarations Phases.defaultOptions with
+                match Phases.runPipeline finalCtx declarations (Phases.optionsFromEnv ()) with
                 | Ok pipelineModule -> pipelineModule
                 | Error errors ->
                     errors |> List.iter (fun e ->
