@@ -44,6 +44,25 @@ let (|NaryLambda|_|) (n: int) (expr: Expr) : (Ident list * Expr) option =
     collect [] n expr
 
 // ─────────────────────────────────────────────────────────────────
+// printf
+// ─────────────────────────────────────────────────────────────────
+
+/// `printfn` / `sprintf` formatter over a literal format string:
+///   Call(Import "toConsole" | "toText", [TypeCast(Call(Import "printf", [Str fmt; …]))])  ⇒  (selector, fmt)
+/// Creating one has no effect (output happens when it is applied) and the format is constant, so it may be
+/// moved or duplicated freely.
+let (|PrintfFormatter|_|) (e: Expr) : (string * string) option =
+    match e with
+    | Expr.Call(Expr.Import({ Selector = ("toText" | "toConsole") as sel }, _, _), outer, _, _) ->
+        match outer.Args with
+        | [ Expr.TypeCast(Expr.Call(Expr.Import({ Selector = "printf" }, _, _), inner, _, _), _) ] ->
+            match inner.Args with
+            | Expr.Value(ValueKind.StringConstant fmt, _) :: _ -> Some(sel, fmt)
+            | _ -> None
+        | _ -> None
+    | _ -> None
+
+// ─────────────────────────────────────────────────────────────────
 // Type shapes
 // ─────────────────────────────────────────────────────────────────
 

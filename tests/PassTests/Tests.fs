@@ -7,6 +7,8 @@ open Fable.AST.Fable
 open Fable.Transforms
 open WasmGc.Transforms
 
+module Q = WasmGc.Util.FableQuery
+
 let intT = Number(NumberKind.Int32, NumberInfo.Empty)
 let ident n t : Ident =
     { Name = n; Type = t; IsMutable = false; IsThisArgument = false
@@ -200,6 +202,12 @@ module WT =
         check "param reserved: inner `p` renamed, result unchanged"
             (let f2 = WasmGc.Pipeline.UniqueLocals.uniqueFunc (func [ "p", WType.I32 ] shadow)
              run (Flat()) f2 [ "p", 100 ] = 6 && (match f2.Body with WE.Let(n, _, _) -> n <> "p" | _ -> false))
+        // WAT prints `$limit` and `limit` as ONE identifier: the `for` temporary must not clobber a parameter `limit`
+        let clash = WE.Let("$limit", add (get "limit") (i32 1), get "$limit")
+        check "`$limit` vs parameter `limit`: temporary renamed, result unchanged"
+            (let f3 = WasmGc.Pipeline.UniqueLocals.uniqueFunc (func [ "limit", WType.I32 ] clash)
+             run (Flat()) f3 [ "limit", 10 ] = 11
+             && (match f3.Body with WE.Let(n, _, _) -> n.TrimStart('$') <> "limit" | _ -> false))
         // unchanged function is returned as is (cheap path)
         let plain = func [] (WE.Let("x", i32 1, get "x"))
         check "no collisions: function returned untouched" (obj.ReferenceEquals(WasmGc.Pipeline.UniqueLocals.uniqueFunc plain, plain))
@@ -295,6 +303,27 @@ let main _ =
     // 6. function parameter names are reserved: inner binder named like a param gets renamed
     let withParam = Let(ident "p" intT, num 3, plus (var "p" intT) (var "p" intT))
     check "param reserved" (match norm [ "p" ] withParam with Let(i, _, _) -> i.Name <> "p" | _ -> false)
+
+    // 6b. `printfn "%d" 42` reaches the backend as  let clo = toConsole(printf "%d") in let arg = 42 in clo arg.
+    //     The printf handler matches the formatter in callee position, so the (pure, constant) binding must go.
+    let fmtImport sel = Import({ Selector = sel; Path = "String.fs"; Kind = LibraryImport(LibraryImportInfo.Create()) }, Any, None)
+    let callInfo args = { ThisArg = None; Args = args; SignatureArgTypes = []; GenericArgs = []; MemberRef = None; Tags = [] }
+    let fmtClosureT = LambdaType(intT, Unit)
+    let formatter =
+        Call(fmtImport "toConsole",
+             callInfo [ TypeCast(Call(fmtImport "printf", callInfo [ Value(StringConstant "%d", None) ], Any, None), Any) ],
+             fmtClosureT, None)
+    let clo = var "clo" fmtClosureT
+    let printfn42 = Let(ident "clo" fmtClosureT, formatter, Let(ident "arg" intT, num 42, app clo [ var "arg" intT ] Unit))
+    check "printfn: formatter inlined into the callee position"
+        (match norm [] printfn42 with
+         | Let(a, _, CurriedApply(Q.PrintfFormatter("toConsole", "%d"), [ IdentExpr x ], _, _)) -> a.Name = "arg" && x.Name = "arg"
+         | _ -> false)
+    let printfnTwice = Let(ident "clo" fmtClosureT, formatter, Sequential [ app clo [ num 1 ] Unit; app clo [ num 2 ] Unit ])
+    check "printfn: formatter used twice is inlined at both uses"
+        (match norm [] printfnTwice with
+         | Sequential [ CurriedApply(Q.PrintfFormatter _, _, _, _); CurriedApply(Q.PrintfFormatter _, _, _, _) ] -> true
+         | _ -> false)
 
     // 7. decision-tree targets reuse names: all unique afterwards
     let dt = DecisionTree(num 0, [ [ ident "v" intT ], var "v" intT; [ ident "v" intT ], plus (var "v" intT) (num 1) ])

@@ -200,6 +200,9 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 // ── Flush accumulated diagnostics from all processed files ────────
                 // Each processFileIntoCtx call accumulates into finalCtx.Diagnostics.
                 // Print here (after last file) so all warnings are visible together.
+                // Dump the Fable AST first: it is what you need when the transform itself reports errors.
+                let opts = Phases.optionsFromEnv ()
+                Phases.phase0_Input opts declarations |> ignore
                 finalCtx.Diagnostics.FailOnErrors("Fable → WExpr")
 
                 // Call the full pipeline defined in Phases.fs
@@ -210,7 +213,7 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 //   Phase 5: Resolve locals
                 //   Phase 6: Validate
                 //   Phase 7: Optimize
-                match Phases.runPipeline finalCtx declarations (Phases.optionsFromEnv ()) with
+                match Phases.runPipeline finalCtx declarations opts with
                 | Ok pipelineModule -> pipelineModule
                 | Error errors ->
                     errors |> List.iter (fun e ->

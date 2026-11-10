@@ -25,6 +25,7 @@
 ///                      Because pass 1 made binders unique, this is capture-free by construction and
 ///                      never needs to substitute `a` into `b` (evaluation order/once-only preserved).
 ///   Pass 3  inline     Let(f, λ…, body) with exactly one reference to `f`  ⇒  body[f := λ…]
+///                      Let(f, toConsole(printf "…"), body)                  ⇒  body[f := …]   (every use)
 ///                      Fable builds `x |> List.sumBy (fun g -> …)` as
 ///                          let arg = (fun g -> …) in fun list -> List.sumBy arg list
 ///                      so after pass 2 the call is `List.sumBy arg list` with `arg` an identifier.
@@ -43,6 +44,8 @@ open Fable.AST.Fable
 open Fable.Transforms // AutoOpen `AST` module: visit, visitFromInsideOut
 
 module FableNormalize =
+
+    module Q = WasmGc.Util.FableQuery
 
     // ─────────────────────────────────────────────────────────────────
     // Names already present in a declaration (so fresh names never clash)
@@ -212,7 +215,7 @@ module FableNormalize =
         | _ -> e
 
     // ─────────────────────────────────────────────────────────────────
-    // Pass 3 — inline single-use let-bound lambdas
+    // Pass 3 — inline effect-free let-bound values (single-use lambdas, printf formatters)
     // ─────────────────────────────────────────────────────────────────
 
     let private countRefs (name: string) (e: Expr) : int =
@@ -235,10 +238,17 @@ module FableNormalize =
         | Delegate _ -> true
         | _ -> false
 
-    let private inlineLambdaBinding (e: Expr) : Expr =
+    /// Effect-free values the handlers must see at their use site.
+    ///  * a literal lambda: moved to its single use (duplicating one would duplicate code and allocation)
+    ///  * a printf formatter: `printfn "…%d" x` reaches us as `let clo = toConsole(printf "…") in clo x`;
+    ///    the format is constant, so it is safe to substitute at every use
+    let private inlinePureBinding (e: Expr) : Expr =
         match e with
-        | Let(i, value, body) when not i.IsMutable && isLambda value && countRefs i.Name body = 1 ->
-            subst (Map [ i.Name, value ]) body
+        | Let(i, value, body) when not i.IsMutable ->
+            match value with
+            | Q.PrintfFormatter _ -> subst (Map [ i.Name, value ]) body
+            | _ when isLambda value && countRefs i.Name body = 1 -> subst (Map [ i.Name, value ]) body
+            | _ -> e
         | _ -> e
 
     // ─────────────────────────────────────────────────────────────────
@@ -252,7 +262,7 @@ module FableNormalize =
         body
         |> uniq namer Map.empty
         |> visitFromInsideOut beta
-        |> visitFromInsideOut inlineLambdaBinding
+        |> visitFromInsideOut inlinePureBinding
 
     let private normalizeMember (m: MemberDecl) : MemberDecl =
         { m with Body = normalizeBody (m.Args |> List.map (fun a -> a.Name)) m.Body }

@@ -13,6 +13,7 @@ open WasmGc.Runtime.Types
 open WasmGc.Pipeline.Scope
 
 module RT = WasmGc.Runtime.Runtime
+module Q  = WasmGc.Util.FableQuery
 
 open WasmGc.Transforms.MathMap
 
@@ -541,17 +542,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     | Fable.Expr.CurriedApply(callee, args, typ, _) ->
         let sprintfFmt =
             match callee with
-            | Fable.Expr.Call(Fable.Expr.Import({Selector=sel}, _, _), outerInfo, _, _)
-                when sel = "toText" || sel = "toConsole" ->
-                match outerInfo.Args with
-                | [Fable.Expr.TypeCast(innerExpr, _)] ->
-                    match innerExpr with
-                    | Fable.Expr.Call(Fable.Expr.Import({Selector="printf"}, _, _), innerInfo, _, _) ->
-                        match innerInfo.Args with
-                        | Fable.Expr.Value(Fable.ValueKind.StringConstant fmt, _) :: _ -> Some(sel, fmt)
-                        | _ -> None
-                    | _ -> None
-                | _ -> None
+            | Q.PrintfFormatter(sel, fmt) -> Some(sel, fmt)
             | _ -> None
         match sprintfFmt with
         | Some(sel, fmt) ->
