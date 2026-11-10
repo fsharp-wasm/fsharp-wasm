@@ -38,10 +38,11 @@ let private wrapSome (inner: WExpr) (resultOptTy: WType) : WExpr =
 /// Shared skeleton for all Option combinators.
 /// Binds `wOpt` to a CE local → tests RefIsNull → dispatches None / Some branches.
 /// `onSome` receives the bound local (already a valid WExpr to pass to unwrapSome).
+/// `ref.is_null` is TRUE for None, so the None branch is the `then` branch.
 let private optBranch (wOpt: WExpr) (ty: WType) (onNone: WExpr) (onSome: WExpr -> WExpr) : WExpr =
     wasm {
         let! opt = wOpt
-        return makeIf (refIsNull opt) (onSome opt) onNone ty
+        return makeIf (refIsNull opt) onNone (onSome opt) ty
     }
 
 // ─────────────────────────────────────────────────────────────────
