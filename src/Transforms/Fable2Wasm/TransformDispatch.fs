@@ -185,7 +185,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     // Math helpers imported from fable-library/Double.js, Util.js etc.
     // Route these through dispatchMathCall so they get proper WasmIR.
     | ("abs" | "min" | "max" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest"), _, _ ->
-        dispatchMathCall importInfo.Selector wArgs ty
+        dispatchMathCall importInfo.Selector wArgs ty (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type))
     // ---------------------------------------------------
     // Maths
     // Trig / transcendental — software polynomial (no native WASM trig ops).
@@ -332,9 +332,9 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
                     WType.I32)))
     // toString for numbers (via LibCall path)
     | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx ->
-        WExpr.Call(ctx.UseHelper("$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
+        WExpr.Call(ctx.UseHelper(if info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) then "$uintToStr" else "$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
     | "toString", [arg], _ ->
-        WExpr.Call(ctx.UseHelper("$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
+        WExpr.Call(ctx.UseHelper(if info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) then "$uintToStr" else "$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
     // int32ToString / int64ToString (Util module LibCall path)
     | "int32ToString", [arg], _ ->
         WExpr.Call(ctx.UseHelper("$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
@@ -393,7 +393,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
                 [ for k in 0 .. nSpecs - 1 do
                     yield emitLit parts.[k]
                     if k < valExprs.Length then
-                        yield formatHole ctx specs.[k] (eval ctx valExprs.[k]) ]
+                        yield formatHole ctx specs.[k] (WasmGc.Util.FableQuery.isUnsignedInt valExprs.[k].Type) (eval ctx valExprs.[k]) ]
             let lastPart = if List.isEmpty parts then "" else List.last parts
             let segments = holeParts @ [emitLit lastPart]
             match segments with
@@ -730,7 +730,7 @@ let transformCall
             | WType.I64 -> WExpr.Call(ctx.UseHelper("$intToStr"), [WExpr.Unary(WUnaryOp.WrapI64, wNum, WType.I32)], strRef)
             | WType.F64 | WType.F32 ->
                 WExpr.Call(ctx.UseHelper("$intToStr"), [WExpr.Unary(WUnaryOp.TruncF64S, wNum, WType.I32)], strRef)
-            | _ -> WExpr.Call(ctx.UseHelper("$intToStr"), [wNum], strRef)
+            | _ -> WExpr.Call(ctx.UseHelper(if WasmGc.Util.FableQuery.isUnsignedInt numExpr.Type then "$uintToStr" else "$intToStr"), [wNum], strRef)
         // ── char.charCodeAt(0) — Fable JS replacement for int(char) conversion ──
         // In WasmGC, chars are already i32 code points; charCodeAt(0) is a no-op.
         | Fable.Expr.Get(thisExpr, GetKind.FieldGet fi, _, _) when fi.Name = "charCodeAt" ->
@@ -821,7 +821,7 @@ let transformCall
             when fi.Name = "clz32" ->
             WExpr.Unary(WUnaryOp.Clz, List.head wArgs, WType.I32)
         | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _) ->
-            dispatchMathCall fi.Name wArgs ty
+            dispatchMathCall fi.Name wArgs ty (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type))
         // ── String instance methods: indexOf, startsWith, endsWith, substring ──────
         // These come as Get(strExpr, FieldGet "indexOf") callee with args=[needle].
         // We intercept before the general FieldGet handler.

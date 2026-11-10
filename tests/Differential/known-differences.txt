@@ -3,3 +3,4 @@ testExternAdd      host import (testEnv.wasmAdd): implemented by the wasm host o
 testExternAddNeg   host import (testEnv.wasmAdd): implemented by the wasm host only, `nativeOnly` throws on .NET
 testExternChain    host import (testEnv.wasmAdd/wasmMul): implemented by the wasm host only, `nativeOnly` throws on .NET
 testExternMul      host import (testEnv.wasmMul): implemented by the wasm host only, `nativeOnly` throws on .NET
+prop_rem           Int32.MinValue % -1: .NET raises OverflowException (CPU idiv artefact), wasm i32.rem_s returns the mathematically correct 0. Checking every `%` would cost more than it protects.

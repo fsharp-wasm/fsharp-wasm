@@ -18,15 +18,20 @@ open WasmGc.Runtime.Runtime
 // Math dispatch
 // ─────────────────────────────────────────────────────────────────
 
-let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
+let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) (unsigned: bool) : WExpr =
     match name, wArgs, ty with
     // abs
     | "abs", [arg], WType.F64 -> WExpr.Unary(WUnaryOp.Abs, arg, WType.F64)
     | "abs", [arg], WType.F32 -> WExpr.Unary(WUnaryOp.Abs, arg, WType.F32)
     | "abs", [arg], WType.I32 ->
+        // F#'s `abs Int32.MinValue` raises OverflowException; raise (a bare throw: catchable, but the exception
+        // object is not populated) instead of silently returning MinValue
         wasm {
             let! tmp = arg
-            return wasmIf (ltS tmp (i32Const 0)) (sub (i32Const 0) tmp) tmp
+            return wasmIf (ltS tmp (i32Const 0))
+                       (wasmIf (WExpr.Compare(WCompareOp.Eq, tmp, i32Const System.Int32.MinValue))
+                               (WExpr.Throw WExpr.Nop) (sub (i32Const 0) tmp))
+                       tmp
         }
     | "abs", [arg], WType.I64 ->
         wasm {
@@ -58,7 +63,7 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
         wasm {
             let! ta = a
             let! tb = b
-            return wasmIf (ltS ta tb) ta tb
+            return wasmIf (if unsigned then ltU ta tb else ltS ta tb) ta tb
         }
     // max
     | "max", [a; b], WType.F64 -> WExpr.Binary(WBinaryOp.Max, a, b, WType.F64)
@@ -67,7 +72,7 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) : WExpr =
         wasm {
             let! ta = a
             let! tb = b
-            return wasmIf (gtS ta tb) ta tb
+            return wasmIf (if unsigned then WExpr.Compare(WCompareOp.GtU, ta, tb) else gtS ta tb) ta tb
         }
     // sign
     | "sign", [arg], _ ->

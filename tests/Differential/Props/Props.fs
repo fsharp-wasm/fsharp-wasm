@@ -59,3 +59,7 @@ let prop_uintGe (a: int) (b: int) : bool = (uint32 a) >= (uint32 b)
 let prop_uintMax (a: int) (b: int) : int = int (max (uint32 a) (uint32 b))
 let prop_uintToFloat (a: int) : float = float (uint32 a)
 let prop_uintStrLen (a: int) : int = (string (uint32 a)).Length
+let prop_intStrLen (a: int) : int = (string a).Length                     // includes Int32.MinValue
+let prop_uint16Neg (a: int) : int = int (~~~(uint16 a))                   // bitwise not wraps at 16 bits
+let prop_sbyteMul (a: int) (b: int) : int = int (sbyte a * sbyte b)       // wraps at -128..127
+let prop_int16Add (a: int) (b: int) : int = int (int16 a + int16 b)

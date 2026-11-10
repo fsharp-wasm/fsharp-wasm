@@ -564,7 +564,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 [ for k in 0 .. nSpecs - 1 do
                     yield emitLit partsList.[k]
                     if k < args.Length then
-                        yield formatHole ctx specsList.[k] (transformExpr ctx args.[k]) ]
+                        yield formatHole ctx specsList.[k] (Q.isUnsignedInt args.[k].Type) (transformExpr ctx args.[k]) ]
             let lastPart = if List.isEmpty partsList then "" else List.last partsList
             let segments = holeParts @ [emitLit lastPart]
             let formattedStr =
@@ -682,7 +682,16 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
 
     // ── Type cast ─────────────────────────────────────────
     | TypeCast(innerExpr, targetTy) ->
-        buildTypeCast ctx (transformExpr ctx innerExpr) targetTy
+        let w = transformExpr ctx innerExpr
+        match innerExpr.Type, targetTy with
+        // uint32 → float / int64: zero-extend through i64.  A signed conversion would read bit 31 as a sign.
+        | Fable.Type.Number(NumberKind.UInt32, _), Fable.Type.Number((NumberKind.Float32 | NumberKind.Float64), _)
+            when exprWType w = WType.I32 ->
+            WExpr.Unary(WUnaryOp.ConvertI64S, WExpr.Unary(WUnaryOp.ExtendI32U, w, WType.I64), mapTypeKnown ctx targetTy)
+        | Fable.Type.Number(NumberKind.UInt32, _), Fable.Type.Number((NumberKind.Int64 | NumberKind.UInt64), _)
+            when exprWType w = WType.I32 ->
+            WExpr.Unary(WUnaryOp.ExtendI32U, w, WType.I64)
+        | _ -> buildTypeCast ctx w targetTy
 
     // ── Import as value ─────────────────────────────────────────
     | Fable.Expr.Import(info, typ, _) ->

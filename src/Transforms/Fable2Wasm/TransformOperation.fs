@@ -8,17 +8,30 @@ open WasmGc.Runtime.Types
 open WasmGc.Runtime.Equality
 
 module VT = WasmGc.Runtime.VTable
+module Q = WasmGc.Util.FableQuery
 
 // ─────────────────────────────────────────────────────────────────
 // Operation translation
 // ─────────────────────────────────────────────────────────────────
 
-/// Fable lowers integer width casts to JavaScript `Emit` macros (`byte a` → "$0 & 0xFF" …).  Every small integer is
-/// an i32 here, so each macro is a short integer expression; `uint32` shares int32's bit pattern.
-/// Returns None for any other macro (the caller reports it).
-let integerCast (macro: string) (arg: WExpr) : WExpr option =
+/// Truncate an i32 to the width of a small integer type — the wrap-around of `byte`, `sbyte`, `int16`, `uint16`
+/// arithmetic.  Every integer is an i32 here; int32 / uint32 wrap by themselves.
+let narrow (kind: NumberKind) (x: WExpr) : WExpr =
     let i32 n = WExpr.Const(WConst.I32 n)
     let bin op a b = WExpr.Binary(op, a, b, WType.I32)
+    // sign-extend the low `mask`+1 bits:  ((x + half) & mask) - half
+    let signExtend half mask = bin WBinaryOp.Sub (bin WBinaryOp.And (bin WBinaryOp.Add x (i32 half)) (i32 mask)) (i32 half)
+    match kind with
+    | NumberKind.UInt8 -> bin WBinaryOp.And x (i32 0xFF)
+    | NumberKind.UInt16 -> bin WBinaryOp.And x (i32 0xFFFF)
+    | NumberKind.Int8 -> signExtend 0x80 0xFF
+    | NumberKind.Int16 -> signExtend 0x8000 0xFFFF
+    | _ -> x
+
+/// Fable lowers integer width casts to JavaScript `Emit` macros (`byte a` → "$0 & 0xFF" …).  Every small integer is
+/// an i32 here, so each macro is `narrow`; `uint32` shares int32's bit pattern.
+/// Returns None for any other macro (the caller reports it).
+let integerCast (macro: string) (arg: WExpr) : WExpr option =
     // a float / i64 operand is converted to i32 first, as JS ToInt32 would
     let x =
         match exprWType arg with
@@ -26,21 +39,13 @@ let integerCast (macro: string) (arg: WExpr) : WExpr option =
         | WType.F64 -> WExpr.Unary(WUnaryOp.TruncF64S, arg, WType.I32)
         | WType.F32 -> WExpr.Unary(WUnaryOp.TruncF32S, arg, WType.I32)
         | _ -> arg
-    // sign-extend the low `mask`+1 bits:  ((x + half) & mask) - half
-    let signExtend half mask = bin WBinaryOp.Sub (bin WBinaryOp.And (bin WBinaryOp.Add x (i32 half)) (i32 mask)) (i32 half)
     match macro with
-    | "$0 & 0xFF" -> Some(bin WBinaryOp.And x (i32 0xFF))
-    | "$0 & 0xFFFF" -> Some(bin WBinaryOp.And x (i32 0xFFFF))
-    | "($0 + 0x80 & 0xFF) - 0x80" -> Some(signExtend 0x80 0xFF)
-    | "($0 + 0x8000 & 0xFFFF) - 0x8000" -> Some(signExtend 0x8000 0xFFFF)
+    | "$0 & 0xFF" -> Some(narrow NumberKind.UInt8 x)
+    | "$0 & 0xFFFF" -> Some(narrow NumberKind.UInt16 x)
+    | "($0 + 0x80 & 0xFF) - 0x80" -> Some(narrow NumberKind.Int8 x)
+    | "($0 + 0x8000 & 0xFFFF) - 0x8000" -> Some(narrow NumberKind.Int16 x)
     | "$0 >>> 0" -> Some x
     | _ -> None
-
-/// uint8 / uint16 / uint32 operands need the unsigned opcodes (comparison, division, remainder, logical shift).
-let private isUnsigned (t: Fable.Type) =
-    match t with
-    | Fable.Type.Number((NumberKind.UInt8 | NumberKind.UInt16 | NumberKind.UInt32), _) -> true
-    | _ -> false
 
 let transformOperation
     (ctx: Ctx)
@@ -48,12 +53,17 @@ let transformOperation
     (kind: OperationKind)
     (typ: Fable.Type) : WExpr =
     let ty = mapTypeKnown ctx typ
+    // arithmetic on byte / sbyte / int16 / uint16 wraps at the width of the type
+    let wrap =
+        match typ with
+        | Fable.Type.Number(kind, _) -> narrow kind
+        | _ -> id
     match kind with
     | Unary(op, operand) ->
         let wOperand = eval ctx operand
         match op with
         | UnaryMinus ->
-            WExpr.Unary(WUnaryOp.Neg, wOperand, ty)
+            wrap (WExpr.Unary(WUnaryOp.Neg, wOperand, ty))
         | UnaryNot ->
             WExpr.Unary(WUnaryOp.Eqz, wOperand, ty)
         | UnaryNotBitwise ->
@@ -64,7 +74,7 @@ let transformOperation
                 | WType.F64 -> WExpr.Unary(WUnaryOp.TruncF64S, wOperand, WType.I32)
                 | WType.F32 -> WExpr.Unary(WUnaryOp.TruncF32S, wOperand, WType.I32)
                 | _ -> wOperand
-            WExpr.Unary(WUnaryOp.Not, wOperand', ty)
+            wrap (WExpr.Unary(WUnaryOp.Not, wOperand', ty))
         | _ ->
             WExpr.Unary(WUnaryOp.Neg, wOperand, ty) // fallback
 
@@ -108,7 +118,7 @@ let transformOperation
         else
         let wLeft = eval ctx left
         let wRight = eval ctx right
-        let unsigned = isUnsigned left.Type
+        let unsigned = Q.isUnsignedInt left.Type
         let pick s u = if unsigned then u else s
         match op with
         // Comparisons → WExpr.Compare
@@ -126,17 +136,17 @@ let transformOperation
             WExpr.Compare(pick WCompareOp.GeS WCompareOp.GeU, wLeft, wRight)
         // Arithmetic → WExpr.Binary
         | BinaryPlus ->
-            WExpr.Binary(WBinaryOp.Add, wLeft, wRight, ty)
+            wrap (WExpr.Binary(WBinaryOp.Add, wLeft, wRight, ty))
         | BinaryMinus ->
-            WExpr.Binary(WBinaryOp.Sub, wLeft, wRight, ty)
+            wrap (WExpr.Binary(WBinaryOp.Sub, wLeft, wRight, ty))
         | BinaryMultiply ->
-            WExpr.Binary(WBinaryOp.Mul, wLeft, wRight, ty)
+            wrap (WExpr.Binary(WBinaryOp.Mul, wLeft, wRight, ty))
         | BinaryDivide ->
             WExpr.Binary(pick WBinaryOp.DivS WBinaryOp.DivU, wLeft, wRight, ty)
         | BinaryModulus ->
             WExpr.Binary(pick WBinaryOp.RemS WBinaryOp.RemU, wLeft, wRight, ty)
         | BinaryShiftLeft ->
-            WExpr.Binary(WBinaryOp.Shl, wLeft, wRight, ty)
+            wrap (WExpr.Binary(WBinaryOp.Shl, wLeft, wRight, ty))
         | BinaryShiftRightSignPropagating ->
             WExpr.Binary(pick WBinaryOp.ShrS WBinaryOp.ShrU, wLeft, wRight, ty)
         | BinaryShiftRightZeroFill ->

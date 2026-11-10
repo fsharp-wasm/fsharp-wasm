@@ -47,7 +47,7 @@ let parseFormatSpecs (fmt: string) : string list * FormatSpec list =
 ///   %g %e     approximate: up to 6 significant digits (`$floatToStr`)
 ///   %b        true / false
 ///   other     string as is; integers and floats by their runtime type
-let formatHole (ctx: Ctx) (spec: FormatSpec) (wv: WExpr) : WExpr =
+let formatHole (ctx: Ctx) (spec: FormatSpec) (unsigned: bool) (wv: WExpr) : WExpr =
     let strRef = WType.Ref(StringTypeIdx, false)
     let lit (s: string) =
         WExpr.ArrayNewFixed(StringTypeIdx, s |> Seq.map (fun c -> WExpr.Const(WConst.I32(int c))) |> Seq.toList, strRef)
@@ -66,4 +66,4 @@ let formatHole (ctx: Ctx) (spec: FormatSpec) (wv: WExpr) : WExpr =
         | WType.Ref(idx, _) when idx = StringTypeIdx -> wv
         | WType.I64 -> WExpr.Call(ctx.UseHelper "$intToStr", [ WExpr.Unary(WUnaryOp.WrapI64, wv, WType.I32) ], strRef)
         | WType.F64 | WType.F32 -> WExpr.Call(ctx.UseHelper "$floatToStr", [ promote () ], strRef)
-        | _ -> WExpr.Call(ctx.UseHelper "$intToStr", [ wv ], strRef)
+        | _ -> WExpr.Call(ctx.UseHelper(if unsigned then "$uintToStr" else "$intToStr"), [ wv ], strRef)

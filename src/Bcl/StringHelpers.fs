@@ -214,6 +214,21 @@ let makeIntToStrHelper () : WFuncDecl =
     q "$intToStr"
         <@ fun (n: int) ->
             if n = 0 then wsCreateFill 1 48   // "0"
+            elif n = -2147483648 then
+                // 0 - MinValue overflows, so the digit loop below cannot handle it
+                let s = wsCreate 11
+                wsSet s 0 45    // '-'
+                wsSet s 1 50    // 2
+                wsSet s 2 49    // 1
+                wsSet s 3 52    // 4
+                wsSet s 4 55    // 7
+                wsSet s 5 52    // 4
+                wsSet s 6 56    // 8
+                wsSet s 7 51    // 3
+                wsSet s 8 54    // 6
+                wsSet s 9 52    // 4
+                wsSet s 10 56   // 8
+                s
             else
                 let mutable neg = 0
                 let mutable v = n
@@ -235,6 +250,23 @@ let makeIntToStrHelper () : WFuncDecl =
                     wsCopy r2 1 res 0 len
                     r2
                 else res @>
+
+/// Runtime helper: $uintToStr(n) → decimal string of n read as an UNSIGNED 32-bit integer (0 … 4294967295).
+/// From 2³¹ up the last digit is split off in f64 (exact below 2⁵³), so the rest fits a signed i32.
+let makeUIntToStrHelper () : WFuncDecl =
+    q "$uintToStr"
+        <@ fun (n: int) ->
+            if n >= 0 then intToStr n
+            else
+                let fa = intToF64 n + 4294967296.0
+                let hi = truncF64 (fa / 10.0)                           // ≤ 429496729
+                let lastDigit = truncF64 (fa - intToF64 hi * 10.0)
+                let s = intToStr hi
+                let la = wsLen s
+                let res = wsCreate (la + 1)
+                wsCopy res 0 s 0 la
+                wsSet res la (lastDigit + 48)
+                res @>
 
 /// Runtime helper: $floatToStr(f) → decimal string representation of an f64.
 /// Produces up to 6 significant decimal digits with trailing zeros trimmed.

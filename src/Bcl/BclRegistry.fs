@@ -21,6 +21,7 @@ let private deps : (string * string list) list = [
     "$arraySortWith", []  // self-contained
     "$floatToStr",   ["$intToStr"; "$strConcat"]
     "$floatToFixed", ["$intToStr"]
+    "$uintToStr",    ["$intToStr"]
     "$strSplit",     ["$strIndexOf"; "$strSubstring"]
     "$strJoin",      ["$strConcat"]
     "$parseInt",     ["$strSubstring"]
@@ -70,6 +71,7 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$intToStr",          StringHelpers.makeIntToStrHelper
         "$floatToStr",        StringHelpers.makeFloatToStrHelper
         "$floatToFixed",      StringHelpers.makeFloatToFixedHelper
+        "$uintToStr",         StringHelpers.makeUIntToStrHelper
         "$parseInt",          StringHelpers.makeIntParseHelper
         "$parseFloat",        StringHelpers.makeFloatParseHelper
         // ── Char ──────────────────────────────────────────────────────────
