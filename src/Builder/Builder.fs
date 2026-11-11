@@ -90,6 +90,22 @@ let inline and_ a b    = WExpr.Binary(WBinaryOp.And,  a, b, WType.I32)
 let inline or_  a b    = WExpr.Binary(WBinaryOp.Or,   a, b, WType.I32)
 let inline xor_ a b    = WExpr.Binary(WBinaryOp.Xor,  a, b, WType.I32)
 let inline shl  a b    = WExpr.Binary(WBinaryOp.Shl,  a, b, WType.I32)
+
+/// `Checked.(+)` — what FSharp.Core's `sum` / `sumBy` use on integers: OverflowException instead of wrap-around.
+/// Signed overflow happened iff both operands have a sign the result does not: ((x ^ r) & (y ^ r)) < 0.
+/// Floats (and anything else) add as usual.
+let checkedAdd (a: WExpr) (b: WExpr) (ty: WType) : WExpr =
+    match ty with
+    | WType.I32 | WType.I64 ->
+        let local n = WExpr.LocalGet(n, ty)
+        let x, y, r = local "$ca_x", local "$ca_y", local "$ca_r"
+        let zero = if ty = WType.I64 then WExpr.Const(WConst.I64 0L) else WExpr.Const(WConst.I32 0)
+        let bin op l r' = WExpr.Binary(op, l, r', ty)
+        WExpr.Let("$ca_x", a, WExpr.Let("$ca_y", b, WExpr.Let("$ca_r", bin WBinaryOp.Add x y,
+            WExpr.If(WExpr.Compare(WCompareOp.LtS, bin WBinaryOp.And (bin WBinaryOp.Xor x r) (bin WBinaryOp.Xor y r), zero),
+                     WExpr.Throw WExpr.Nop, r, ty))))
+    | _ -> WExpr.Binary(WBinaryOp.Add, a, b, ty)
+
 let inline shrS a b    = WExpr.Binary(WBinaryOp.ShrS, a, b, WType.I32)
 let inline shrU a b    = WExpr.Binary(WBinaryOp.ShrU, a, b, WType.I32)
 // Typed-generic versions — supply the result WType explicitly.

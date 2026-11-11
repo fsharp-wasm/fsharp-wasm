@@ -410,11 +410,5 @@ let listAppend
         (list1  : WExpr)
         (list2  : WExpr)
         : WExpr =
-    wasm {
-        let! cur = mutTy s.BaseTy list1
-        let! acc = mutTy s.BaseTy list2
-        while! (refIsNotNull cur.Val) do
-            do! acc.Set(s.Cons (s.Head cur.Val) acc.Val)
-            do! cur.Set(s.Tail cur.Val)
-        return! listRev gen s acc.Val
-    }
+    // rev list1, then cons its elements onto list2 one by one: the first element of list1 ends up in front
+    listFold gen s (listRev gen s list1) list2 s.BaseTy (fun acc elem -> s.Cons elem acc)

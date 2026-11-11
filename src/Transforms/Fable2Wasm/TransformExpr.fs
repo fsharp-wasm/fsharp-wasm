@@ -160,6 +160,12 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                     ctx.Diagnostics name ctx.CurrentFunc ident.Range
                 WExpr.LocalGet(name, declaredTy)
 
+    // ── `let rec f = fun … f …` ──
+    // Fable folds a single recursive binding into a plain Let; inside the lambda its own name must be the closure.
+    | Let(ident, (Fable.Expr.Lambda _ | Fable.Expr.Delegate _ as value), body)
+        when not ident.IsMutable && (WasmGc.Runtime.FreeVars.collectFreeVars Set.empty value).Contains ident.Name ->
+        buildLetRecLambdas ctx transformExpr [ ident, value ] body
+
     // ── Let bindings ──
     | Let(ident, value, body) ->
         let wValue = transformExpr ctx value
@@ -293,6 +299,12 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 let wVal = transformExpr ctx value
                 WExpr.ArraySet(wArr, wIdx, wVal)
         | _ -> WExpr.Nop // TODO: expr set
+
+    // anonymous record field: the struct is the tuple of the fields in name order
+    | Fable.Expr.Get(expr, GetKind.FieldGet fi, typ, _)
+        when (match expr.Type with Fable.Type.AnonymousRecordType(names, _, _) -> Array.contains fi.Name names | _ -> false) ->
+        let names = match expr.Type with Fable.Type.AnonymousRecordType(names, _, _) -> names | _ -> [||]
+        WExpr.StructGet(transformExpr ctx expr, Array.findIndex ((=) fi.Name) names, mapTypeKnown ctx typ)
 
     // ── ResizeArray<T> — length and element access ────────────────────────
     | Fable.Expr.Get(expr, GetKind.FieldGet fi, _, _)

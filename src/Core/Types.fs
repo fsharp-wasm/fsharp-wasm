@@ -394,6 +394,19 @@ let getOrAddOptionType (ctx: Ctx) (elemT: WType) =
         ctx.OptionRegistry.[key] <- idx
         idx
 
+/// How an option of `elemT` is represented → (option type, `Some`, `None`).
+/// A non-null reference is its own Some (None = null); everything else — numbers, nullable references, nested
+/// options — is boxed in `Option_N { value }` (None = null box).
+let optionRepr (ctx: Ctx) (elemT: WType) : WType * (WExpr -> WExpr) * WExpr =
+    match elemT with
+    | WType.Ref(idx, false) ->
+        let t = WType.Ref(idx, true)
+        t, id, WExpr.Const(WConst.Null t)
+    | _ ->
+        let idx = getOrAddOptionType ctx elemT
+        let t = WType.Ref(idx, true)
+        t, (fun v -> WExpr.StructNew(idx, [ v ], t)), WExpr.Const(WConst.Null t)
+
 /// Register (if needed) a $ResizeArray_T struct:
 ///   struct { data: (mut ref? $Arr_T); len: (mut i32) }
 /// Returns (arrTypeIdx, ravTypeIdx).
@@ -487,6 +500,8 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
                     let _, boxTypeIdx, _, _ = ctx.VTableRegistry.[ifaceName]
                     WType.Ref(boxTypeIdx, false)
                 else WType.I32
+    // an anonymous record is a tuple of its fields (F# keeps them sorted by name, so the order is canonical)
+    | Fable.Type.AnonymousRecordType(_, fieldTypes, isStruct) -> mapTypeKnown ctx (Fable.Type.Tuple(fieldTypes, isStruct))
     | Fable.Type.Tuple(elementTypes, _) ->
         let wTypes = elementTypes |> List.map (mapTypeKnown ctx)
         let key = wTypesKey wTypes

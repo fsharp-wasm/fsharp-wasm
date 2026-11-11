@@ -277,6 +277,13 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
                 ctx.TupleRegistry.[key] <- idx
                 idx
         WExpr.StructNew(typeIdx, wValues, WType.Ref(typeIdx, false))
+    // ── Anonymous records: the tuple struct of the DECLARED field types (a field holding a lambda is typed ──
+    // `ref AnyFn`, whatever concrete closure struct the value is) ─────────────────────────────────────────
+    | NewAnonymousRecord(values, names, fieldTypes, isStruct) ->
+        let wValues = values |> List.map (eval ctx)
+        match mapTypeKnown ctx (Fable.Type.AnonymousRecordType(names, fieldTypes, isStruct)) with
+        | WType.Ref(typeIdx, _) as ty -> WExpr.StructNew(typeIdx, wValues, ty)
+        | _ -> WExpr.Nop
     // ── Option<T> ───────────────────────────────────────────
     | NewOption(value, innerType, _) ->
         // Use mapTypeKnown to check the inner type's representation.
@@ -284,33 +291,10 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
         // we use a nullable ref directly: null=None, non-null=Some.
         // If inner is a primitive (I32/F64) or already-nullable ref (lists, nested options),
         // we fall back to a wrapper struct $Option_N { value }.
-        let innerWType = mapTypeKnown ctx innerType
-        match innerWType with
-        | WType.Ref(innerIdx, false) ->
-            // Direct-ref option: no wrapper struct, zero extra allocation.
-            let nullableRef = WType.Ref(innerIdx, true)
-            match value with
-            | Some expr -> eval ctx expr   // Some(v) = v itself (non-null ref)
-            | None      -> WExpr.Const(WConst.Null nullableRef)
-        | _ ->
-            // Wrapper-struct option: get-or-create $Option_N { value: innerWType }.
-            let key = wTypeKey innerWType
-            let optTypeIdx =
-                match ctx.OptionRegistry.TryGetValue(key) with
-                | true, idx -> idx
-                | false, _ ->
-                    let idx = ctx.TypeDefs.Count
-                    ctx.TypeDefs.Add(
-                        { Name = $"Option_{idx}"
-                          Def = WTypeDef.Struct([{ Name = "value"; Type = innerWType; Mutable = false }], None) })
-                    ctx.OptionRegistry.[key] <- idx
-                    idx
-            match value with
-            | Some expr ->
-                let wV = eval ctx expr
-                WExpr.StructNew(optTypeIdx, [wV], WType.Ref(optTypeIdx, true))
-            | None ->
-                WExpr.Const(WConst.Null(WType.Ref(optTypeIdx, true)))
+        let _, some, none = optionRepr ctx (mapTypeKnown ctx innerType)
+        match value with
+        | Some expr -> some (eval ctx expr)
+        | None -> none
     // ── List<T> ─────────────────────────────────────────────
     // ── F# arrays [|...|] and Array.create / Array.zeroCreate ────────────
     // ResizeArray<T> grows: create a mutable struct { data: $Arr_T; len: i32 } with initial capacity 4.

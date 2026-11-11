@@ -45,23 +45,28 @@ let tryListTakeSkipSortInline
                 while! (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) do
                     do! ptr.Set(s.Tail ptr.Val)
                     do! n.Set(sub n.Val (i32Const 1))
+                do! wasmWhen (gtS n.Val (i32Const 0)) (WExpr.Throw WExpr.Nop)      // fewer than n elements
                 return ptr.Val
             })
         | None -> None
     // ── List.take n xs ─────────────────────────────────────────────
-    | "take", nArg :: listArg :: _ ->
+    // take raises when n is negative or exceeds the length; truncate clamps
+    | ("take" | "truncate"), nArg :: listArg :: _ ->
         match listInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s   = mkListShape elemT consIdx
             let gen = LabelGen "take"
+            let strict (cond: WExpr) = if selector = "take" then wasmWhen cond (WExpr.Throw WExpr.Nop) else WExpr.Nop
             let revCollect = wasm {
                 let! n   = mut (transform ctx nArg)
+                do! strict (ltS n.Val (i32Const 0))
                 let! ptr = mutTy s.BaseTy (transform ctx listArg)
                 let! acc = mutTy s.BaseTy s.Nil
                 while! (wasmAnd (gtS n.Val (i32Const 0)) (refIsNotNull ptr.Val)) do
                     do! acc.Set(s.Cons (s.Head ptr.Val) acc.Val)
                     do! ptr.Set(s.Tail ptr.Val)
                     do! n.Set(sub n.Val (i32Const 1))
+                do! strict (gtS n.Val (i32Const 0))
                 return acc.Val
             }
             Some(listRev gen s revCollect)
@@ -337,6 +342,21 @@ let tryListPrimitiveInline
         match tryListTypeInfo ctx (List.head fableArgs) with
         | Some _ -> Some wList
         | None   -> None
+    // List.toArray (Array.ofList)
+    | "toArray", [wList] ->
+        match tryListTypeInfo ctx (List.head fableArgs) with
+        | Some(elemT, consIdx) ->
+            let s, gen = mkListShape elemT consIdx, LabelGen("l2a")
+            let arrTypeIdx = getOrAddArrayType ctx elemT
+            Some(wasm {
+                let! lst = wList
+                let! len = listLength gen s lst
+                let! arr = arrayNew arrTypeIdx len (makeNumericZero elemT) (WType.Ref(arrTypeIdx, false))
+                do! listFold gen s lst (i32Const 0) WType.I32
+                        (fun idx elem -> sequence [ arraySet arr idx elem; add idx (i32Const 1) ])
+                return arr
+            })
+        | None -> None
     | "head", [wList] ->
         let elemT = ty
         let elemKey = wTypeKey elemT
@@ -421,7 +441,7 @@ let tryListPrimitiveInline
             let wList = match wArgs with | [a] | [a; _] -> a | _ -> s.Nil
             let zero = makeNumericZero elemT
             Some(listFold gen s wList zero elemT
-                    (fun acc elem -> WExpr.Binary(WBinaryOp.Add, acc, elem, elemT)))
+                    (fun acc elem -> checkedAdd acc elem elemT))
         | None -> None
     | "item", [nExpr; wList] ->
         let innerFableType =
@@ -436,6 +456,7 @@ let tryListPrimitiveInline
             let gen = LabelGen("item")
             Some(wasm {
                 let! cnt = mut nExpr
+                do! wasmWhen (ltS cnt.Val (i32Const 0)) (WExpr.Throw WExpr.Nop)      // ArgumentException
                 let! ptr = mutTy s.BaseTy wList
                 while! (gtS cnt.Val (i32Const 0)) do
                     do! ptr.Set(s.Tail ptr.Val)
@@ -546,16 +567,10 @@ let tryListTryHeadInline
         match ctx.ListRegistry.TryGetValue(elemKey) with
         | true, listConsIdx ->
             let listNNRefT = WType.Ref(listConsIdx, false)
-            let optTypeIdx = getOrAddOptionType ctx elemT
-            let gen = LabelGen("tryH")
+            let optT, some, none = optionRepr ctx elemT
             Some(wasm {
                 let! tmp = wList
-                return! WExpr.If(WExpr.RefIsNull tmp,
-                    nullConst ty,
-                    structNew optTypeIdx
-                        [structGet (cast tmp listNNRefT) 0 elemT]
-                        ty,
-                    ty)
+                return! WExpr.If(WExpr.RefIsNull tmp, none, some (structGet (cast tmp listNNRefT) 0 elemT), optT)
             })
         | _ -> None
     | _ -> None
@@ -567,17 +582,27 @@ let tryListFindIndexInline
         (fableArgs: Fable.Expr list)
         (ty: WType) : WExpr option =
     match selector, fableArgs with
-    | ("tryFind" | "pick"), [UnaryLambda(farg, fbody); listArg] ->
+    | "find", [UnaryLambda(farg, fbody); listArg] ->
+        match listInfo ctx listArg with
+        | Some(elemT, consIdx) ->
+            let wPred = transform (ctx.WithLocal(farg.Name, elemT)) fbody
+            Some(listSearch (LabelGen "lfind") (mkListShape elemT consIdx) (transform ctx listArg) elemT
+                    (fun elem -> WExpr.Let(farg.Name, elem, wPred))
+                    id
+                    (WExpr.Throw WExpr.Nop))                  // KeyNotFoundException
+        | None -> None
+
+    | "tryFind", [UnaryLambda(farg, fbody); listArg] ->
         match listInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s          = mkListShape elemT consIdx
             let gen        = LabelGen "tryf"
-            let optTypeIdx = getOrAddOptionType ctx elemT
+            let optT, some, none = optionRepr ctx elemT
             let wPred      = transform (ctx.WithLocal(farg.Name, elemT)) fbody
-            Some(listSearch gen s (transform ctx listArg) ty
+            Some(listSearch gen s (transform ctx listArg) optT
                     (fun elem -> WExpr.Let(farg.Name, elem, wPred))
-                    (fun elem -> structNew optTypeIdx [elem] ty)
-                    (nullConst ty))
+                    some
+                    none)
         | None -> None
 
     | ("findIndex" | "tryFindIndex"), [UnaryLambda(farg, fbody); listArg] ->

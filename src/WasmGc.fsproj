@@ -122,6 +122,7 @@
     <Compile Include="Transforms/MathMap.fs" />
     <Compile Include="Transforms/OptionResultTransforms.fs" />
     <Compile Include="Transforms/ListTransforms.fs" />
+    <Compile Include="Transforms/SeqFusion.fs" />
     <Compile Include="Transforms/ListOps.fs" />
     <Compile Include="Transforms/ArrayReplacements.fs" />
     <Compile Include="Transforms/FSharpCoreReplacements.fs" />

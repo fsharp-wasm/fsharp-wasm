@@ -112,6 +112,7 @@ let rec resolveType (ctx: Ctx) (t: Fable.Type) : WType =
                 else WType.I32
 
     // Tuple types
+    | Type.AnonymousRecordType(_, fieldTypes, isStruct) -> resolveType ctx (Type.Tuple(fieldTypes, isStruct))
     | Type.Tuple(elementTypes, _) ->
         let wTypes = elementTypes |> List.map (resolveType ctx)
         let key = wTypesKey wTypes

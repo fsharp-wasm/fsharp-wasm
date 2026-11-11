@@ -71,7 +71,7 @@ let transformOperation
         // ── Structural equality for records, data-carrying DUs, and tuples ──
         elif (op = BinaryEqual || op = BinaryUnequal) &&
              (match left.Type with
-              | Fable.Type.Tuple _ -> true
+              | Fable.Type.Tuple _ | Fable.Type.AnonymousRecordType _ -> true
               | Fable.Type.DeclaredType(entRef, _) -> Map.containsKey entRef.FullName ctx.TypeRegistry
               | _ -> false) then
             // Ensure the wasm type is registered (mapTypeKnown may create a fresh TupleRegistry entry)

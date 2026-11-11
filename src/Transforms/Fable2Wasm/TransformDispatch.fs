@@ -12,6 +12,7 @@ open WasmGc.Transforms.ArrayReplacements
 open WasmGc.Transforms.BigIntMap
 open WasmGc.Transforms.OptionResultTransforms
 open WasmGc.Transforms.ListTransforms
+open WasmGc.Transforms.SeqFusion
 open WasmGc.Transforms.ListOps
 open WasmGc.Transforms.MathMap
 
@@ -150,6 +151,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             fun () -> tryListExistsForAllInline   eval ctx sel info.Args
             fun () -> tryListUnzipInline          eval ctx sel info.Args typ
             fun () -> tryListPairwiseInline       eval ctx sel info.Args typ
+            fun () -> tryListWindowedInline       eval ctx sel info.Args
             fun () -> tryListCountByInline        eval ctx sel info.Args typ
             fun () -> tryListGroupByInline        eval ctx sel info.Args typ
             fun () -> tryListDistinctInline       eval ctx sel info.Args typ
@@ -168,7 +170,8 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | None ->
     match sel, wArgs, ty with
     // ── Structural equality: Fable compiles record/DU/tuple `=` as Util.equals/equalArrays ──
-    | ("equals" | "op_Equality" | "equalArrays"), [a; b], WType.I32 ->
+    | ("equals" | "op_Equality" | "equalArrays"), [a; b], WType.I32
+    | "equalsWith", [_; a; b], WType.I32 ->
         structuralEquals ctx a b
     // Unary negation: 0 - x  (covers all int8/int16/int32/uint variants → all map to I32)
     | ("op_UnaryNegation_Int8"    | "op_UnaryNegation_UInt8"
@@ -637,12 +640,11 @@ let private indirectCall
 // Same issue.  The Locals.fs collectLocals has a catch-all that shadows a
 // specific case below it.  Find the duplicate and remove the shadowed arm.
 
-let transformCall 
-    (ctx: Ctx) 
+let private transformCallCore
+    (ctx: Ctx)
     (eval: Ctx -> Expr -> WExpr)
-    // eval
     (callee: Expr)
-    (info: CallInfo) 
+    (info: CallInfo)
     (typ: Type) : WExpr =
 
     // TODO: for better diagnostics, we could match on the callee expression and print more info about it here
@@ -951,3 +953,10 @@ let transformCall
         | _ ->
             indirectCall ctx eval callee info wArgs ty
 
+/// Entry point for every Fable call.  A seq pipeline that is consumed eagerly (`[ for … ]`, `[a .. b]`, `Seq.toArray …`)
+/// is fused into loops BEFORE its lazy, closure-based arguments are compiled; everything else takes the normal route.
+let transformCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (callee: Expr) (info: CallInfo) (typ: Type) : WExpr =
+    match callee with
+    | Import({ Selector = sel }, _, _) when info.ThisArg.IsNone -> trySeqFusionInline eval ctx sel info.Args typ
+    | _ -> None
+    |> Option.defaultWith (fun () -> transformCallCore ctx eval callee info typ)

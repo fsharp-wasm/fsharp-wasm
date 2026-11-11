@@ -21,11 +21,11 @@ let rec compareByWType (ctx: Ctx) (ty: WType) (a: WExpr) (b: WExpr) : WExpr =
     | WType.Ref(idx, false) when idx = StringTypeIdx ->
         WExpr.Call("$strEq", [a; b], WType.I32)
     | WType.Ref(idx, false) ->
-        // Non-nullable ref: look up or generate structural equality
-        match ctx.EqualityRegistry.TryGetValue(idx) with
-        | true, funcName -> WExpr.Call(funcName, [a; b], WType.I32)
-        | false, _ ->
-            // No equality function registered — fall back to reference equality
+        // Non-nullable ref: look up or generate structural equality (records, unions, tuples, arrays)
+        match getOrAddStructuralEquals ctx idx with
+        | Some funcName -> WExpr.Call(funcName, [a; b], WType.I32)
+        | None ->
+            // Not a structural type (closure, …) — reference equality
             WExpr.Compare(WCompareOp.Eq, a, b)
     | WType.Ref(idx, true) ->
         // Nullable ref: if both null → 1, one null → 0, both non-null → recurse
@@ -36,17 +36,17 @@ let rec compareByWType (ctx: Ctx) (ty: WType) (a: WExpr) (b: WExpr) : WExpr =
             (wasmIf (or_ nullA nullB)
                 (i32Const 0)
                 // both non-null: cast to non-nullable and compare
-                (match ctx.EqualityRegistry.TryGetValue(idx) with
-                 | true, funcName ->
+                (match getOrAddStructuralEquals ctx idx with
+                 | Some funcName ->
                      let aFixed = WExpr.Cast(a, WType.Ref(idx, false))
                      let bFixed = WExpr.Cast(b, WType.Ref(idx, false))
                      WExpr.Call(funcName, [aFixed; bFixed], WType.I32)
-                 | false, _ -> WExpr.Compare(WCompareOp.Eq, a, b)))
+                 | None -> WExpr.Compare(WCompareOp.Eq, a, b)))
     | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
 
 /// Generate an equality function for a record struct type.
 /// `typeIdx` must be in ctx.TypeDefs; `fields` are the struct fields.
-let makeRecordEqualsFunc (ctx: Ctx) (funcName: string) (typeIdx: int) (fields: WField list) : WFuncDecl =
+and makeRecordEqualsFunc (ctx: Ctx) (funcName: string) (typeIdx: int) (fields: WField list) : WFuncDecl =
     let refT = WType.Ref(typeIdx, false)
     let aGet = WExpr.LocalGet("$eq_a", refT)
     let bGet = WExpr.LocalGet("$eq_b", refT)
@@ -69,7 +69,7 @@ let makeRecordEqualsFunc (ctx: Ctx) (funcName: string) (typeIdx: int) (fields: W
 /// Generate an equality function for a data-carrying DU base type.
 /// `baseIdx` = type index of the base struct (tag field only).
 /// `caseTypeIdxs` = type indices of case structs (baseIdx+1, baseIdx+2, ...).
-let makeDuEqualsFunc (ctx: Ctx) (funcName: string) (baseIdx: int) (caseTypeIdxs: int list) : WFuncDecl =
+and makeDuEqualsFunc (ctx: Ctx) (funcName: string) (baseIdx: int) (caseTypeIdxs: int list) : WFuncDecl =
     let baseRefT = WType.Ref(baseIdx, false)
     let aGet = WExpr.LocalGet("$eq_a", baseRefT)
     let bGet = WExpr.LocalGet("$eq_b", baseRefT)
@@ -119,7 +119,8 @@ let makeDuEqualsFunc (ctx: Ctx) (funcName: string) (baseIdx: int) (caseTypeIdxs:
 /// Get or create a structural equality function for the struct/DU at `typeIdx`.
 /// Registers in ctx.EqualityRegistry and adds to ctx.Functions.
 /// Returns the function name.
-let rec getOrAddStructuralEquals (ctx: Ctx) (typeIdx: int) : string option =
+and getOrAddStructuralEquals (ctx: Ctx) (typeIdx: int) : string option =
+    if typeIdx = ListBaseTypeIdx then Some(getOrAddListEquals ctx) else
     match ctx.EqualityRegistry.TryGetValue(typeIdx) with
     | true, funcName -> Some funcName
     | false, _ ->
@@ -153,7 +154,110 @@ let rec getOrAddStructuralEquals (ctx: Ctx) (typeIdx: int) : string option =
                     makeRecordEqualsFunc ctx funcName typeIdx fields
             ctx.Functions.Add(func)
             Some funcName
+        | WTypeDef.Array(elemT, _) ->
+            let funcName = $"$equals_{typeIdx}"
+            ctx.EqualityRegistry.[typeIdx] <- funcName
+            let func = makeArrayEqualsFunc ctx funcName typeIdx elemT
+            ctx.Functions.Add(func)
+            Some funcName
         | _ -> None
+
+/// Equality function of an array type: same length and equal elements, left to right (stops at the first difference).
+and makeArrayEqualsFunc (ctx: Ctx) (funcName: string) (typeIdx: int) (elemT: WType) : WFuncDecl =
+    let refT = WType.Ref(typeIdx, false)
+    let a, b = WExpr.LocalGet("$eq_a", refT), WExpr.LocalGet("$eq_b", refT)
+    let i, ok = WExpr.LocalGet("$eq_i", WType.I32), WExpr.LocalGet("$eq_ok", WType.I32)
+    let at arr = WExpr.ArrayGet(arr, i, elemT)
+    let loop =
+        whileLoop "$eq_loop" (and_ ok (WExpr.Compare(WCompareOp.LtS, i, WExpr.ArrayLen a)))
+            (WExpr.Sequence [ WExpr.Assign("$eq_ok", compareByWType ctx elemT (at a) (at b))
+                              WExpr.Assign("$eq_i", add i (i32Const 1)) ])
+    let body =
+        wasmIf (WExpr.Compare(WCompareOp.Ne, WExpr.ArrayLen a, WExpr.ArrayLen b))
+            (i32Const 0)
+            (WExpr.LetMut("$eq_i", i32Const 0, WExpr.LetMut("$eq_ok", i32Const 1, WExpr.Sequence [ loop; ok ])))
+    let parms = [ ("$eq_a", refT); ("$eq_b", refT) ]
+    { Name = funcName; Params = parms; Result = WType.I32
+      Locals = collectLocals (parms |> List.map fst |> Set.ofList) body |> List.distinctBy fst |> List.filter (fun (_, t) -> t <> WType.Void)
+      Body = body; Exported = false }
+
+
+// ── lists ──────────────────────────────────────────────────────────────────────────────────────────────────────
+// Every list is the one base struct; each element type has its own cons subtype `{ head; tail }`.  Equality and
+// ordering therefore dispatch on the node's runtime type: `$equals_list_vN` tests the registered cons types in turn
+// and hands over to `$equals_list_<cons>`, which walks both lists.  `N` = number of element types registered at the
+// time of the request, so a later request (more element types) gets a fresh dispatcher.
+
+/// `(consIdx, head type)` of every registered list element type.
+and private consTypes (ctx: Ctx) : (int * WType) list =
+    [ for consIdx in ctx.ListRegistry.Values |> Seq.distinct ->
+        consIdx, (match ctx.TypeDefs.[consIdx].Def with WTypeDef.Struct(f :: _, _) -> f.Type | _ -> WType.I32) ]
+
+/// Add `decl` unless a function of that name exists already.
+and private addOnce (ctx: Ctx) (decl: WFuncDecl) : string =
+    if not (ctx.Functions.Exists(fun f -> f.Name = decl.Name)) then ctx.Functions.Add decl
+    decl.Name
+
+and private listFunc (ctx: Ctx) (name: string) (result: WType) (body: WExpr) : WFuncDecl =
+    let baseRef = WType.Ref(ListBaseTypeIdx, false)
+    let parms = [ ("$la", baseRef); ("$lb", baseRef) ]
+    { Name = name; Params = parms; Result = result
+      Locals = collectLocals (parms |> List.map fst |> Set.ofList) body |> List.distinctBy fst |> List.filter (fun (_, t) -> t <> WType.Void)
+      Body = body; Exported = false }
+
+/// Walk both lists in step.  `step headX headY` yields a verdict; the walk goes on while it equals `carryOn` and
+/// ends with the verdict otherwise.  When either list ends, `onEnd` (given the two cursors) gives the result.
+and private walkLists (consIdx: int) (headT: WType) (carryOn: int) (step: WExpr -> WExpr -> WExpr) (onEnd: WExpr -> WExpr -> WExpr) : WExpr =
+    let baseRef, baseNull = WType.Ref(ListBaseTypeIdx, false), WType.Ref(ListBaseTypeIdx, true)
+    let consT = WType.Ref(consIdx, false)
+    let local n ty = WExpr.LocalGet(n, ty)
+    let x, y = local "$lx" baseNull, local "$ly" baseNull
+    let cx, cy = WExpr.Cast(x, consT), WExpr.Cast(y, consT)
+    let verdict = local "$lh" WType.I32
+    let finish v = WExpr.Sequence [ WExpr.Assign("$lr", v); WExpr.Assign("$ld", i32Const 1) ]
+    let iteration =
+        WExpr.If(or_ (WExpr.RefIsNull x) (WExpr.RefIsNull y),
+            finish (onEnd x y),
+            WExpr.Let("$lh", step (WExpr.StructGet(cx, 0, headT)) (WExpr.StructGet(cy, 0, headT)),
+                WExpr.If(WExpr.Compare(WCompareOp.Ne, verdict, i32Const carryOn),
+                    finish verdict,
+                    WExpr.Sequence [ WExpr.Assign("$lx", WExpr.StructGet(cx, 1, baseNull))
+                                     WExpr.Assign("$ly", WExpr.StructGet(cy, 1, baseNull)) ],
+                    WType.Void)),
+            WType.Void)
+    WExpr.LetMut("$lx", WExpr.Cast(local "$la" baseRef, baseNull),
+        WExpr.LetMut("$ly", WExpr.Cast(local "$lb" baseRef, baseNull),
+            WExpr.LetMut("$lr", i32Const 0,
+                WExpr.LetMut("$ld", i32Const 0,
+                    WExpr.Sequence [ whileLoop "$lw" (WExpr.Compare(WCompareOp.Eq, local "$ld" WType.I32, i32Const 0)) iteration
+                                     local "$lr" WType.I32 ]))))
+
+/// Dispatcher: the first registered cons type the node is an instance of picks the walker.
+and private listDispatch (ctx: Ctx) (name: string) (walkerPrefix: string) (walk: int -> WType -> WExpr) (whenNoMatch: WExpr) : string =
+    let baseRef = WType.Ref(ListBaseTypeIdx, false)
+    let a, b = WExpr.LocalGet("$la", baseRef), WExpr.LocalGet("$lb", baseRef)
+    let types = consTypes ctx
+    let perCons = types |> List.map (fun (consIdx, headT) -> consIdx, addOnce ctx (listFunc ctx $"{walkerPrefix}{consIdx}" WType.I32 (walk consIdx headT)))
+    let dispatch =
+        List.foldBack
+            (fun (consIdx, fn) (rest: WExpr) ->
+                WExpr.If(WExpr.RefTest(a, WType.Ref(consIdx, false)), WExpr.Call(fn, [ a; b ], WType.I32), rest, WType.I32))
+            perCons whenNoMatch
+    addOnce ctx (listFunc ctx name WType.I32 dispatch)
+
+/// `$equals_list_vN(a, b)` for two NON-NULL lists: same length, equal heads.
+and getOrAddListEquals (ctx: Ctx) : string =
+    let name = $"$equals_list_v{(consTypes ctx).Length}"
+    match ctx.EqualityRegistry.TryGetValue ListBaseTypeIdx with
+    | true, n when n = name -> n                    // built, or being built (a list of lists asks for itself)
+    | _ ->
+        ctx.EqualityRegistry.[ListBaseTypeIdx] <- name
+        listDispatch ctx name "$equals_list_c"
+            (fun consIdx headT ->
+                walkLists consIdx headT 1
+                    (fun hx hy -> compareByWType ctx headT hx hy)
+                    (fun x y -> and_ (WExpr.RefIsNull x) (WExpr.RefIsNull y)))
+            (i32Const 1)
 
 /// Get or create a structural equality function for a tuple type.
 /// The tuple struct is in ctx.TupleRegistry by its wTypesKey.
@@ -276,6 +380,7 @@ and private makeDuCompareFunc (ctx: Ctx) (funcName: string) (baseIdx: int) (case
 
 /// Get or create the structural ordering function for the struct / union / tuple at `typeIdx`.
 and getOrAddStructuralCompare (ctx: Ctx) (typeIdx: int) : string option =
+    if typeIdx = ListBaseTypeIdx then Some(getOrAddListCompare ctx) else
     match ctx.CompareRegistry.TryGetValue(typeIdx) with
     | true, funcName -> Some funcName
     | false, _ ->
@@ -300,6 +405,20 @@ and getOrAddStructuralCompare (ctx: Ctx) (typeIdx: int) : string option =
             ctx.Functions.Add func
             Some funcName
         | _ -> None
+
+/// `$compare_list_vN(a, b)` for two NON-NULL lists: lexicographic over the heads, the shorter prefix is smaller.
+and getOrAddListCompare (ctx: Ctx) : string =
+    let name = $"$compare_list_v{(consTypes ctx).Length}"
+    match ctx.CompareRegistry.TryGetValue ListBaseTypeIdx with
+    | true, n when n = name -> n
+    | _ ->
+        ctx.CompareRegistry.[ListBaseTypeIdx] <- name
+        listDispatch ctx name "$compare_list_c"
+            (fun consIdx headT ->
+                walkLists consIdx headT 0
+                    (fun hx hy -> compareValues ctx headT hx hy)
+                    (fun x y -> wasmIf (WExpr.RefIsNull x) (wasmIf (WExpr.RefIsNull y) (i32Const 0) (i32Const -1)) (i32Const 1)))
+            (i32Const 0)
 
 /// `a = b` for two values of a struct / union / tuple / option type (anything but strings and primitives falls back
 /// to reference equality).  An option is a NULLABLE reference — None is null — so both operands are bound once and

@@ -44,6 +44,32 @@ let private arrElemT = function ArrayOf e -> Some e | _ -> None
 
 // ── Main dispatch ────────────────────────────────────────────────────────────
 
+/// `Compare` of a Fable comparer argument (`ObjectExpr { Compare = fun x y -> … }`), or a bare two-argument lambda.
+let private (|ComparerLambda|_|) (e: Fable.Expr) =
+    match e with
+    | Fable.Expr.ObjectExpr(members, _, _) ->
+        members |> List.tryPick (fun m -> match m.Name, m.Body with "Compare", BinaryLambda(a, b, body) -> Some(a, b, body) | _ -> None)
+    | BinaryLambda(a, b, body) -> Some(a, b, body)
+    | _ -> None
+
+/// How elements of type `t` live in a GC array: reference elements are stored nullable (the array is created
+/// with null) and cast back to non-null on read.
+type private ArrayAccess =
+    { TypeIdx: int; RefT: WType; Default: WExpr
+      Read: WExpr -> WExpr -> WExpr; Write: WExpr -> WExpr -> WExpr -> WExpr }
+
+let private arrayAccess (ctx: Ctx) (t: WType) : ArrayAccess =
+    let stored, zero =
+        match t with
+        | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
+        | _ -> t, makeNumericZero t
+    let idx = getOrAddArrayType ctx stored
+    { TypeIdx = idx; RefT = WType.Ref(idx, false); Default = zero
+      Read = (fun arr i -> match t with
+                           | WType.Ref(ri, false) -> cast (arrayGet arr i stored) (WType.Ref(ri, false))
+                           | _ -> arrayGet arr i t)
+      Write = arraySet }
+
 let tryArrayInline
         (transform : TransformFn)
         (ctx       : Ctx)
@@ -279,6 +305,111 @@ let tryArrayInline
                             WExpr.Let(farg2.Name, elem, wBody))))
             | None -> None
         | _ -> None
+    // ── slices: Array.take / skip / truncate ──
+    // take / skip raise when the count leaves the array (negative: ArgumentException, too large:
+    // InvalidOperationException); truncate clamps to [0, length].
+    | "take" | "skip" | "truncate" ->
+        match fableArgs, wArgs with
+        | [ _; arrArg ], [ wN; wSrc ] ->
+            match arrElemT arrArg.Type with
+            | Some elemFableT ->
+                let elemT = mapTypeKnown ctx elemFableT
+                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let outOfRange n len = wasmOr (ltS n (i32Const 0)) (gtS n len)
+                Some(wasm {
+                    // skip: a count <= 0 keeps the whole array
+                    let! n = if selector = "skip" then wasmIf (ltS wN (i32Const 0)) (i32Const 0) wN else wN
+                    let! src = wSrc
+                    let! len = arrayLen src
+                    do! wasmWhen (if selector = "truncate" then WExpr.Const(WConst.I32 0) else outOfRange n len) (WExpr.Throw WExpr.Nop)
+                    let! count =
+                        match selector with
+                        | "take" -> n
+                        | "skip" -> sub len n
+                        | _ -> wasmIf (ltS n (i32Const 0)) (i32Const 0) (wasmIf (gtS n len) len n)
+                    let! start = if selector = "skip" then n else i32Const 0
+                    let! dst = arrayNew arrTypeIdx count (makeNumericZero elemT) (WType.Ref(arrTypeIdx, false))
+                    do! arrayCopy dst (i32Const 0) src start count
+                    return dst
+                })
+            | None -> None
+        | _ -> None
+    // ── search: Array.find / tryFind (a missing element raises / is None), tryItem, tryLast ──
+    | "find" | "tryFind" ->
+        match fableArgs with
+        | [ UnaryLambda(farg, fbody); arrArg ] ->
+            match arrElemT arrArg.Type with
+            | Some elemFableT ->
+                let elemT = mapTypeKnown ctx elemFableT
+                let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+                let wPred = transform (ctx.WithLocal(farg.Name, elemT)) fbody
+                let found elem = WExpr.Let(farg.Name, elem, wPred)
+                if selector = "find" then
+                    Some(arraySearch (LabelGen "afind") a (transform ctx arrArg) elemT found (fun _ e -> e) (WExpr.Throw WExpr.Nop))
+                else
+                    let optT, some, none = optionRepr ctx elemT
+                    Some(arraySearch (LabelGen "atry") a (transform ctx arrArg) optT found (fun _ e -> some e) none)
+            | None -> None
+        | _ -> None
+    | "tryItem" | "tryLast" ->
+        match fableArgs, wArgs with
+        | (arrArg :: _), _ ->
+            match arrElemT (List.last fableArgs).Type with
+            | Some elemFableT ->
+                let elemT = mapTypeKnown ctx elemFableT
+                let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+                let optT, some, none = optionRepr ctx elemT
+                let wSrc = List.last wArgs
+                Some(wasm {
+                    let! src = wSrc
+                    let! len = arrayLen src
+                    let! i = if selector = "tryLast" then sub len (i32Const 1) else List.head wArgs
+                    return! wasmIf (wasmOr (ltS i (i32Const 0)) (geS i len)) none (some (a.Get(src, i)))
+                })
+            | None -> None
+        | _ -> None
+    // Array.foldBack f arr state — right to left
+    | "foldBack" ->
+        match fableArgs with
+        | [BinaryLambda(farg, sacc, fbody); arrArg; initArg] ->
+            match arrElemT arrArg.Type with
+            | Some elemFableT ->
+                let elemT = mapTypeKnown ctx elemFableT
+                let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+                let accT = mapTypeKnown ctx initArg.Type
+                let wBody = transform (ctx.WithLocal(farg.Name, elemT).WithLocal(sacc.Name, accT)) fbody
+                Some(wasm {
+                    let! src = List.item 1 wArgs
+                    let! acc = mutTy accT (transform ctx initArg)
+                    let! i = mut (sub (a.Len src) (i32Const 1))
+                    while! (geS i.Val (i32Const 0)) do
+                        do! acc.Set(WExpr.Let(farg.Name, a.Get(src, i.Val), WExpr.Let(sacc.Name, acc.Val, wBody)))
+                        do! i.Set(sub i.Val (i32Const 1))
+                    return acc.Val
+                })
+            | None -> None
+        | _ -> None
+    // Array.sub arr start count  (Fable: getSubArray) — ArgumentException when the range leaves the array
+    | "getSubArray" ->
+        match fableArgs, wArgs with
+        | [arrArg; _; _], [wSrc; wStart; wCount] ->
+            match arrElemT arrArg.Type with
+            | Some elemFableT ->
+                let elemT = mapTypeKnown ctx elemFableT
+                let arrTypeIdx = getOrAddArrayType ctx elemT
+                Some(wasm {
+                    let! src = wSrc
+                    let! start = wStart
+                    let! count = wCount
+                    do! wasmWhen
+                            (wasmOr (ltS start (i32Const 0)) (wasmOr (ltS count (i32Const 0)) (ltS (sub (arrayLen src) start) count)))
+                            (WExpr.Throw WExpr.Nop)
+                    let! dst = arrayNew arrTypeIdx count (makeNumericZero elemT) (WType.Ref(arrTypeIdx, false))
+                    do! arrayCopy dst (i32Const 0) src start count
+                    return dst
+                })
+            | None -> None
+        | _ -> None
     // Array.exists / Array.forAll
     | ("exists" | "forAll") ->
         let sel = selector
@@ -304,7 +435,7 @@ let tryArrayInline
             | None -> None
         | _ -> None
     // Array.filter
-    | "filter" ->
+    | "filter" | "where" ->
         match fableArgs with
         | [UnaryLambda(farg, fbody); arrArg]
         | [UnaryLambda(farg, fbody); arrArg; _]
@@ -371,53 +502,72 @@ let tryArrayInline
         | _ -> None
     // ── Array.sum arr — fold with additive zero ──
     | "sum" | "sumBy" ->
-        let arrArgOpt = fableArgs |> List.tryFind (fun a -> arrElemT a.Type |> Option.isSome)
-        match arrArgOpt with
-        | Some arrArg ->
-            match arrElemT arrArg.Type with
-            | Some elemFableT ->
-                let elemT      = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
-                let a          = mkArrayShape elemT arrTypeIdx
-                let gen        = LabelGen("asum")
-                let wArr       = transform ctx arrArg
-                Some(arrayFold gen a wArr (makeNumericZero elemT) elemT
-                    (fun acc elem -> WExpr.Binary(WBinaryOp.Add, acc, elem, elemT)))
-            | None -> None
+        let proj, arrArg =
+            match fableArgs with
+            | UnaryLambda(x, body) :: arr :: _ -> Some(x, body), Some arr
+            | arr :: _ -> None, Some arr
+            | [] -> None, None
+        match arrArg |> Option.bind (fun arr -> arrElemT arr.Type |> Option.map (fun t -> arr, t)) with
+        | Some(arr, elemFableT) ->
+            let elemT = mapTypeKnown ctx elemFableT
+            let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+            // the sum has the type of the projection (`sumBy float` over ints), else of the elements
+            let sumT = match proj with Some(_, body) -> mapTypeKnown ctx body.Type | None -> elemT
+            let term =
+                match proj with
+                | Some(x, body) ->
+                    let wBody = transform (ctx.WithLocal(x.Name, elemT)) body
+                    (fun elem -> WExpr.Let(x.Name, elem, wBody))
+                | None -> id
+            Some(arrayFold (LabelGen "asum") a (transform ctx arr) (makeNumericZero sumT) sumT
+                    (fun acc elem -> checkedAdd acc (term elem) sumT))
         | None -> None
     // ── Array.min / Array.max — fold from first element, keep extreme ──
     | "min" | "minBy" | "max" | "maxBy" ->
-        let isMin = (match selector with | "min" | "minBy" -> true | _ -> false)
-        let arrArgOpt = fableArgs |> List.tryFind (fun a -> arrElemT a.Type |> Option.isSome)
-        match arrArgOpt with
-        | Some arrArg ->
-            match arrElemT arrArg.Type with
-            | Some elemFableT ->
-                let elemT      = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
-                let arrRefT    = WType.Ref(arrTypeIdx, false)
-                let wArr       = transform ctx arrArg
-                let gen        = LabelGen("aminmax")
-                let cmpOp      = if isMin then WCompareOp.LtS else WCompareOp.GtS
-                let updateAcc acc eVar =
-                    match elemT with
-                    | WType.F64 | WType.F32 ->
-                        let bop = if isMin then WBinaryOp.Min else WBinaryOp.Max
-                        WExpr.Binary(bop, acc, eVar, elemT)
-                    | _ ->
-                        WExpr.If(WExpr.Compare(cmpOp, eVar, acc), eVar, acc, elemT)
-                Some(wasm {
-                    let! src = wArr
-                    let! len = arrayLen src
-                    let! acc = mutTy elemT (arrayGet src (i32Const 0) elemT)
-                    let! i = mut (i32Const 1)
-                    while! (ltS i.Val len) do
-                        let! e = arrayGet src i.Val elemT
-                        do! acc.Set(updateAcc acc.Val e)
-                        do! i.Set(add i.Val (i32Const 1))
-                    return acc.Val
-                })
-            | None -> None
+        // F# keeps the FIRST extreme: the accumulator is replaced only when the new key is strictly smaller
+        // (larger).  Comparison is `<` / `>` on the key: IEEE for floats (NaN never wins), ordinal for strings,
+        // structural for records / unions / tuples.
+        let isMin = selector.StartsWith "min"
+        let proj, arrArg =
+            match fableArgs with
+            | UnaryLambda(x, body) :: arr :: _ -> Some(x, body), Some arr
+            | arr :: _ -> None, Some arr
+            | [] -> None, None
+        match arrArg |> Option.bind (fun arr -> arrElemT arr.Type |> Option.map (fun t -> arr, t)) with
+        | Some(arr, elemFableT) ->
+            let elemT = mapTypeKnown ctx elemFableT
+            let keyFT = match proj with Some(_, body) -> body.Type | None -> elemFableT
+            let keyT = mapTypeKnown ctx keyFT
+            let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+            let key =
+                match proj with
+                | Some(x, body) ->
+                    let wBody = transform (ctx.WithLocal(x.Name, elemT)) body
+                    (fun elem -> WExpr.Let(x.Name, elem, wBody))
+                | None -> id
+            let better (k: WExpr) (best: WExpr) =
+                let unsigned = isUnsignedInt keyFT
+                match keyT with
+                | WType.I32 | WType.I64 | WType.F32 | WType.F64 ->
+                    WExpr.Compare((match isMin, unsigned with
+                                   | true, false -> WCompareOp.LtS | true, true -> WCompareOp.LtU
+                                   | false, false -> WCompareOp.GtS | false, true -> WCompareOp.GtU), k, best)
+                | _ ->
+                    WExpr.Compare((if isMin then WCompareOp.LtS else WCompareOp.GtS),
+                                  WasmGc.Runtime.Equality.compareValues ctx keyT k best, i32Const 0)
+            Some(wasm {
+                let! src = transform ctx arr
+                let! len = arrayLen src
+                let! best = mutTy elemT (a.Get(src, i32Const 0))        // an empty array traps, as .NET raises
+                let! bestKey = mutTy keyT (key best.Val)
+                let! i = mut (i32Const 1)
+                while! (ltS i.Val len) do
+                    let! e = a.Get(src, i.Val)
+                    let! k = key e
+                    do! wasmWhen (better k bestKey.Val) (sequence [ best.Set e; bestKey.Set k ])
+                    do! i.Set(add i.Val (i32Const 1))
+                return best.Val
+            })
         | None -> None
     // ── Array.rev arr — new array with elements in reverse order ──
     | ("rev" | "reverse") ->
@@ -614,35 +764,54 @@ let tryArrayInline
             do! insertionSortInPlace gen res len elemT readElem writeElem inlineCmp
             return res
         })
-    // ── Array.sort — insertion sort into a fresh copy ──
-    | "sort" | "sortDescending" | "sortBy" ->
-        let arrArgOpt = fableArgs |> List.tryFind (fun a -> arrElemT a.Type |> Option.isSome)
-        match arrArgOpt with
-        | Some arrArg ->
+    // ── Array.sort / sortDescending / sortBy / sortByDescending / sortInPlace / sortInPlaceBy ──
+    // The ordering is the comparer Fable passes (`ObjectExpr { Compare = … }`: numbers, strings, structural),
+    // applied to the key (the projection, evaluated once per element, or the element itself).  Stable;
+    // Descending swaps the comparer's operands.  The copying variants return a fresh array.
+    | "sort" | "sortDescending" | "sortBy" | "sortByDescending" | "sortInPlace" | "sortInPlaceBy" ->
+        let descending, inPlace = selector.EndsWith "Descending", selector.StartsWith "sortInPlace"
+        let parts =
+            match fableArgs with
+            | [ UnaryLambda(x, projBody); arrArg; cmpArg ] -> Some(Some(x, projBody), arrArg, cmpArg)
+            | [ arrArg; cmpArg ] -> Some(None, arrArg, cmpArg)
+            | _ -> None
+        match parts with
+        | Some(proj, arrArg, ComparerLambda(ca, cb, cbody)) ->
             match arrElemT arrArg.Type with
             | Some elemFableT ->
-                let elemT      = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
-                let arrRefT    = WType.Ref(arrTypeIdx, false)
-                let wArr       = transform ctx arrArg
-                let gen        = LabelGen("asort")
-                let readElem arrExpr idxExpr = arrayGet arrExpr idxExpr elemT
-                let writeElem arrExpr idxExpr valExpr = arraySet arrExpr idxExpr valExpr
-                // For sort: cmp must return -1/0/1; insertionSortInPlace only checks (> 0).
-                let cmpFn a b =
-                    wasmIf (WExpr.Compare(WCompareOp.LtS, a, b))
-                        (i32Const -1)
-                        (wasmIf (WExpr.Compare(WCompareOp.Eq, a, b)) (i32Const 0) (i32Const 1))
-                Some(wasm {
-                    let! src = wArr
-                    let! len = arrayLen src
-                    let! res = arrayNew arrTypeIdx len (makeNumericZero elemT) arrRefT
-                    do! arrayCopy res (i32Const 0) src (i32Const 0) len
-                    do! insertionSortInPlace gen res len elemT readElem writeElem cmpFn
-                    return res
-                })
+                let elemT = mapTypeKnown ctx elemFableT
+                let keyT = match proj with Some(_, body) -> mapTypeKnown ctx body.Type | None -> elemT
+                let elem, key = arrayAccess ctx elemT, arrayAccess ctx keyT
+                let wCmp = transform (ctx.WithLocal(ca.Name, keyT).WithLocal(cb.Name, keyT)) cbody
+                let ordered ka kb = WExpr.Let(ca.Name, ka, WExpr.Let(cb.Name, kb, wCmp))
+                let cmp = if descending then (fun a b -> ordered b a) else ordered
+                let wProj = proj |> Option.map (fun (x, body) -> x, transform (ctx.WithLocal(x.Name, elemT)) body)
+                let sortStmt (arr: WExpr) (len: WExpr) : WExpr =
+                    match wProj with
+                    | None -> insertionSortInPlace (LabelGen "asort") arr len elemT elem.Read elem.Write cmp
+                    | Some(x, projBody) ->
+                        wasm {
+                            let! keys = arrayNew key.TypeIdx len key.Default key.RefT
+                            do! indexedLoop (LabelGen "akey") len (fun i ->
+                                    key.Write keys i (WExpr.Let(x.Name, elem.Read arr i, projBody)))
+                            do! insertionSortKeyed arr len elem.Read elem.Write keys key.Read key.Write cmp
+                        }
+                if inPlace then
+                    Some(wasm {
+                        let! src = transform ctx arrArg
+                        do! sortStmt src (arrayLen src)
+                    })
+                else
+                    Some(wasm {
+                        let! src = transform ctx arrArg
+                        let! len = arrayLen src
+                        let! copy = arrayNew elem.TypeIdx len elem.Default elem.RefT
+                        do! arrayCopy copy (i32Const 0) src (i32Const 0) len
+                        do! sortStmt copy len
+                        return copy
+                    })
             | None -> None
-        | None -> None
+        | _ -> None
     // ── Array.findIndex pred arr — first index where pred holds, -1 if none ──
     | "findIndex" | "tryFindIndex" ->
         match fableArgs with
@@ -656,10 +825,21 @@ let tryArrayInline
                 let wArr       = transform ctx arrArg
                 let ctx'       = ctx.WithLocal(farg.Name, elemT)
                 let wPred      = transform ctx' fbody
-                Some(arraySearch gen a wArr WType.I32
-                    (fun elem -> WExpr.Let(farg.Name, elem, wPred))
-                    (fun idx _elem -> idx)
-                    (i32Const -1))
+                let index =
+                    arraySearch gen a wArr WType.I32
+                        (fun elem -> WExpr.Let(farg.Name, elem, wPred))
+                        (fun idx _elem -> idx)
+                        (i32Const -1)
+                // findIndex raises KeyNotFoundException when nothing matches; tryFindIndex is `int option`
+                // (a wrapper struct for the primitive, null = None)
+                let isTry = (selector = "tryFindIndex")
+                let optionIdx = getOrAddOptionType ctx WType.I32
+                Some(wasm {
+                    let! i = index
+                    let missing = ltS i (i32Const 0)
+                    return! (if isTry then wasmIf missing (WExpr.Const(WConst.Null ty)) (structNew optionIdx [ i ] ty)
+                             else wasmIf missing (WExpr.Throw WExpr.Nop) i)
+                })
             | None -> None
         | _ -> None
     // ── Array.contains needle arr — true (1) if any element equals needle ──

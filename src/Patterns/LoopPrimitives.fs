@@ -85,3 +85,30 @@ let insertionSortInPlace
             do! writeElem arr (sj.Val +. i32Const 1) se
             do! si <== (si.Val +. i32Const 1)
     }
+
+/// Stable insertion sort of `arr` by a parallel `keys` array (one projection per element, evaluated once);
+/// both arrays are permuted together.  `cmp ka kb > 0` means ka must come after kb.
+let insertionSortKeyed
+        (arr       : WExpr)
+        (len       : WExpr)
+        (readElem  : WExpr -> WExpr -> WExpr)
+        (writeElem : WExpr -> WExpr -> WExpr -> WExpr)
+        (keys      : WExpr)
+        (readKey   : WExpr -> WExpr -> WExpr)
+        (writeKey  : WExpr -> WExpr -> WExpr -> WExpr)
+        (cmp       : WExpr -> WExpr -> WExpr)
+        : WExpr =
+    wasm {
+        let! si = mut (i32Const 1)
+        while (si.Val <. len) do
+            let! se = readElem arr si.Val
+            let! sk = readKey keys si.Val
+            let! sj = mut (si.Val -. i32Const 1)
+            while ((sj.Val >=. i32Const 0) &&. (cmp (readKey keys sj.Val) sk >. i32Const 0)) do
+                do! writeElem arr (sj.Val +. i32Const 1) (readElem arr sj.Val)
+                do! writeKey keys (sj.Val +. i32Const 1) (readKey keys sj.Val)
+                do! sj <== (sj.Val -. i32Const 1)
+            do! writeElem arr (sj.Val +. i32Const 1) se
+            do! writeKey keys (sj.Val +. i32Const 1) sk
+            do! si <== (si.Val +. i32Const 1)
+    }

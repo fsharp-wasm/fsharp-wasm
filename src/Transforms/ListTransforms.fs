@@ -17,6 +17,7 @@ open WasmGc.Runtime.LoopPrimitives
 
 open WasmGc.Patterns.ListShape
 open WasmGc.Patterns.ListPatterns
+open WasmGc.Patterns.ArrayOps
 
 open WasmGc.Util.FableQuery   // ← all DSL patterns
 
@@ -379,7 +380,7 @@ let tryListSumByInline
             let wList   = transform ctx listArg
             Some(listFold gen s wList (makeNumericZero resultT) resultT
                     (fun acc elem ->
-                        WExpr.Binary(WBinaryOp.Add, acc, WExpr.Let(farg.Name, elem, wProj), resultT)))
+                        checkedAdd acc (WExpr.Let(farg.Name, elem, wProj)) resultT))
         | None -> None
     | _ -> None
 
@@ -474,6 +475,7 @@ let tryListInitReplicateInline
             Some(wasm {
                 let! x = wX
                 let! n = wN
+                do! wasmWhen (ltS n (i32Const 0)) (WExpr.Throw WExpr.Nop)      // ArgumentException
                 let! i = mut (i32Const 0)
                 let! acc = mutTy s.BaseTy s.Nil
                 while! (ltS i.Val n) do
@@ -532,6 +534,49 @@ let tryListPairwiseInline
                     return! listRev gen sOut revAcc
                 })
         })
+    | _ -> None
+
+// ─────────────────────────────────────────────────────────────────
+// windowed — sliding windows over an array copy, built back to front so the outer list needs no reverse
+// ─────────────────────────────────────────────────────────────────
+
+let tryListWindowedInline
+        (transform: TransformFn)
+        (ctx: Ctx)
+        (selector: string)
+        (fableArgs: Fable.Expr list) : WExpr option =
+    match selector, fableArgs with
+    | "windowed", [sizeArg; listArg] ->
+        let elemFT = match seqElemType listArg.Type with Some t -> t | None -> Fable.Type.Any
+        let windowFT = Fable.Type.List elemFT
+        let windowWT = mapTypeKnown ctx windowFT
+        match tryListTypeInfo ctx listArg, tryListTypeInfoFromElemType ctx windowFT with
+        | Some(elemWT, inConsIdx), Some(_, outConsIdx) ->
+            let sIn, sOut = mkListShape elemWT inConsIdx, mkListShape windowWT outConsIdx
+            let arrTypeIdx = getOrAddArrayType ctx elemWT
+            let a = mkArrayShape elemWT arrTypeIdx
+            let gen = LabelGen("win")
+            Some(wasm {
+                let! size = transform ctx sizeArg
+                let! lst = transform ctx listArg
+                do! wasmWhen (ltS size (i32Const 1)) (WExpr.Throw WExpr.Nop)       // ArgumentException
+                let! len = listLength gen sIn lst
+                let! arr = arrayNew arrTypeIdx len (makeNumericZero elemWT) (WType.Ref(arrTypeIdx, false))
+                do! listFold gen sIn lst (i32Const 0) WType.I32
+                        (fun idx elem -> sequence [ a.Set(arr, idx, elem); add idx (i32Const 1) ])
+                let! acc = mutTy sOut.BaseTy sOut.Nil
+                let! start = mut (sub len size)
+                while! (geS start.Val (i32Const 0)) do
+                    let! win = mutTy sIn.BaseTy sIn.Nil
+                    let! j = mut (sub (add start.Val size) (i32Const 1))
+                    while! (geS j.Val start.Val) do
+                        do! win.Set(sIn.Cons (a.Get(arr, j.Val)) win.Val)
+                        do! j.Set(sub j.Val (i32Const 1))
+                    do! acc.Set(sOut.Cons win.Val acc.Val)
+                    do! start.Set(sub start.Val (i32Const 1))
+                return acc.Val
+            })
+        | _ -> None
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────
@@ -704,7 +749,7 @@ let tryListDistinctInline
         (fableArgs: Fable.Expr list)
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
-    | "distinct", (listArg :: _) ->
+    | ("distinct" | "List_distinct"), (listArg :: _) ->
         let elemFT = match seqElemType listArg.Type with Some t -> t | None -> Fable.Type.Any
         match tryListTypeInfo ctx listArg with
         | None -> None

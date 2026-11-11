@@ -247,7 +247,8 @@ module FableNormalize =
         | _ -> false
 
     /// Effect-free values the handlers must see at their use site.
-    ///  * a literal lambda: moved to its single use (duplicating one would duplicate code and allocation)
+    ///  * a literal lambda: moved to its single use (duplicating one would duplicate code and allocation); a
+    ///    recursive one (`let rec f = fun … f …`) stays bound, its body names the binding
     ///  * a printf formatter, possibly partially applied to atoms: `printfn "%d %d" a b` reaches us as
     ///        let clo = toConsole(printf "…") in let clo_1 = clo a in clo_1 b
     ///    Nothing is printed before the last argument and the format is constant, so it is safe to
@@ -256,7 +257,7 @@ module FableNormalize =
         not i.IsMutable
         && (match value with
             | Q.PrintfApply(_, _, applied) -> List.forall isAtom applied
-            | _ -> isLambda value && countRefs i.Name body = 1)
+            | _ -> isLambda value && countRefs i.Name body = 1 && countRefs i.Name value = 0)   // not a `let rec`
 
     /// Top-down on purpose: substituting `clo` exposes `let clo_1 = <formatter> a` one level further in,
     /// which must be looked at again (a bottom-up pass would already have passed it).
