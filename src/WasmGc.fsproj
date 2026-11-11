@@ -137,6 +137,7 @@
     <Compile Include="Transforms/Fable2Wasm/TransformDecisionTree.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformTest.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformOperation.fs" />
+    <Compile Include="Transforms/FableNormalize.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformMemberDecl.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformExpr.fs" />
     <Compile Include="Transforms/Fable2Wasm/Fable2Wasm.fs" />
@@ -144,7 +145,6 @@
     <!-- TODO: split Phases.fs and Fable2Wasm for better code order -->
     <Compile Include="Pipeline/Phases.fs" />
 
-    <Compile Include="Transforms/FableNormalize.fs" />
     <!-- WasmGC-safe Fable-stage transform pipeline.
          Must come AFTER Pipeline/Phases.fs (no dep on it, but logically grouped here)
          and BEFORE Pipeline.fs which calls WasmTransformPipeline.transformFileForWasm. -->

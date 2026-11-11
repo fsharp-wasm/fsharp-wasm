@@ -30,6 +30,7 @@ let private deps : (string * string list) list = [
     "$fdMulSmall",   []
     "$uintToStr",    ["$intToStr"]
     "$strSplit",     ["$strIndexOf"; "$strSubstring"]
+    "$strReplace",   ["$strIndexOf"; "$strSubstring"; "$strConcat"]
     "$strJoin",      ["$strConcat"]
     "$strJoinList",  ["$strConcat"]
     "$strRepeat",    ["$strConcat"]

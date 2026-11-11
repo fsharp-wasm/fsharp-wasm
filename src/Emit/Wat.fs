@@ -1089,6 +1089,11 @@ let moduleToWat (wmod: WModule) : string =
         let funcIds = allFuncRefs |> List.map watId |> String.concat " "
         sb.AppendLine($"  (elem declare func {funcIds})") |> ignore
 
+    // ── Start function (module-level initialisers) ────────
+    match wmod.Start with
+    | Some name -> sb.AppendLine($"  (start {watId name})") |> ignore
+    | None -> ()
+
     // ── Exports ───────────────────────────────────────────
     if not wmod.Exports.IsEmpty then
         sb.AppendLine("  ;; ── Exports ────────────────────────────────────────") |> ignore

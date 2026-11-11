@@ -127,6 +127,11 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         match res with
         | Scope.Resolution.Local(name, ty)          -> WExpr.LocalGet(name, ty)
         | Scope.Resolution.CapturedVar(name, ty)    -> WExpr.LocalGet(name, ty)
+        | Scope.Resolution.Global(qn, ty)           ->
+            // stored nullable (the initialiser has not run yet at declaration time); a non-null reference is cast on read
+            (match ty with
+             | WType.Ref(idx, false) -> WExpr.Cast(WExpr.GlobalGet(qn, WType.Ref(idx, true)), ty)
+             | _ -> WExpr.GlobalGet(qn, ty))
         | Scope.Resolution.ModuleValue(qn, retTy)   ->
             // `let f () = …` is registered WITHOUT parameters (unit params are dropped), i.e. exactly
             // like a module value `let x = …`.  A reference whose Fable type is `unit -> R` is a
@@ -249,7 +254,9 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             match _expr with
             | Fable.Expr.IdentExpr ident ->
                 let wValue = transformExpr ctx value
-                WExpr.Assign(ident.Name, wValue)
+                match Scope.resolve ctx ctx.CurrentFunc ident.Name with
+                | Scope.Resolution.Global(qn, _) -> WExpr.GlobalSet(qn, wValue)
+                | _ -> WExpr.Assign(ident.Name, wValue)
             | _ ->
                 WExpr.Nop // TODO
         | FieldSet fieldName ->

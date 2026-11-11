@@ -29,6 +29,8 @@ type Resolution =
     | CapturedVar of name: string * ty: WType
     /// Zero-arg module-level function — emit a Call with no args.
     | ModuleValue of qualifiedName: string * retTy: WType
+    /// Module-level `let mutable` — a wasm global (read with global.get, written with global.set).
+    | Global      of qualifiedName: string * ty: WType
     /// Multi-arg known function — emit a partial application / funcref.
     | KnownFunc   of qualifiedName: string * paramTys: WType list * retTy: WType
     /// [<Import>] extern — already registered, emit Call($ext$...).
@@ -61,6 +63,9 @@ let resolve (ctx: Ctx) (funcName: string option) (name: string) : Resolution =
 
     // 3 & 4. Known function  (module-level or multi-arg)
     let qualName = ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
+    match ctx.MutableGlobals.TryGetValue qualName with
+    | true, ty -> Resolution.Global(qualName, ty)
+    | _ ->
     match Map.tryFind qualName ctx.KnownFuncs with
     | Some([], retTy)       -> Resolution.ModuleValue(qualName, retTy)
     | Some(paramTys, retTy) -> Resolution.KnownFunc(qualName, paramTys, retTy)
@@ -89,6 +94,7 @@ let toExpr (res: Resolution) (warn: bool) : WExpr =
     | Resolution.Local(n, ty)
     | Resolution.CapturedVar(n, ty)      -> WExpr.LocalGet(n, ty)
     | Resolution.ModuleValue(qn, retTy)  -> WExpr.Call(qn, [], retTy)
+    | Resolution.Global(qn, ty)          -> WExpr.GlobalGet(qn, ty)
     | Resolution.KnownFunc(qn, _, _)     -> WExpr.FuncRef qn
     | Resolution.ExternFunc(key, retTy)  -> WExpr.Call(key, [], retTy)
     | Resolution.Unknown name            ->
@@ -102,7 +108,7 @@ let toExpr (res: Resolution) (warn: bool) : WExpr =
 /// Used by buildClosure to exclude module values from capture lists.
 let isModuleValue (ctx: Ctx) (name: string) : bool =
     let q = ctx.FuncNameAlias |> Map.tryFind name |> Option.defaultValue name
-    match Map.tryFind q ctx.KnownFuncs with Some([], _) -> true | _ -> false
+    ctx.MutableGlobals.ContainsKey q || (match Map.tryFind q ctx.KnownFuncs with Some([], _) -> true | _ -> false)
 
 /// True when the identifier is a local variable in scope.
 let isLocal      (ctx: Ctx) (name: string) : bool = Map.containsKey name ctx.Locals

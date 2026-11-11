@@ -305,6 +305,30 @@ module FableNormalize =
         | _ -> visit inlineStreams e
 
     // ─────────────────────────────────────────────────────────────────
+    // Pass 5 — `for x in xs do body` over a list or an array.
+    //     let e = getEnumerator xs in try while e.MoveNext() do (let x = e.Current in body) finally dispose e
+    // is an iterator protocol the backend has no object for; as `List.iter (fun x -> body) xs` it becomes a plain loop
+    // (the handlers inline the literal lambda, so mutable locals of the loop body keep working).
+    // ─────────────────────────────────────────────────────────────────
+
+    let rec private stripCasts (e: Expr) = match e with TypeCast(inner, _) -> stripCasts inner | _ -> e
+
+    let rec private foreachLoops (e: Expr) : Expr =
+        match e with
+        | Let(_, Call(Import({ Selector = "getEnumerator" }, _, _), info, _, _),
+              TryCatch(WhileLoop(_, Let(x, _, body), _), None, Some _, _)) when (match info.Args with [ _ ] -> true | _ -> false) ->
+            let src = stripCasts info.Args.Head
+            let iterate stem =
+                Call(Import({ Selector = "iterate"; Path = $"./{stem}.fs"; Kind = LibraryImport(LibraryImportInfo.Create()) }, Any, None),
+                     CallInfo.Create(args = [ Lambda(x, foreachLoops body, None); src ]), Unit, None)
+            (match src.Type with
+             | Type.List _ -> iterate "List"
+             | Type.Array(_, ArrayKind.ResizeArray) -> visit foreachLoops e
+             | Type.Array _ -> iterate "Array"
+             | _ -> visit foreachLoops e)
+        | _ -> visit foreachLoops e
+
+    // ─────────────────────────────────────────────────────────────────
     // Entry points
     // ─────────────────────────────────────────────────────────────────
 
@@ -335,4 +359,20 @@ module FableNormalize =
 
     /// Runs AFTER Fable's uncurrying (the calls have their final shape then): single-use stream intermediates move
     /// into the call that consumes them, which is what exposes a pipeline to the fusion.
-    let finishDeclaration (decl: Declaration) : Declaration = mapBodies (fun _ -> inlineStreams) decl
+    let finishDeclaration (decl: Declaration) : Declaration = mapBodies (fun _ -> inlineStreams >> foreachLoops) decl
+
+    /// Names that are assigned (`x <- …` on an identifier) anywhere in the declaration.  A module-level value
+    /// among them is a mutable variable: it lives in a wasm global instead of being recomputed at every reference.
+    let assignedIdents (decl: Declaration) : Set<string> =
+        let names = System.Collections.Generic.HashSet<string>()
+        let scan (_: string list) (body: Expr) : Expr =
+            body
+            |> visitFromInsideOut (fun x ->
+                (match x with
+                 | Expr.Set(IdentExpr i, ValueSet, _, _, _) -> names.Add i.Name |> ignore
+                 | _ -> ())
+                x)
+            |> ignore
+            body
+        mapBodies scan decl |> ignore
+        Set.ofSeq names

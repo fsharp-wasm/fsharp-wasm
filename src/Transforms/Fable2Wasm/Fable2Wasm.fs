@@ -42,6 +42,17 @@ let private preScanGenerics (ctx: Ctx) (decls: Declaration list) : unit =
 /// Returns the updated immutable record (KnownFuncs accumulates across declarations).
 let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
     match decl with
+    // module-level `let mutable x = init`: a wasm global; `init` runs in the start function
+    | MemberDeclaration memberDecl when memberDecl.Args.IsEmpty && ctx.AssignedIdents.Contains memberDecl.Name ->
+        let func = transformMemberDecl ctx transformExpr memberDecl |> resolveLocals
+        let qualified = ctx.FuncNameAlias |> Map.tryFind func.Name |> Option.defaultValue func.Name
+        let initName = qualified + "$init"
+        ctx.Functions.Add { func with Name = initName; Exported = false }
+        let stored = match func.Result with WType.Ref(idx, _) -> WType.Ref(idx, true) | t -> t
+        ctx.MutableGlobals.[qualified] <- func.Result
+        ctx.GlobalDecls.Add { Name = qualified; Type = stored; Init = WasmGc.Builder.Core.makeNumericZero stored; Mutable = true; Exported = false }
+        ctx.InitSteps.Add(WExpr.GlobalSet(qualified, WExpr.Call(initName, [], func.Result)))
+        ctx
     | MemberDeclaration memberDecl ->
         let func = transformMemberDecl ctx transformExpr memberDecl |> resolveLocals
         let shortName = func.Name
@@ -49,10 +60,22 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
         // FuncNameAlias was pre-populated in ModuleDeclaration so recursive calls resolve correctly.
         let qualifiedName = ctx.FuncNameAlias |> Map.tryFind shortName |> Option.defaultValue shortName
         let isLibFunc = qualifiedName <> shortName
+        let rec hasGeneric (t: Fable.Type) =
+            match t with
+            | Fable.Type.GenericParam _ -> true
+            | Fable.Type.List e | Fable.Type.Option(e, _) | Fable.Type.Array(e, _) -> hasGeneric e
+            | Fable.Type.Tuple(ts, _) -> List.exists hasGeneric ts
+            | Fable.Type.LambdaType(a, r) -> hasGeneric a || hasGeneric r
+            | Fable.Type.DelegateType(ts, r) -> List.exists hasGeneric ts || hasGeneric r
+            | Fable.Type.DeclaredType(_, ts) -> List.exists hasGeneric ts
+            | _ -> false
+        // a generic function can only be compiled with its type parameters unresolved; it is not an export, and it
+        // stays in the module only if something calls it unspecialised (see dropUnreferenced)
+        let isGenericOriginal = memberDecl.Args |> List.exists (fun a -> hasGeneric a.Type) || hasGeneric memberDecl.Body.Type
         let func = { func with
                         Name = qualifiedName
                         // Library functions are internal — only last-file functions are exported.
-                        Exported = if isLibFunc then false else func.Exported }
+                        Exported = if isLibFunc || isGenericOriginal then false else func.Exported }
         ctx.Functions.Add(func)
         let paramTypes = func.Params |> List.map snd
         let kf = ctx.KnownFuncs |> Map.add qualifiedName (paramTypes, func.Result)
@@ -314,13 +337,44 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                 ctx''
 
 
+/// Remove every function nothing refers to: not exported, not the start function, and not called / referenced
+/// (`call`, `ref.func`, closure creation, vtable globals) from a function that is kept.  The generic original of a
+/// function that is only ever used specialised (`el<'msg>` → `el|…`) is the typical victim: it can only be compiled
+/// with its type parameters unresolved, so it must not be emitted unless something really needs it.
+let private dropUnreferenced (ctx: Ctx) (funcs: WFuncDecl list) : WFuncDecl list =
+    let byName = funcs |> List.map (fun f -> f.Name, f) |> dict
+    let kept = System.Collections.Generic.HashSet<string>()
+    let rec visit (e: WExpr) =
+        (match e with
+         | WExpr.Call(n, _, _) | WExpr.TailCall(n, _, _) | WExpr.FuncRef n | WExpr.Closure(n, _, _) -> keep n
+         | _ -> ())
+        WasmGc.Core.Traverse.children e |> List.iter visit
+    and keep (name: string) =
+        if kept.Add name then
+            match byName.TryGetValue name with
+            | true, f -> visit f.Body
+            | _ -> ()
+    for f in funcs do
+        if f.Exported then keep f.Name
+    if ctx.InitSteps.Count > 0 then
+        keep "$__init"
+        ctx.InitSteps |> Seq.iter visit
+    for g in Seq.append ctx.VTableGlobals ctx.GlobalDecls do visit g.Init
+    // anything the kept bodies reach through the helpers is already named in a call; helper functions (`$…`) that
+    // are added later by the BCL registry are not in `funcs`
+    funcs |> List.filter (fun f -> kept.Contains f.Name)
+
 /// Build the final WModule from accumulated ctx state.
 /// Call this once, on the last file in the project.
 let buildWModule (ctx: Ctx) : WModule =
+    // the start function: initialisers of module-level mutable variables, in declaration order
+    if ctx.InitSteps.Count > 0 && not (ctx.Functions.Exists(fun f -> f.Name = "$__init")) then
+        ctx.Functions.Add { Name = "$__init"; Params = []; Result = WType.Void; Locals = []; Body = WExpr.Sequence(List.ofSeq ctx.InitSteps); Exported = false }
     let fixedFunctions =
         ctx.Functions |> Seq.toList
         |> WasmGc.Runtime.ArraySort.specialize ctx      // per-array-type Array.sortWith helpers
         |> RT.fixClosureApply ctx.TypeDefs              // must run last: creates missing ClosureBase types
+        |> dropUnreferenced ctx
 
     // TODO: obsolete when pipeline is in place
     // Validate the functions after closure transformations are applied
@@ -360,7 +414,8 @@ let buildWModule (ctx: Ctx) : WModule =
                   Mutable = true
                   Exported = false }
             [ yield carrierGlobal
-              yield! ctx.VTableGlobals ]
+              yield! ctx.VTableGlobals
+              yield! ctx.GlobalDecls ]
         Exports =
             // Collect all exported functions
             let exportedFuncs =
@@ -389,7 +444,7 @@ let buildWModule (ctx: Ctx) : WModule =
                        |> List.map (fun (_, f) -> { InternalName = f.Name; ExportName = f.Name; Kind = ExportFunc }) ]
         DataSegments = []
         Tags = [ { Name = "$fsharp_exn"; ParamTypes = [] } ]
-        Start = None
+        Start = if ctx.InitSteps.Count > 0 then Some "$__init" else None
         HasLinearMemory = !ctx.HasLinearMemory
     }
 
@@ -427,6 +482,9 @@ let processFileIntoCtx (ctx: Ctx) (com: ICompilerCore) (file: Fable.File) (isLas
             { baseCtx with FuncNameAlias = aliases }
         else baseCtx
     preScanGenerics ctx file.Declarations
+    for decl in file.Declarations do
+        for name in FableNormalize.assignedIdents decl do
+            ctx.AssignedIdents.Add name |> ignore
 
     // ── Phase 1: Scope analysis ───────────────────────────────────────────────
     // Build ScopeMaps for all member functions so Scope.resolve can distinguish

@@ -870,6 +870,14 @@ let encodeModule (wmod: Emit.WasmModule) : byte array =
     if not (List.isEmpty wmod.Exports) then
         encodeExportSection buf wmod.Exports
 
+    // Section 8: Start (module-level initialisers)
+    match wmod.StartFunc with
+    | Some idx ->
+        let content = ResizeArray<byte>()
+        encodeLEB128Unsigned content (uint32 idx)
+        writeSection buf 8uy content
+    | None -> ()
+
     // Section 9: Element (declarative refs for ref.func)
     if not (List.isEmpty wmod.DeclaredFuncRefs) then
         encodeElementSection buf wmod.DeclaredFuncRefs

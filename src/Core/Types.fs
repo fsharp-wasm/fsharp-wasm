@@ -184,6 +184,14 @@ type Ctx =
         /// Accumulated vtable globals to emit in the final WModule.
         VTableGlobals: ResizeArray<WGlobalDecl>
 
+        /// Module-level `let mutable x = …`: qualified name → declared (non-null) WType.  Kept in a wasm global; the
+        /// initialisers run, in declaration order, in the start function `$__init`.
+        MutableGlobals: System.Collections.Generic.Dictionary<string, WType>
+        GlobalDecls: ResizeArray<WGlobalDecl>
+        InitSteps: ResizeArray<WExpr>
+        /// Names assigned anywhere (`x <- …` on an identifier): a module value among them is a mutable global.
+        AssignedIdents: System.Collections.Generic.HashSet<string>
+
         /// ResizeArray element WType key → (arrTypeIdx, ravTypeIdx).
         /// ravTypeIdx: index of struct { data: (mut ref? $Arr_T); len: (mut i32) }.
         ResizeArrayRegistry: System.Collections.Generic.Dictionary<string, int * int>
@@ -266,6 +274,10 @@ type Ctx =
             VTableRegistry = System.Collections.Generic.Dictionary<string, int * int * int list * string list>()
             VTableImplRegistry = System.Collections.Generic.Dictionary<string * string, string>()
             VTableGlobals = new ResizeArray<WGlobalDecl>()
+            MutableGlobals = System.Collections.Generic.Dictionary<string, WType>()
+            GlobalDecls = new ResizeArray<WGlobalDecl>()
+            InitSteps = new ResizeArray<WExpr>()
+            AssignedIdents = System.Collections.Generic.HashSet<string>()
             ResizeArrayRegistry = System.Collections.Generic.Dictionary<string, int * int>()
             DecisionTreeCounter = ref 0
             TargetBase = ref 0

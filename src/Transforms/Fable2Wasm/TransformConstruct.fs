@@ -235,7 +235,11 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
                         ctx.TypeDefs.Add(
                             { Name = instKey
                               Def = WTypeDef.Struct([{ Name = "tag"; Type = WType.I32; Mutable = false }], None) })
-                        // Emit case structs, each extending the base.
+                        // Reserve ALL case slots first (baseIdx + 1 + i): mapping a field type can register further types
+                        // (a list of this very union, …) and would otherwise push the later cases off their indices.
+                        for i in 0 .. cases.Length - 1 do
+                            ctx.TypeDefs.Add({ Name = $"{instKey}#{i}"; Def = WTypeDef.Struct([], Some baseIdx) })
+                        // Fill the case structs, each extending the base.
                         for i in 0 .. cases.Length - 1 do
                             let case = cases.[i]
                             let dataFields =
@@ -244,11 +248,11 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
                                     let concreteType = substituteType f.FieldType
                                     { Name = f.Name; Type = mapTypeKnown ctx concreteType; Mutable = false })
                                 |> List.filter (fun f -> f.Type <> WType.Void)
-                            ctx.TypeDefs.Add(
+                            ctx.TypeDefs.[baseIdx + 1 + i] <-
                                 { Name = $"{instKey}#{i}"
                                   Def = WTypeDef.Struct(
                                         { Name = "tag"; Type = WType.I32; Mutable = false } :: dataFields,
-                                        Some baseIdx) })
+                                        Some baseIdx) }
                         baseIdx
             // Build the case key and look up in both registries.
             let caseKey = $"{instKey}#{tag}"
