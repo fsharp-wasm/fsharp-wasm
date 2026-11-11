@@ -318,7 +318,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
         | _ ->
             // Numeric compare → -1 / 0 / 1 (floats: F# ordering, NaN lowest)
-            numericCompare a b argTy
+            compareValues ctx argTy a b
     // comparePrimitives(a, b) — Fable's generic primitive compare (Util.fs import).
     // Result: -1 / 0 / 1.  Dispatches on runtime arg type.
     | "comparePrimitives", [a; b], WType.I32 ->
@@ -327,7 +327,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         | WType.Ref(si, _) when si = StringTypeIdx ->
             WExpr.Call(ctx.UseHelper("$strCompare"), [a; b], WType.I32)
         | _ ->
-            numericCompare a b argTy
+            compareValues ctx argTy a b
     // toString for numbers (via LibCall path)
     | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx && (match info.Args with [ a ] -> a.Type = Fable.Type.Char | _ -> false) ->
         charToString arg

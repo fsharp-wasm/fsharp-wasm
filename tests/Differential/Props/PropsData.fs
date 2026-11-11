@@ -65,7 +65,7 @@ let prop_d_treeDepth (a: int) (b: int) : int = [ a; b; a + b; a - b; b * 2; a * 
 // ── tuples ──────────────────────────────────────────────────────────────────────────────────────
 let prop_d_tupleSwap (a: int) (b: int) : int = let (x, y) = (b, a) in x - y
 let prop_d_tupleEq (a: int) (b: int) : bool = (a, b) = (b, a)
-// GAP (see GAPS.md): structural `compare` on tuples — prop_d_tupleCompare
+let prop_d_tupleCompare (a: int) (b: int) : int = sign (compare (a, b) (b, a))
 let prop_d_tupleNested (a: int) (b: int) : int = let ((x, y), z) = ((a, b), a + b) in x * y - z
 let prop_d_fst (a: int) (b: int) : int = fst (a, b) + snd (b, a) * 2
 

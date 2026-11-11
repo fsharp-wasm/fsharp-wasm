@@ -120,6 +120,8 @@ type Ctx =
         /// Key: typeIdx (in TypeDefs); Value: generated function name ($equals_N).
         /// Pre-registered before body generation to allow recursive types.
         EqualityRegistry: System.Collections.Generic.Dictionary<int, string>
+        /// Structural ordering functions (`$compare_N`), by struct / DU type index.
+        CompareRegistry: System.Collections.Generic.Dictionary<int, string>
 
         /// Generic MemberDecl bodies, pre-scanned before translation.
         /// Key: fully-qualified F# function name (e.g. "MyModule.swap")
@@ -249,6 +251,7 @@ type Ctx =
             ClosureBaseTypeMap = System.Collections.Generic.Dictionary<int, int>()
             UsedHelpers = System.Collections.Generic.HashSet<string>()
             EqualityRegistry = System.Collections.Generic.Dictionary<int, string>()
+            CompareRegistry = System.Collections.Generic.Dictionary<int, string>()
             GenericFuncRegistry = System.Collections.Generic.Dictionary<string, ICompilerCore * obj>()
             MonoCache = System.Collections.Generic.Dictionary<string, string>()
             TypeSubst = Map.empty

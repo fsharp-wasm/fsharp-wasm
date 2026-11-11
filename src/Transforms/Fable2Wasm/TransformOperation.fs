@@ -98,7 +98,18 @@ let transformOperation
         let wRight = eval ctx right
         let unsigned = Q.isUnsignedInt left.Type
         let pick s u = if unsigned then u else s
+        let structural = isStructuralRef (exprWType wLeft)
         match op with
+        // ordering on records / unions / tuples / options: the structural compare function, then compare with 0
+        | BinaryLess | BinaryLessOrEqual | BinaryGreater | BinaryGreaterOrEqual when structural ->
+            let cmp = compareValues ctx (exprWType wLeft) wLeft wRight
+            let cop =
+                match op with
+                | BinaryLess -> WCompareOp.LtS
+                | BinaryLessOrEqual -> WCompareOp.LeS
+                | BinaryGreater -> WCompareOp.GtS
+                | _ -> WCompareOp.GeS
+            WExpr.Compare(cop, cmp, WExpr.Const(WConst.I32 0))
         // Comparisons → WExpr.Compare
         | BinaryEqual ->
             WExpr.Compare(WCompareOp.Eq, wLeft, wRight)

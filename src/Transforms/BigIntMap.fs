@@ -10,6 +10,7 @@ open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Transforms.NumericCasts
 open WasmGc.Transforms.TransformHelpers
+open WasmGc.Runtime.Equality
 
 let tryBigIntInline (ctx: Ctx) (stem: string) (sel: string) (wArgs: WExpr list) (unsigned: bool) : WExpr option =
     if stem <> "BigInt" then None
