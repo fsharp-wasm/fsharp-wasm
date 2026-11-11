@@ -309,6 +309,9 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         WExpr.Compare(WCompareOp.Eq,
             arrayLen(WExpr.Call(ctx.UseHelper("$strTrim"), [str], WType.Ref(StringTypeIdx, false))),
             i32Zero)
+    // `compare` on tuples: Fable passes them to Util.compareArrays; they are structs here, so use the structural ordering
+    | "compareArrays", [a; b], WType.I32 when isStructuralRef (exprWType a) ->
+        compareValues ctx (exprWType a) a b
     // String.compare(a, b) / String.Compare(a, b) → $strCompare → i32 (-1 | 0 | 1)
     // Also handles generic "compare" calls with non-string args (e.g. int64 via Long module)
     | ("compare" | "compareOrdinal" | "compareCurrentCulture"), [a; b], WType.I32 ->
