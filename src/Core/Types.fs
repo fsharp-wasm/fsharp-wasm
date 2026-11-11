@@ -141,6 +141,9 @@ type Ctx =
         /// Empty outside generic function bodies.
         /// Key: F# generic param name ("T", "U", ...); Value: concrete WType.
         TypeSubst: Map<string, WType>
+        /// Mutable locals that a closure captures AND something assigns: name → the type of the value.  They live in a
+        /// shared ref cell (`Locals` holds the cell), read through `struct.get` and written through `struct.set`.
+        BoxedLocals: Map<string, WType>
 
         /// Compiler reference for diagnostics
         Compiler: ICompilerCore
@@ -149,6 +152,9 @@ type Ctx =
         /// True when compiling a non-last file (library context).
         /// Library functions get module-qualified names and are not exported.
         IsLibraryContext: bool
+        /// Top-level functions of the file being compiled are wasm exports.  False for the files of a referenced
+        /// project (a runtime library): their functions are internal, and are dropped when unreachable.
+        ExportFunctions: bool
 
         /// Filename stem of the current source file (e.g. "Map" for Map.fs).
         /// Used to key KnownFuncsByPath for cross-file import resolution.
@@ -191,6 +197,11 @@ type Ctx =
         InitSteps: ResizeArray<WExpr>
         /// Names assigned anywhere (`x <- …` on an identifier): a module value among them is a mutable global.
         AssignedIdents: System.Collections.Generic.HashSet<string>
+
+        /// Host callbacks (function-typed arguments of JS imports): signature key → index into `CallbackTramps`.
+        CallbackSigs: System.Collections.Generic.Dictionary<string, int>
+        /// Per callback signature: (trampoline function name, number of boxed JS arguments it takes).
+        CallbackTramps: ResizeArray<string * int>
 
         /// ResizeArray element WType key → (arrTypeIdx, ravTypeIdx).
         /// ravTypeIdx: index of struct { data: (mut ref? $Arr_T); len: (mut i32) }.
@@ -263,8 +274,10 @@ type Ctx =
             GenericFuncRegistry = System.Collections.Generic.Dictionary<string, ICompilerCore * obj>()
             MonoCache = System.Collections.Generic.Dictionary<string, string>()
             TypeSubst = Map.empty
+            BoxedLocals = Map.empty
             Compiler = com
             IsLibraryContext = false
+            ExportFunctions = true
             CurrentFileStem = ""
             NamePrefix = ""
             FuncNameAlias = Map.empty
@@ -278,6 +291,8 @@ type Ctx =
             GlobalDecls = new ResizeArray<WGlobalDecl>()
             InitSteps = new ResizeArray<WExpr>()
             AssignedIdents = System.Collections.Generic.HashSet<string>()
+            CallbackSigs = System.Collections.Generic.Dictionary<string, int>()
+            CallbackTramps = new ResizeArray<string * int>()
             ResizeArrayRegistry = System.Collections.Generic.Dictionary<string, int * int>()
             DecisionTreeCounter = ref 0
             TargetBase = ref 0

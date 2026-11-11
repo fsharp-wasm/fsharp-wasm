@@ -113,8 +113,10 @@ let isModuleValue (ctx: Ctx) (name: string) : bool =
 /// True when the identifier is a local variable in scope.
 let isLocal      (ctx: Ctx) (name: string) : bool = Map.containsKey name ctx.Locals
 
-/// True when the identifier is capturable (local and NOT a module-level value).
-let isCapturable (ctx: Ctx) (name: string) : bool = isLocal ctx name && not (isModuleValue ctx name)
+/// True when the identifier is capturable: a local in scope.  A local shadows a module-level value of the same name
+/// (`let tabBtn … (label: string) = button { …; label }` next to a module-level `label`), so being one is not a reason
+/// to leave it out.
+let isCapturable (ctx: Ctx) (name: string) : bool = isLocal ctx name
 
 // ─────────────────────────────────────────────────────────────────
 // Ctx extension helpers — fluent context building

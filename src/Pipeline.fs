@@ -22,22 +22,18 @@ module E         = WasmGc.Emit.Emit
 module Bin       = WasmGc.Emit.Encoder
 module Phases    = WasmGc.Pipeline.Phases
 
-// Per-project shared Ctx accumulated across source files.
-// Keyed by project file path; cleared when the last file has been processed.
-let private sharedCtxs = ConcurrentDictionary<string, T.Ctx>()
+/// A source file whose F# → Fable step is done and which waits for the others (see compileFile).
+type private PendingFile =
+    { Com: Compiler; File: Fable.File; IsLibrary: bool; IsEntry: bool; OutPath: string }
+
+// Per-project files that have been through the front-end, keyed by project file, then by full source path.
+let private pendingFiles = ConcurrentDictionary<string, ConcurrentDictionary<string, PendingFile>>()
 
 // Per-project lock objects — serialize processFileIntoCtx calls per project
 // so that all shared mutable Ctx fields (TypeDefs, Dictionaries, etc.) are
 // updated atomically without concurrent modification exceptions.
 let private compilationLocks = ConcurrentDictionary<string, obj>()
 
-// Per-project count of files processed.
-// Uses atomic AddOrUpdate; when count reaches com.SourceFiles.Length, emission happens.
-let private processedCounts = ConcurrentDictionary<string, int>()
-
-// Per-project emit outPath — the outPath of the "app" (non-library) source file,
-// which determines where App.wasm / App.wat are written.
-let private emitOutPaths = ConcurrentDictionary<string, string>()
 
 // ─────────────────────────────────────────────────────────────────
 // WIT / Component Model helpers
@@ -142,60 +138,57 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             Fable.Naming.isInFableModules currentFile
             || currentFile.Contains("fable-library-wasmgc")
             || System.IO.Path.GetFileName(currentFile) = "Interop.fs"
-        let isLastFile = not isLibraryFile
+        // Only the entry project's own files export their functions; a referenced project (a runtime library) does not.
+        let isEntryFile =
+            let dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath projectFile)
+            let file = System.IO.Path.GetFullPath currentFile
+            file.StartsWith(dir.TrimEnd(System.IO.Path.DirectorySeparatorChar) + string System.IO.Path.DirectorySeparatorChar, System.StringComparison.Ordinal)
 
-        // Serialize ALL Ctx mutations per-project — the shared Ctx contains many
-        // non-thread-safe mutable fields (TypeDefs ResizeArray, Dictionaries, etc.).
-        // The F# front-end (transformFile above) is thread-safe; only the WasmGC
-        // transform phase needs to be sequential.
-        let compilationMutex = compilationLocks.GetOrAdd(projectFile, fun _ -> obj())
-        let finalCtx =
-            lock compilationMutex (fun () ->
-                // Re-read the latest ctx inside the lock so each file sees all
-                // declarations accumulated by previously completed files.
-                let latestCtx =
-                    match sharedCtxs.TryGetValue(projectFile) with
-                    | true, c -> c
-                    | _ ->
-                        let stringMode =
-                            match System.Environment.GetEnvironmentVariable("WASMGC_STRING_MODE") with
-                            | "i16" -> T.I16
-                            | _     -> T.I32
-                        let fresh = T.Ctx.Create(com, stringMode)
-                        sharedCtxs[projectFile] <- fresh
-                        fresh
-                let ctx = Lowering.processFileIntoCtx latestCtx com fableFile isLastFile
-                // Write BEFORE releasing lock so subsequent files see the update.
-                sharedCtxs[projectFile] <- ctx
-                ctx)
-
-        // Track the correct output path from the app (non-library) file.
-        if not isLibraryFile then
-            emitOutPaths[projectFile] <- outPath
-
-        // Count files processed. Emission happens when the count reaches the total.
-        // This works regardless of processing order (race-free).
+        // The Fable host hands the files over in parallel and in ANY order, but lowering is order-dependent: a type must
+        // be declared before the code that uses it, a function before its callers.  So each file is parked here after
+        // its (thread-safe, parallel) F# → Fable step; whoever completes the set lowers all of them, in project order,
+        // on one thread.
         let totalFiles =
             com.SourceFiles
             |> Array.filter (fun f -> f.EndsWith(".fs") || f.EndsWith(".fsx"))
             |> Array.length
-        let processedCount = processedCounts.AddOrUpdate(projectFile, 1, fun _ c -> c + 1)
-        let allDone = processedCount >= totalFiles
+        let compilationMutex = compilationLocks.GetOrAdd(projectFile, fun _ -> obj())
+        let completed : PendingFile list option =
+            lock compilationMutex (fun () ->
+                let parked = pendingFiles.GetOrAdd(projectFile, fun _ -> ConcurrentDictionary<string, PendingFile>())
+                let key (f: string) = System.IO.Path.GetFullPath f
+                parked[key currentFile] <-
+                    { Com = com; File = fableFile; IsLibrary = isLibraryFile; IsEntry = isEntryFile; OutPath = outPath }
+                if parked.Count < totalFiles then None
+                else
+                    pendingFiles.TryRemove projectFile |> ignore
+                    let inOrder = com.SourceFiles |> Array.map key |> Array.distinct
+                    let known = inOrder |> Array.choose (fun f -> match parked.TryGetValue f with | true, p -> Some p | _ -> None)
+                    let unknown = parked |> Seq.filter (fun kv -> not (Array.contains kv.Key inOrder)) |> Seq.map (fun kv -> kv.Value) |> Seq.toArray
+                    Some(List.ofArray (Array.append known unknown)))
 
-        // Emit only when all source files have been processed.
-        // Use the stored app-file outPath (not the current file's outPath which may be a library file).
-        if not isSilent && allDone then
+        // Emit only when every source file has arrived (and not in a silent watch pass).
+        // The output path is the app file's, not a library file's.
+        match completed with
+        | Some files when not isSilent ->
             let emitPath =
-                match emitOutPaths.TryGetValue(projectFile) with
-                | true, p -> p
-                | _       -> outPath  // fallback: single-file project
+                match files |> List.filter (fun p -> not p.IsLibrary) |> List.tryLast with
+                | Some p -> p.OutPath
+                | None -> outPath
 
-            processedCounts.TryRemove(projectFile) |> ignore
-            emitOutPaths.TryRemove(projectFile)    |> ignore
-            sharedCtxs.TryRemove(projectFile)      |> ignore
+            let finalCtx =
+                let stringMode =
+                    match System.Environment.GetEnvironmentVariable("WASMGC_STRING_MODE") with
+                    | "i16" -> T.I16
+                    | _     -> T.I32
+                files
+                |> List.fold
+                    (fun (ctx: T.Ctx) p ->
+                        Lowering.processFileIntoCtx { ctx with ExportFunctions = p.IsEntry } p.Com p.File (not p.IsLibrary))
+                    (T.Ctx.Create(files.Head.Com, stringMode))
 
             let wasmModule =
-                let declarations = fableFile.Declarations
+                let declarations = (files |> List.filter (fun p -> not p.IsLibrary) |> List.tryLast |> Option.defaultValue files.Head).File.Declarations
 
                 // ── Flush accumulated diagnostics from all processed files ────────
                 // Each processFileIntoCtx call accumulates into finalCtx.Diagnostics.
@@ -294,5 +287,6 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                         eprintfn "    ⚠️  wasm-tools component new failed — embedded.wasm kept"
                 else
                     eprintfn $"    ℹ️  wasm-tools not found or embed failed — WIT written to %s{witPath}"
+        | _ -> ()
     }
 

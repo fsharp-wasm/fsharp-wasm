@@ -790,6 +790,9 @@ check("ExnCarrier int loop sum → 60",                       60, exp.testExnCar
 check("module-level mutable → 15",                           15, exp.testModuleMutable());
 check("module-level mutable function slot → 42",             42, exp.testModuleMutableFn());
 check("for-in over list and array → 36",                     36, exp.testForInListArray());
+check("captured mutable local is shared → 64",                64, exp.testCapturedMutable());
+check("two closures share one mutable → 3",                   3,  exp.testSharedMutableCells());
+check("local shadows module value, closure captures it → 5",  5,  exp.testLocalShadowsModuleValue(4));
 check("record with list field → 5",                           5, exp.testRecordListField());
 
 console.log(`\n────────────────────────────────────────────────`);

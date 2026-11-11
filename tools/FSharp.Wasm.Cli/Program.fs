@@ -59,15 +59,18 @@ let private resolveFsproj projArg =
         | _       -> Error $"Multiple .fsproj in: {path} — specify one"
     else Error $"Path not found: {path}"
 
-/// Locate fable-library-wasmgc by searching upwards from the project directory.
+/// Locate fable-library-wasmgc: `FSHARP_WASM_LIBRARY`, else upwards from the project directory (a project inside this
+/// repository), else upwards from the CLI itself (a project anywhere else — a runtime library, an app of its own).
 let private findFableLibWasmGc (projDir: string) =
     let rec tryUp dir depth =
-        if depth > 5 then None
+        if depth > 8 || String.IsNullOrEmpty dir then None
         else
             let candidate = Path.Combine(dir, "fable-library-wasmgc")
             if Directory.Exists candidate then Some candidate
             else tryUp (Path.GetDirectoryName dir) (depth + 1)
-    tryUp projDir 0
+    match Environment.GetEnvironmentVariable "FSHARP_WASM_LIBRARY" with
+    | null | "" -> tryUp projDir 0 |> Option.orElse (tryUp (AppContext.BaseDirectory.TrimEnd Path.DirectorySeparatorChar) 0)
+    | dir -> Some dir
 
 [<EntryPoint>]
 let main argv =

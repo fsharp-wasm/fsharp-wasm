@@ -32,6 +32,7 @@ let rec wTypeToString (ty: WType) : string =
     | WType.I16 -> "i16"
     | WType.Void -> "void"
     | WType.Externref -> "externref"
+    | WType.ExternNonNull -> "(ref extern)"
     | WType.I31ref -> "i31ref"
     | WType.EqRef -> "eqref"
     | WType.AnyRef -> "anyref"

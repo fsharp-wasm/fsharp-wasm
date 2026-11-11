@@ -31,6 +31,8 @@ type WType =
     | Void
     /// Externref (for JS interop bridge).
     | Externref
+    /// Non-nullable `(ref extern)`.  Only for import declarations, where the JS String Builtins prescribe it exactly.
+    | ExternNonNull
     /// i31ref — small unboxed integer on the GC heap.
     | I31ref
     /// Non-nullable (ref eq) — supertype of all GC-managed structs, arrays, and i31.
@@ -66,6 +68,7 @@ module WTypeKeys =
         | WType.I16 -> "i16"
         | WType.Void -> "void"
         | WType.Externref -> "extern"
+        | WType.ExternNonNull -> "externnn"
         | WType.I31ref -> "i31"
         | WType.EqRef -> "eqref"
         | WType.AnyRef -> "anyref"

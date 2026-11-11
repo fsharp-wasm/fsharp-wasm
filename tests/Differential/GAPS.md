@@ -61,6 +61,33 @@ Each of these was silently WRONG or did not compile; the property is what showed
 | `String.Join(sep, xs)` with non-string `xs` | illegal cast | elements converted first |
 | `%A` / `%O` of records, lists, tuples | invalid module | error `WGC011` (structured printing with F#'s 80-column layout is open) |
 
+## Found and fixed by compiling a real program: the browser runtime and its ten demos (`fsharp-wasm-runtime`)
+
+A 1,100-line library project plus ten applications, compiled from a *different repository* and driven in Chromium.
+Each of these was silently wrong or produced an invalid module; none showed in single-project tests.
+
+| Construct | Was | Now |
+|---|---|---|
+| project with several files | the Fable host hands files over in parallel and in any order; lowering is order dependent (a type before its use, a function before its callers) → a union used before its declaration was registered twice, `Attr list` inside the mutually recursive `Node`/`Attr` got an `i32` element type | each file is parked after its (parallel) front-end step; the last arrival lowers all of them, on one thread, in project order |
+| `let mutable x` captured by a closure and assigned | the closure got a COPY (`counter 2` printed 0) | shared ref cell (`FableNormalize.capturedAndAssigned`, `BoxedLocals`): reads `struct.get`, writes `struct.set`; regression tests in QuickTest |
+| a parameter named like a module-level value (`label`) used inside a closure | not captured (the module value won) → "read but never bound" | a local shadows a module value |
+| a program function named like a core function (`append`, `iter`, `clear`) | `List.append` calls were bound to it (`return_call $append` with the wrong types) and, the other way round, its calls went to the core replacement | core imports resolve through their own (file, name); program functions bypass the selector-keyed replacements |
+| module value of ANOTHER file read as a value (`let nil = El 0`, then `Element.nil`) | `ref.func` | a call |
+| `List.choose` / `Array.choose` with a chooser returning an option of a reference type | `struct.get 0` on the reference | `unwrapSome` (non-null reference = its own `Some`) |
+| generic instance member called from another file (`builder.For(xs, f)`) | specialised copy called without its receiver | `ThisArg` is the first argument |
+| project outside the repository | `fable-library-wasmgc` not found → core files treated as program files | searched from the CLI too; `FSHARP_WASM_LIBRARY` overrides |
+| every public function of every file was a wasm export, every declared extern an import | a 47 KB module for a counter; a library's functions collide (`BUG-05`) | only the ENTRY project's functions are exports; an extern is imported only if a surviving function calls it (11 KB → 19 KB with all the code that now compiles, vs 47 KB before) |
+| `[<Import("f", "x.js")>] let f (s: string) (cb: string -> unit) : string = nativeOnly` | strings and closures are GC objects JS cannot touch | host interop ABI, see `docs/host-interop.md` |
+
+Still open from that work:
+
+| Area | Gap |
+|---|---|
+| `seq<'T>` parameters | the type is not represented (`i32`): a function taking `seq` cannot be called with a list or array (the HTML builder's `For` takes `list` and `array` instead) |
+| strings are never null | `s = null`, `isNull s` cannot be written for a string; a JS `null` / `undefined` arrives as `""` |
+| host callbacks | registrations in the closure table are never released (a view that re-registers handlers on every render grows it); only `int`/`bool`/`float`/`string`/`string array` cross the boundary (no `int64`, records) |
+| `printfn` in the browser | the host reads the string through the `__str_len` / `__str_at` exports (one call per character) |
+
 ## Still open (coverage probe: every call below compiles to an unhandled import)
 
 | Area | Missing |

@@ -11,6 +11,7 @@ Welcome to the fsharp-wasm documentation. This project compiles F# to WebAssembl
 | [WasmGC Backend](wasm-gc-backend.md) | How F# compiles to WasmGC instructions |
 | [Type Mapping](type-mapping.md) | F# types → WasmGC types reference |
 | [Component Model](component-model.md) | WIT generation, module linking, FFI |
+| [Host interop](host-interop.md) | Strings, arrays and closures across the JavaScript boundary (`[<Import>]` + `nativeOnly`) |
 | [FAQ](faq.md) | Frequently asked questions |
 
 ## Project Status

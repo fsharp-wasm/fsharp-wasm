@@ -20,6 +20,7 @@ SUITES=(
   "unit|dotnet run -c Release --project tests/PassTests"
   "quicktest|tests/QuickTest/run.sh"
   "showcase|tests/Showcase/run.sh"
+  "hostinterop|tests/HostInterop/run.sh"
   "properties|tests/Differential/run-props.sh"
   "quicktestmulti|tests/QuickTestMulti/run.sh"
   "wasm|tests/Wasm/run-tests.sh"

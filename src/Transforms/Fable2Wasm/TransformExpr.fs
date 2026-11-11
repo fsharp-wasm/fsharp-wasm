@@ -122,6 +122,10 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         transformValue ctx kind transformExpr
 
     // ── Identifier references ─────────────────────────────
+    | IdentExpr ident when ctx.BoxedLocals.ContainsKey ident.Name ->
+        let inner = ctx.BoxedLocals[ident.Name]
+        WExpr.StructGet(WExpr.LocalGet(ident.Name, WType.Ref(getOrAddRefCellType ctx inner, false)), 0, inner)
+
     | IdentExpr ident ->
         let res = Scope.resolve ctx ctx.CurrentFunc ident.Name
         match res with
@@ -190,6 +194,12 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 let inferredTy = exprWType wValue
                 if inferredTy <> WType.I32 && inferredTy <> WType.Void then inferredTy else declaredTy
             else declaredTy
+        if ident.IsMutable && FableNormalize.capturedAndAssigned ident.Name body then
+            // a mutable local that a closure captures and something assigns lives in a shared cell
+            let cellIdx = getOrAddRefCellType ctx ty
+            let ctx' = { ctx.WithLocal(ident.Name, WType.Ref(cellIdx, false)) with BoxedLocals = Map.add ident.Name ty ctx.BoxedLocals }
+            WExpr.Let(ident.Name, WExpr.StructNew(cellIdx, [ wValue ], WType.Ref(cellIdx, false)), transformExpr ctx' body)
+        else
         let ctx' = ctx.WithLocal(ident.Name, ty)
         let wBody = transformExpr ctx' body
         if ident.IsMutable then
@@ -254,6 +264,9 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             match _expr with
             | Fable.Expr.IdentExpr ident ->
                 let wValue = transformExpr ctx value
+                match Map.tryFind ident.Name ctx.BoxedLocals with
+                | Some inner -> WExpr.StructSet(WExpr.LocalGet(ident.Name, WType.Ref(getOrAddRefCellType ctx inner, false)), 0, wValue)
+                | None ->
                 match Scope.resolve ctx ctx.CurrentFunc ident.Name with
                 | Scope.Resolution.Global(qn, _) -> WExpr.GlobalSet(qn, wValue)
                 | _ -> WExpr.Assign(ident.Name, wValue)
@@ -743,7 +756,12 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 match Map.tryFind (stem, info.Selector) ctx.KnownFuncsByPath with
                 | Some qualName -> qualName
                 | None -> info.Selector
-            WExpr.FuncRef actualName
+            // a module VALUE of another file (`let nil = El 0`) is a nullary function here: reading it is a call;
+            // only a value of function type (`let f () = …` passed along) is a function reference
+            let isFunctionValue = (match typ with Fable.Type.LambdaType _ | Fable.Type.DelegateType _ -> true | _ -> false)
+            match Map.tryFind actualName ctx.KnownFuncs with
+            | Some([], retTy) when not isFunctionValue -> WExpr.Call(actualName, [], retTy)
+            | _ -> WExpr.FuncRef actualName
 
     | _ -> 
         eprintfn "[WasmGc] FATAL/WARNING: Unhandled Fable AST expression: %A" expr

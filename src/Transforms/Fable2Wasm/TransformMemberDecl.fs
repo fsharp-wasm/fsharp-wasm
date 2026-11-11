@@ -48,6 +48,6 @@ let transformMemberDecl
         Result = resultType
         Locals = [] // filled in later by local collection pass
         Body = wBody
-        Exported = true // export all top-level functions for now
+        Exported = ctx.ExportFunctions
     }
 

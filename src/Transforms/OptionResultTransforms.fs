@@ -19,7 +19,7 @@ open WasmGc.Util.FableQuery
 /// Extract the inner value from a known-non-null option expression.
 ///   Direct-ref options  (inner is non-null ref):  ref.cast → non-null.
 ///   Wrapper-struct options (inner is primitive):  ref.cast → struct, struct.get[0].
-let private unwrapSome (opt: WExpr) (optTypeIdx: int) (innerT: WType) : WExpr =
+let unwrapSome (opt: WExpr) (optTypeIdx: int) (innerT: WType) : WExpr =
     match innerT with
     | WType.Ref(innerIdx, false) -> cast opt (WType.Ref(innerIdx, false))
     | _ -> structGet (cast opt (WType.Ref(optTypeIdx, false))) 0 innerT

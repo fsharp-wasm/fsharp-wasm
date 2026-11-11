@@ -2851,3 +2851,27 @@ type TestBag = { BagItems: string list; BagN: int }
 let testRecordListField () : int =
     let b = { BagItems = [ "a"; "b" ]; BagN = 3 }
     b.BagN + List.length b.BagItems  // 5
+
+/// A mutable local captured by a closure is shared with it (F# boxes it in a ref cell), not copied.
+let testCapturedMutable () : int =
+    let mutable c = 0
+    let inc () = c <- c + 1
+    inc (); inc ()
+    let apply (f: unit -> unit) = f (); f (); f ()
+    apply (fun () -> c <- c + 10)
+    let read = fun () -> c
+    c + read ()  // 32 + 32 = 64
+
+/// Two closures over one mutable: one writes, the other reads (event-handler pairs in a UI).
+let testSharedMutableCells () : int =
+    let mutable count = 0
+    let incr = fun () -> count <- count + 1
+    let get = fun () -> count
+    incr (); incr (); incr ()
+    get ()  // 3
+
+/// A parameter named like a module-level value is the parameter, and a closure must capture it.
+let label = 100
+let testLocalShadowsModuleValue (label: int) : int =
+    let f = fun () -> label + 1
+    f ()  // testLocalShadowsModuleValue 4 = 5

@@ -76,6 +76,7 @@ let rec private wtypeToStr (typeNames: Map<int, string>) (ty: WType) : string =
         sprintf "(ref null %s)" (watId name)
     | WType.Void -> ""
     | WType.Externref -> "externref"
+    | WType.ExternNonNull -> "(ref extern)"
     | WType.I31ref -> "(ref i31)"
     | WType.EqRef -> "(ref eq)"
     | WType.AnyRef -> "anyref"
@@ -427,6 +428,9 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         let name = typeNames |> Map.tryFind idx |> Option.defaultValue (sprintf "%d" idx)
         w $"ref.null {watId name}"
     | WExpr.Const(WConst.Null WType.AnyRef) -> w "ref.null any"
+    | WExpr.Const(WConst.Null WType.Externref) -> w "ref.null extern"
+    | WExpr.Const(WConst.Null WType.EqRef) -> w "ref.null eq"
+    | WExpr.Const(WConst.Null WType.I31ref) -> w "ref.null i31"
     | WExpr.Const(WConst.Null _) -> w "ref.null none"
     | WExpr.Const(WConst.Unit) -> ()   // unit produces nothing
     | WExpr.Const(WConst.String _) -> w "i32.const 0" // shouldn't appear post-translation

@@ -82,6 +82,7 @@ let rec encodeValType (buf: ResizeArray<byte>) (ty: WType) =
             buf.Add(0x64uy) // ref typeIdx
         encodeLEB128Signed buf typeIdx
     | WType.Externref -> buf.Add(0x6Fuy)
+    | WType.ExternNonNull -> buf.Add(0x64uy); buf.Add(0x6Fuy)   // (ref extern)
     | WType.I31ref ->
         buf.Add(0x64uy) // ref
         buf.Add(0x6Cuy) // i31

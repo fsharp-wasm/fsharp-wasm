@@ -993,7 +993,7 @@ let tryArrayInline
                                         let! opt = wBody
                                         return! wasmWhen (refIsNotNull opt)
                                             (wasm {
-                                                do! arraySet res wi.Val (structGet (cast opt optNonNull) 0 outElemT)
+                                                do! arraySet res wi.Val (OptionResultTransforms.unwrapSome opt optTypeIdx outElemT)
                                                 return! wi.Set(add wi.Val (i32Const 1))
                                             })
                                     }))

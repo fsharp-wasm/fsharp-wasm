@@ -76,7 +76,7 @@ let wtypeToBlockType (ty: WType) : BlockType =
     | WType.Ref(idx, nullable) -> BlockType.Val(WType.Ref(idx, nullable))
     // A block that yields a value MUST declare it.  `| _ -> Empty` here silently produced
     // invalid modules for any if/loop/try whose result is anyref / eqref / i31ref / externref.
-    | WType.AnyRef | WType.EqRef | WType.I31ref | WType.Externref -> BlockType.Val ty
+    | WType.AnyRef | WType.EqRef | WType.I31ref | WType.Externref | WType.ExternNonNull -> BlockType.Val ty
     | WType.I16 | WType.Func _ | WType.Struct _ | WType.Array _ ->
         failwithf "Emit: %A is not a valid block result type" ty
 

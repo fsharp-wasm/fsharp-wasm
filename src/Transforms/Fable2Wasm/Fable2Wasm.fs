@@ -377,11 +377,15 @@ let buildWModule (ctx: Ctx) : WModule =
     // the start function: initialisers of module-level mutable variables, in declaration order
     if ctx.InitSteps.Count > 0 && not (ctx.Functions.Exists(fun f -> f.Name = "$__init")) then
         ctx.Functions.Add { Name = "$__init"; Params = []; Result = WType.Void; Locals = []; Body = WExpr.Sequence(List.ofSeq ctx.InitSteps); Exported = false }
-    let fixedFunctions =
+    let assemble () =
         ctx.Functions |> Seq.toList
         |> WasmGc.Runtime.ArraySort.specialize ctx      // per-array-type Array.sortWith helpers
         |> RT.fixClosureApply ctx.TypeDefs              // must run last: creates missing ClosureBase types
         |> dropUnreferenced ctx
+    let fixedFunctions =
+        let kept = assemble ()
+        // the host-facing exports depend on what survives; adding them changes what is reachable
+        if HostInterop.finalize ctx kept then assemble () else kept
 
     // TODO: obsolete when pipeline is in place
     // Validate the functions after closure transformations are applied
@@ -395,22 +399,36 @@ let buildWModule (ctx: Ctx) : WModule =
     // Currently, buildWModule is doing "The Grand Setup": resolving dependencies, filtering helpers, handling errors (BUG-05), and building the record. As this grows, it becomes a "God Function."
     // Splitting these into distinct passes (e.g., Discovery -> Optimization -> Validation -> Emission) makes it much easier to test and debug.
 
+    // Use the BCL Registry to build all required helpers with dependency resolution.
+    // BclRegistry.emitUsed handles:
+    // 1. Building only the helpers in ctx.UsedHelpers
+    // 2. Resolving transitive dependencies (e.g., $floatToStr → $intToStr + $strConcat)
+    // 3. Returning them as WFuncDecl ready for emission
+    let allFunctions = BclReg.emitUsed ctx @ fixedFunctions
+
+    // an extern (`[<Import>] … = nativeOnly`) is imported only if a function that is kept calls it — a runtime
+    // library declares hundreds, an app uses a few
+    let called =
+        let names = System.Collections.Generic.HashSet<string>()
+        let rec visit (e: WExpr) =
+            (match e with
+             | WExpr.Call(n, _, _) | WExpr.TailCall(n, _, _) | WExpr.FuncRef n -> names.Add n |> ignore
+             | _ -> ())
+            WasmGc.Core.Traverse.children e |> List.iter visit
+        allFunctions |> List.iter (fun f -> visit f.Body)
+        for g in Seq.append ctx.VTableGlobals ctx.GlobalDecls do visit g.Init
+        names
+
     {
         Types = ctx.TypeDefs |> Seq.toList
         Imports =
             [   // User-declared external Wasm imports (via [<Import("name","module")>] on nativeOnly)
-                yield! ctx.ExternImports.Values
-                // Built-in: consolePrint for printfn (always needed)
-                yield { ModuleName = "env"; Name = "consolePrint"; CallName = ""
-                        Desc = ImportFunc([WType.Ref(StringTypeIdx, false)], WType.Void) } ]
-        Functions =
-            // Use the BCL Registry to build all required helpers with dependency resolution.
-            // BclRegistry.emitUsed handles:
-            // 1. Building only the helpers in ctx.UsedHelpers
-            // 2. Resolving transitive dependencies (e.g., $floatToStr → $intToStr + $strConcat)
-            // 3. Returning them as WFuncDecl ready for emission
-            let bclHelpers = BclReg.emitUsed ctx
-            bclHelpers @ fixedFunctions
+                yield! ctx.ExternImports.Values |> Seq.filter (fun i -> called.Contains i.CallName)
+                // Built-in: consolePrint for printfn
+                if called.Contains "consolePrint" then
+                    yield { ModuleName = "env"; Name = "consolePrint"; CallName = ""
+                            Desc = ImportFunc([WType.Ref(StringTypeIdx, false)], WType.Void) } ]
+        Functions = allFunctions
         Globals =
             // $fsharp_exn_carrier: mutable anyref global used to pass exception objects
             // between throw and catch_all (WasmGC exception proposal has zero-payload tags).

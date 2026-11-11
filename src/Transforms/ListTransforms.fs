@@ -323,7 +323,7 @@ let tryListChooseInline
                                 WExpr.Let(optVar, WExpr.Let(farg.Name, elem, wBody),
                                     wasmIf (refIsNotNull (localGet optVar optNullableT))
                                         (sOut.Cons
-                                            (structGet (cast (localGet optVar optNullableT) optNonNullT) 0 outputElemT)
+                                            (OptionResultTransforms.unwrapSome (localGet optVar optNullableT) optTypeIdx outputElemT)
                                             acc)
                                         acc))
                     Some(listRevInPlace gen sOut revChosen)

@@ -52,7 +52,13 @@ let trySpecializeCall
         let mangledName = mangleGenericName funcName wTypeArgs
 
         // 5. Pre-evaluate call arguments under the OUTER (non-specialized) ctx.
-        let wArgs = info.Args |> List.map (eval ctx)
+        //    An instance member's receiver comes in `ThisArg`; the compiled function takes it as its first parameter.
+        let wArgs =
+            let receiver =
+                match info.ThisArg with
+                | Some t when memberDecl.Args.Length = info.Args.Length + 1 -> [ eval ctx t ]
+                | _ -> []
+            receiver @ (info.Args |> List.map (eval ctx))
         let retTy = mapTypeKnown ctx resultFableType
 
         // 6. Already emitted? Just emit a call — body is already in ctx.Functions.
@@ -137,14 +143,27 @@ let private stringifyItems (ctx: Ctx) (itemsType: Fable.Type) (items: WExpr) : W
         WasmGc.Patterns.ArrayOps.arrayMap (LabelGen "jn") a ra items (primitiveToString ctx et)
     | _ -> items
 
+/// Does an import path point into the core library?  The path is relative to the importing file ("./Set.fs" inside the
+/// library, "../fable-library-wasmgc/Set.fs" from the program), so it is resolved first.
+let private isCoreLibraryPath (ctx: Ctx) (path: string) : bool =
+    let resolved =
+        try System.IO.Path.GetFullPath(System.IO.Path.Combine(System.IO.Path.GetDirectoryName ctx.Compiler.CurrentFile, path))
+        with _ -> path
+    let lower = resolved.ToLowerInvariant()
+    lower.Contains "fable-library" || lower.Contains "fable_modules"
+
 /// Behandelt String, Math und Import Calls
 let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: ImportInfo) (info: CallInfo) (typ: Type) (wArgs: WExpr list) : WExpr =
     let ty = mapTypeKnown ctx typ
-    let sel = importInfo.Selector
     let path = importInfo.Path
-
-    // TODO: this ListReplacements should be moved 
     let importStem = System.IO.Path.GetFileNameWithoutExtension(importInfo.Path)
+    // A function of the compiled program (or of a referenced library such as a runtime) that happens to be named like
+    // an F# core function — `append`, `iter`, `clear`, … — is that function, not the core one: the replacements below
+    // are matched on the selector alone, so a user function must not reach them.
+    let isUserFunc =
+        path.ToLowerInvariant().EndsWith ".fs" && not (isCoreLibraryPath ctx path)
+        && (Map.containsKey importInfo.Selector ctx.KnownFuncs || ctx.GenericFuncRegistry.ContainsKey importInfo.Selector)
+    let sel = if isUserFunc then "$user" else importInfo.Selector
     let r =
         tryFirst [
             // ── Map/Set module: must come first to prevent List combinators matching Set/Map DeclaredTypes ──
@@ -556,7 +575,8 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     // Fallback: if the selector names a function compiled from a library
     // file earlier in this project (in ctx.KnownFuncs), emit a direct call.
     // This handles same-project cross-file calls (e.g. Map.add → Map_add).
-    | selector, _, _ ->
+    | _, _, _ ->
+        let selector = importInfo.Selector
         // a generic function of ANOTHER file (`onClick<'msg>` called from the app): the call site knows the type
         // arguments, so it gets its own specialised copy instead of the unresolved (i32-typed) original
         // (library functions are resolved by module-qualified name below; their short names are not unique)
@@ -571,7 +591,13 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             match Map.tryFind (stem, selector) ctx.KnownFuncsByPath with
             | Some qualName -> qualName
             | None -> selector  // fallback to short name (handles non-library or unknown)
-        match Map.tryFind actualName ctx.KnownFuncs with
+        // a core-library import is resolved through its own (file, name) entry only: the plain name is the namespace of
+        // the program's functions, and a program function called `append` must not capture `List.append`
+        let isLibraryImport = isCoreLibraryPath ctx importInfo.Path
+        let knownEntry =
+            if isLibraryImport && not (Map.containsKey (stem, selector) ctx.KnownFuncsByPath) then None
+            else Map.tryFind actualName ctx.KnownFuncs
+        match knownEntry with
         | Some (_, retTy) ->
             // Use the actual compiled return type (retTy) rather than the Fable-annotated
             // type (ty). This is critical for generic collection types like Map<int,int>
@@ -611,9 +637,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         let isLocalFile = pLow.EndsWith(".fs") || pLow.EndsWith(".fsi")
         let isFableLib = pLow.Contains("fable-library")
         if not isLocalFile && not isFableLib && selector <> "" then
-            let paramTypes = wArgs |> List.map exprWType
-            let callName = ctx.RegisterExternFunc(path, selector, paramTypes, ty)
-            WExpr.Call(callName, wArgs, ty)
+            HostInterop.call ctx path selector info wArgs typ ty
         else
             // Try stdlib import replacements before giving up
             match FSharpCoreReplacements.tryHandleStdlibImport ctx selector wArgs ty with
