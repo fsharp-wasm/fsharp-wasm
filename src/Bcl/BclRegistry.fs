@@ -19,8 +19,15 @@ open WasmGc.Runtime.Types
 /// Static inter-helper dependencies.  Key uses all names listed as values.
 let private deps : (string * string list) list = [
     "$arraySortWith", []  // self-contained
-    "$floatToStr",   ["$intToStr"; "$strConcat"]
-    "$floatToFixed", ["$intToStr"; "$strConcat"]
+    "$floatToStr",   ["$fdShortest"]
+    "$floatToFixed", ["$fdExact"]
+    "$fdShortest",   ["$fdScale"; "$fdLoad"; "$fdDigit"; "$fdCmp"; "$fdExact"]
+    "$fdExact",      ["$fdScale"; "$fdLoad"]
+    "$fdScale",      ["$fdMulSmall"]
+    "$fdCmp",        ["$fdDigit"]
+    "$fdLoad",       []
+    "$fdDigit",      []
+    "$fdMulSmall",   []
     "$uintToStr",    ["$intToStr"]
     "$strSplit",     ["$strIndexOf"; "$strSubstring"]
     "$strJoin",      ["$strConcat"]
@@ -66,6 +73,7 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$strTrim",           StringHelpers.makeStrTrimHelper
         "$strTrimStart",      StringHelpers.makeStrTrimStartHelper
         "$strTrimEnd",        StringHelpers.makeStrTrimEndHelper
+        "$fmtPad",            StringHelpers.makeFmtPadHelper
         "$strPadLeft",        StringHelpers.makeStrPadLeftHelper
         "$strPadRight",       StringHelpers.makeStrPadRightHelper
         "$strReplace",        StringHelpers.makeStrReplaceHelper
@@ -80,8 +88,15 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
                                   mapTypeKnown ctx (Fable.AST.Fable.Type.List Fable.AST.Fable.Type.String) |> ignore
                                   StringHelpers.makeStrJoinListHelper ctx.ListRegistry.[wTypeKey (WType.Ref(StringTypeIdx, false))] ())
         "$intToStr",          StringHelpers.makeIntToStrHelper
-        "$floatToStr",        StringHelpers.makeFloatToStrHelper
-        "$floatToFixed",      StringHelpers.makeFloatToFixedHelper
+        "$floatToStr",        FloatFormat.makeFloatToStrHelper
+        "$floatToFixed",      FloatFormat.makeFloatToFixedHelper
+        "$fdShortest",        FloatFormat.makeFdShortestHelper
+        "$fdExact",           FloatFormat.makeFdExactHelper
+        "$fdScale",           FloatFormat.makeFdScaleHelper
+        "$fdLoad",            FloatFormat.makeFdLoadHelper
+        "$fdDigit",           FloatFormat.makeFdDigitHelper
+        "$fdCmp",             FloatFormat.makeFdCmpHelper
+        "$fdMulSmall",        FloatFormat.makeFdMulSmallHelper
         "$uintToStr",         StringHelpers.makeUIntToStrHelper
         "$parseInt",          StringHelpers.makeIntParseHelper
         "$parseFloat",        StringHelpers.makeFloatParseHelper

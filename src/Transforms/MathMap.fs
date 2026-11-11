@@ -54,6 +54,14 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) (unsigned: b
     // round / nearest
     | ("round" | "nearest"), [arg], WType.F64 -> WExpr.Unary(WUnaryOp.Nearest, arg, WType.F64)
     | ("round" | "nearest"), [arg], WType.F32 -> WExpr.Unary(WUnaryOp.Nearest, arg, WType.F32)
+    // Math.Round(x, digits): .NET scales by 10^digits, rounds half to even and scales back (|x| >= 1e16 is already integral)
+    | ("round" | "nearest"), [arg; WExpr.Const(WConst.I32 d)], WType.F64 when d >= 0 && d <= 15 ->
+        let p10 = WExpr.Const(WConst.F64(System.Math.Pow(10.0, float d)))
+        let x = WExpr.LocalGet("$rnd_x", WType.F64)
+        WExpr.Let("$rnd_x", arg,
+            WExpr.If(WExpr.Compare(WCompareOp.LtS, WExpr.Unary(WUnaryOp.Abs, x, WType.F64), WExpr.Const(WConst.F64 1e16)),
+                     WExpr.Binary(WBinaryOp.DivS, WExpr.Unary(WUnaryOp.Nearest, WExpr.Binary(WBinaryOp.Mul, x, p10, WType.F64), WType.F64), p10, WType.F64),
+                     x, WType.F64))
     | ("round" | "nearest"), [arg; _], WType.F64 -> WExpr.Unary(WUnaryOp.Nearest, arg, WType.F64)
     | ("round" | "nearest"), [arg; _], WType.F32 -> WExpr.Unary(WUnaryOp.Nearest, arg, WType.F32)
     // min

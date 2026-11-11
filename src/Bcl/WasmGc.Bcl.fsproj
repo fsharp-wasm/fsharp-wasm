@@ -16,6 +16,7 @@
     <Compile Include="Helpers.fs" />
     <Compile Include="ArrayHelpers.fs" />
     <Compile Include="StringHelpers.fs" />
+    <Compile Include="FloatFormat.fs" />
     <Compile Include="CharHelpers.fs" />
     <Compile Include="MathHelpers.fs" />
     <Compile Include="StringBuilderHelpers.fs" />

@@ -16,5 +16,6 @@
     <Compile Include="PropsData.fs" />
     <Compile Include="PropsLists.fs" />
     <Compile Include="PropsGenerics.fs" />
+    <Compile Include="PropsFormat.fs" />
   </ItemGroup>
 </Project>

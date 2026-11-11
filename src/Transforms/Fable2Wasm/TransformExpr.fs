@@ -590,7 +590,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 [ for k in 0 .. nSpecs - 1 do
                     yield emitLit partsList.[k]
                     if k < args.Length then
-                        yield formatHole ctx specsList.[k] (Q.isUnsignedInt args.[k].Type) (transformExpr ctx args.[k]) ]
+                        yield formatField ctx specsList.[k] (Q.isUnsignedInt args.[k].Type) (transformExpr ctx args.[k]) ]
             let lastPart = if List.isEmpty partsList then "" else List.last partsList
             let segments = holeParts @ [emitLit lastPart]
             let formattedStr =

@@ -116,6 +116,27 @@ let trySpecializeCall
             ctx.Functions.Add(func |> resolveLocals)
             Some(WExpr.Call(mangledName, wArgs, retTy'))
 
+/// `String.Join(sep, xs)` with non-string elements: each element is converted first (`string x`).
+let private stringifyItems (ctx: Ctx) (itemsType: Fable.Type) (items: WExpr) : WExpr =
+    let isString (t: Fable.Type) = (t = Fable.Type.String)
+    // `String.Join(sep, xs)` types its argument as seq<'T>; the value itself is a list or an array
+    let itemsType =
+        match itemsType, exprWType items with
+        | Fable.Type.DeclaredType(_, [ et ]), WType.Ref(idx, _) when idx = ListBaseTypeIdx -> Fable.Type.List et
+        | t, _ -> t
+    match itemsType with
+    | Fable.Type.List et when not (isString et) ->
+        match WasmGc.Runtime.LoopHelpers.tryListTypeInfoFromElemType ctx et, WasmGc.Runtime.LoopHelpers.tryListTypeInfoFromElemType ctx Fable.Type.String with
+        | Some(elemWT, elemCons), Some(strWT, strCons) ->
+            WasmGc.Patterns.ListPatterns.listMap (LabelGen "jn") (WasmGc.Patterns.ListShape.mkListShape elemWT elemCons) (WasmGc.Patterns.ListShape.mkListShape strWT strCons) items (primitiveToString ctx et)
+        | _ -> items
+    | Fable.Type.Array(et, _) when not (isString et) ->
+        let elemWT, strWT = mapTypeKnown ctx et, mapTypeKnown ctx Fable.Type.String
+        let a = WasmGc.Patterns.ArrayOps.mkArrayShape elemWT (getOrAddArrayType ctx elemWT)
+        let ra = WasmGc.Patterns.ArrayOps.mkArrayShape strWT (getOrAddArrayType ctx strWT)
+        WasmGc.Patterns.ArrayOps.arrayMap (LabelGen "jn") a ra items (primitiveToString ctx et)
+    | _ -> items
+
 /// Behandelt String, Math und Import Calls
 let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: ImportInfo) (info: CallInfo) (typ: Type) (wArgs: WExpr list) : WExpr =
     let ty = mapTypeKnown ctx typ
@@ -328,14 +349,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         | _ ->
             compareValues ctx argTy a b
     // toString for numbers (via LibCall path)
-    | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx && (match info.Args with [ a ] -> a.Type = Fable.Type.Char | _ -> false) ->
-        charToString arg
-    | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx && exprWType arg = WType.I64 ->
-        int64ToString ctx arg (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type))
-    | "toString", [arg], WType.Ref(si, _) when si = StringTypeIdx ->
-        WExpr.Call(ctx.UseHelper(if info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) then "$uintToStr" else "$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
-    | "toString", [arg], _ ->
-        WExpr.Call(ctx.UseHelper(if info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) then "$uintToStr" else "$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
+    | "toString", [arg], _ -> primitiveToString ctx (match info.Args with a :: _ -> a.Type | [] -> Fable.Type.Any) arg
     // int32ToString / int64ToString (Util module LibCall path)
     | "int32ToString", [arg], _ ->
         WExpr.Call(ctx.UseHelper("$intToStr"), [arg], WType.Ref(StringTypeIdx, false))
@@ -403,7 +417,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
                 [ for k in 0 .. nSpecs - 1 do
                     yield emitLit parts.[k]
                     if k < valExprs.Length then
-                        yield formatHole ctx specs.[k] (WasmGc.Util.FableQuery.isUnsignedInt valExprs.[k].Type) (eval ctx valExprs.[k]) ]
+                        yield formatField ctx specs.[k] (WasmGc.Util.FableQuery.isUnsignedInt valExprs.[k].Type) (eval ctx valExprs.[k]) ]
             let lastPart = if List.isEmpty parts then "" else List.last parts
             let segments = holeParts @ [emitLit lastPart]
             match segments with
@@ -493,12 +507,12 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     // String.toConsole is called with the final formatted string.
     | "toConsole", [str], _ ->
         WExpr.Call("consolePrint", [str], WType.Void)
-    // String.join(sep, arr) → $strJoin — Fable emits LibCall(String, "join", [sep; arr])
+    // String.join(sep, items) → $strJoin — Fable emits LibCall(String, "join", [sep; items]); items of any element type
     | "join", sep :: rest, WType.Ref(si, _) when si = StringTypeIdx ->
         let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
         let arrRef = WType.Ref(strArrTypeIdx, false)
         match rest with
-        | [arrExpr] -> strJoin ctx sep arrExpr
+        | [arrExpr] -> strJoin ctx sep (stringifyItems ctx (List.last info.Args).Type arrExpr)
         | _ ->
             // joinWithIndices or other overload — not yet supported, emit Nop
             eprintfn "[WasmGc] WARNING: unhandled String.join variant with %d args" rest.Length
@@ -507,7 +521,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | "join", [arrExpr], _ ->
         let strRef = WType.Ref(StringTypeIdx, false)
         let emptyStr = WExpr.ArrayNewFixed(StringTypeIdx, [], strRef)
-        strJoin ctx emptyStr arrExpr
+        strJoin ctx emptyStr (stringifyItems ctx (List.last info.Args).Type arrExpr)
     // Int/Long parse: LibCall(Int/Long/Int8/UInt8/..., "parse", [str; style; unsigned; bitsize])
     // We dispatch to $parseInt regardless of style — basic decimal parsing only.
     | "parse", str :: _, WType.I32 ->
@@ -675,6 +689,9 @@ let private transformCallCore
     | Some result -> result
     | None ->
         match callee with
+        // `String(x)`: what Fable emits for `x.ToString()` on a float / bool / …
+        | IdentExpr { Name = "String" } when (match wArgs with [ _ ] -> true | _ -> false) ->
+            primitiveToString ctx info.Args.Head.Type wArgs.Head
         | IdentExpr ident ->
             // Sprint 5: try demand-driven generic specialization first.
             // match trySpecializeCall ctx eval ident.Name info typ with
@@ -732,13 +749,7 @@ let private transformCallCore
             when fi.Name = "toString"
             && (match numExpr.Type with
                 | Fable.Type.Number _ | Fable.Type.Boolean -> true | _ -> false) ->
-            let wNum = eval ctx numExpr
-            let strRef = WType.Ref(StringTypeIdx, false)
-            match exprWType wNum with
-            | WType.I64 -> int64ToString ctx wNum (WasmGc.Util.FableQuery.isUnsignedInt numExpr.Type)
-            | WType.F64 | WType.F32 ->
-                WExpr.Call(ctx.UseHelper("$intToStr"), [WExpr.Unary(WUnaryOp.TruncF64S, wNum, WType.I32)], strRef)
-            | _ -> WExpr.Call(ctx.UseHelper(if WasmGc.Util.FableQuery.isUnsignedInt numExpr.Type then "$uintToStr" else "$intToStr"), [wNum], strRef)
+            primitiveToString ctx numExpr.Type (eval ctx numExpr)
         // ── char.charCodeAt(0) — Fable JS replacement for int(char) conversion ──
         // In WasmGC, chars are already i32 code points; charCodeAt(0) is a no-op.
         | Fable.Expr.Get(thisExpr, GetKind.FieldGet fi, _, _) when fi.Name = "charCodeAt" ->

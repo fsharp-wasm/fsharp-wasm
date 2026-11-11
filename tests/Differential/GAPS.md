@@ -8,7 +8,7 @@ A gap is closed when its property goes back into `Props/*.fs` and the comparison
 | `prop_s_concatMany`, `prop_s_replicate` | `String.concat sep (list)`, `String.replicate`, `String.Join(sep, list)` | `$strJoin` took a string ARRAY; a list reached it → wasm validation error | fixed: `$strJoinList` |
 | `PropsInt64` | `string (int64)` | no `$int64ToStr` helper: an int64 was printed through a 32-bit conversion | fixed: `$int64ToStr` |
 | (not written yet) | `float (uint64)` / `float (uint32)` above 2^63 | no unsigned convert opcode in the AST | open |
-| (not written yet) | `%g` / `%e` formats | approximated by `$floatToStr` (up to 6 significant digits) | open |
+| (not written yet) | `%g` / `%e` formats | approximated | open |
 | `prop_rem` | `Int32.MinValue % -1` | .NET raises, wasm returns 0 | known difference, kept (see known-differences.txt) |
 
 ## Found and fixed by the list / array / closure properties (`PropsLists.fs`)
@@ -48,6 +48,18 @@ Each of these was silently WRONG or did not compile; the property is what showed
 | array / list sorts were insertion sorts: `bench_sort` 26× slower than .NET | stable bottom-up merge sort (`mergeSortKeyed`), keyed variant permutes a parallel key array; `bench_sort` ≈ .NET |
 | list pipelines allocated twice per stage (build reversed, copy-reverse); V8 allocates a cons for ~70–90 ns | cons tails are mutable; fresh accumulators are reversed in place (`listRevInPlace`) |
 | `[1 .. n] \|> List.map f \|> List.filter g \|> List.fold h 0` built three lists | `SeqFusion`: the chain is ONE loop when the stages are pure (strict lists: an impure stage must run to completion first, so it is never fused); `FableNormalize.finishDeclaration` floats nested lets and inlines single-use stream intermediates so the chain is visible; `bench_list` 15× FASTER than .NET (no intermediate lists) |
+
+## Text formatting (`PropsFormat.fs`, 59 properties, 784k calls vs .NET, 0 disagreements)
+
+| Construct | Was | Now |
+|---|---|---|
+| `string (x: float)`, `x.ToString()`, `String(x)` | `1.0` printed as "1.0", 6 digits at most, invalid wasm for float32 / bool | exact shortest round-trip digits (`$floatToStr`): exact decimal expansion with digit buffers + interval search, .NET's fixed / `E+XX` thresholds (double 1e-4 ≤ |x| < 1e17, float32 < 1e9), ties to even |
+| `%f`, `%.Nf`, `ToString("FN")` | last-digit errors, ≥ 10 decimals wrong | exact expansion rounded half to even on exact ties (`$floatToFixed`) |
+| `%5d`, `%-5d`, `%05d`, `%+d`, `% d`, `%8.2f`, `%-8.2f` | width and flags ignored | `$fmtPad` |
+| `string true`, `string 'c'`, `string (float32 …)` | "1" / invalid | `primitiveToString` |
+| `Math.Round(x, digits)` | digits ignored | scale · round half even · unscale (like .NET) |
+| `String.Join(sep, xs)` with non-string `xs` | illegal cast | elements converted first |
+| `%A` / `%O` of records, lists, tuples | invalid module | error `WGC011` (structured printing with F#'s 80-column layout is open) |
 
 ## Still open (coverage probe: every call below compiles to an unhandled import)
 

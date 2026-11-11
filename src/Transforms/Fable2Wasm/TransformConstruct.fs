@@ -137,10 +137,10 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
             | WType.Ref(idx, _) when idx = StringTypeIdx -> wh
             | WType.I32 -> WExpr.Call(ctx.UseHelper("$intToStr"), [wh], strRef)
             | WType.I64 -> WExpr.Call(ctx.UseHelper("$intToStr"), [WExpr.Unary(WUnaryOp.WrapI64, wh, WType.I32)], strRef)
-            | WType.F64 -> WExpr.Call(ctx.UseHelper("$floatToStr"), [wh], strRef)
+            | WType.F64 -> WExpr.Call(ctx.UseHelper("$floatToStr"), [wh; WExpr.Const(WConst.I32 0)], strRef)
             | WType.F32 ->
                 let wf64 = WExpr.Unary(WUnaryOp.PromoteF32, wh, WType.F64)
-                WExpr.Call(ctx.UseHelper("$floatToStr"), [wf64], strRef)
+                WExpr.Call(ctx.UseHelper("$floatToStr"), [wf64; WExpr.Const(WConst.I32 1)], strRef)
             | _ -> WExpr.Call(ctx.UseHelper("$intToStr"), [wh], strRef)
         // Build list: [part0; holeStr0; part1; holeStr1; ...; partN]
         let nHoles = List.length holes

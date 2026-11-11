@@ -97,6 +97,12 @@ let wsCopy (_dst: WasmStr) (_dstOff: int) (_src: WasmStr) (_srcOff: int) (_len: 
 [<WasmIntrinsic("$f64_trunc_i32")>]
 let truncF64 (_f: float) : int = failwith "phantom intrinsic"
 
+/// The upper / lower 32 bits of the IEEE-754 representation of an f64 (sign, exponent, top of the mantissa / rest).
+[<WasmIntrinsic("$f64_hi")>]
+let f64Hi (_f: float) : int = failwith "phantom intrinsic"
+[<WasmIntrinsic("$f64_lo")>]
+let f64Lo (_f: float) : int = failwith "phantom intrinsic"
+
 /// Absolute value of f64.  Translated to f64.abs.
 [<WasmIntrinsic("$f64_abs")>]
 let absF64 (_f: float) : float = failwith "phantom intrinsic"
@@ -477,6 +483,8 @@ let standardIntrinsics (strTypeIdx: int) (sbTypeIdx: int) : Map<string, WExpr li
         "$charToUpper",         (function [c] -> WExpr.Call("$charToUpper",         [c], WType.I32) | a -> failwithf "arity mismatch $charToUpper: got %d" a.Length)
         // ── Float phantom intrinsics ────────────────────────────────────────────
         "$f64_trunc_i32",  (function [f] -> WExpr.Unary(WUnaryOp.TruncF64S,  f, WType.I32) | a -> failwithf "arity $f64_trunc_i32: got %d"  a.Length)
+        "$f64_hi",         (function [f] -> WExpr.Unary(WUnaryOp.WrapI64, WExpr.Binary(WBinaryOp.ShrU, WExpr.Unary(WUnaryOp.ReinterpretF64ToI64, f, WType.I64), WExpr.Const(WConst.I64 32L), WType.I64), WType.I32) | a -> failwithf "arity $f64_hi: got %d" a.Length)
+        "$f64_lo",         (function [f] -> WExpr.Unary(WUnaryOp.WrapI64, WExpr.Unary(WUnaryOp.ReinterpretF64ToI64, f, WType.I64), WType.I32) | a -> failwithf "arity $f64_lo: got %d" a.Length)
         "$f64_abs",        (function [f] -> WExpr.Unary(WUnaryOp.Abs,         f, WType.F64) | a -> failwithf "arity $f64_abs: got %d"        a.Length)
         "$f64_neg",        (function [f] -> WExpr.Unary(WUnaryOp.Neg,         f, WType.F64) | a -> failwithf "arity $f64_neg: got %d"        a.Length)
         "$i32_to_f64",     (function [n] -> WExpr.Unary(WUnaryOp.ConvertI32S, n, WType.F64) | a -> failwithf "arity $i32_to_f64: got %d"    a.Length)

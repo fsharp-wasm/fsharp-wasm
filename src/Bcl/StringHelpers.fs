@@ -268,132 +268,6 @@ let makeUIntToStrHelper () : WFuncDecl =
                 wsSet res la (lastDigit + 48)
                 res @>
 
-/// Runtime helper: $floatToStr(f) → decimal string representation of an f64.
-/// Produces up to 6 significant decimal digits with trailing zeros trimmed.
-/// Examples: 3.14 → "3.14", -2.5 → "-2.5", 42.0 → "42.0", 0.0 → "0".
-/// Limitation: integer part is truncated to i32 range (~±2.1×10⁹).
-let makeFloatToStrHelper () : WFuncDecl =
-    q "$floatToStr"
-        <@ fun (f: float) ->
-            if f = 0.0 then wsCreateFill 1 48   // "0"
-            else
-                let fa = absF64 f
-                let ip = truncF64 fa
-                let fi = truncF64 ((fa - intToF64 ip) * 1000000.0)
-                let is = intToStr ip
-                let la = wsLen is
-                if fi = 0 then
-                    let dot0 = wsCreate (la + 2)
-                    wsCopy dot0 0 is 0 la
-                    wsSet dot0 la 46        // '.'
-                    wsSet dot0 (la + 1) 48  // '0'
-                    if f < 0.0 then
-                        let r = wsCreate (la + 3)
-                        wsSet r 0 45           // '-'
-                        wsCopy r 1 dot0 0 (la + 2)
-                        r
-                    else dot0
-                else
-                    let fb = wsCreate 6
-                    let mutable fv = fi
-                    wsSet fb 0 (fv / 100000 + 48)
-                    fv <- fv % 100000
-                    wsSet fb 1 (fv / 10000 + 48)
-                    fv <- fv % 10000
-                    wsSet fb 2 (fv / 1000 + 48)
-                    fv <- fv % 1000
-                    wsSet fb 3 (fv / 100 + 48)
-                    fv <- fv % 100
-                    wsSet fb 4 (fv / 10 + 48)
-                    fv <- fv % 10
-                    wsSet fb 5 (fv + 48)
-                    let mutable fe = 6
-                    while fe > 1 && wsGet fb (fe - 1) = 48 do fe <- fe - 1
-                    let res = wsCreate (la + 1 + fe)
-                    wsCopy res 0 is 0 la
-                    wsSet res la 46     // '.'
-                    wsCopy res (la + 1) fb 0 fe
-                    if f < 0.0 then
-                        let r = wsCreate (la + 2 + fe)
-                        wsSet r 0 45       // '-'
-                        wsCopy r 1 res 0 (la + 1 + fe)
-                        r
-                    else res @>
-
-/// Runtime helper: $floatToFixed(f, decimals) → `f` with exactly `decimals` digits after the point — F# `%f`
-/// (6 decimals) and `%.Nf`.  The fraction is rounded half up with carry.  NaN → "NaN", ±∞ → "Infinity".
-/// The integer part is kept as hi * 10^9 + lo, so every value below 2.1e18 prints without trapping, and its digits
-/// are exact while |f| < 2^53 (beyond that the low digits are approximate; .NET prints the exact binary value).
-/// `decimals` is clamped to 0..9.
-let makeFloatToFixedHelper () : WFuncDecl =
-    q "$floatToFixed"
-        <@ fun (f: float) (decimals: int) ->
-            if f <> f then
-                let nanStr = wsCreate 3
-                wsSet nanStr 0 78    // 'N'
-                wsSet nanStr 1 97    // 'a'
-                wsSet nanStr 2 78    // 'N'
-                nanStr
-            elif absF64 f > 1.7976931348623157e308 then
-                let neg = if f < 0.0 then 1 else 0
-                let inf = wsCreate (8 + neg)
-                if neg = 1 then wsSet inf 0 45     // '-'
-                wsSet inf neg 73                   // I
-                wsSet inf (neg + 1) 110            // n
-                wsSet inf (neg + 2) 102            // f
-                wsSet inf (neg + 3) 105            // i
-                wsSet inf (neg + 4) 110            // n
-                wsSet inf (neg + 5) 105            // i
-                wsSet inf (neg + 6) 116            // t
-                wsSet inf (neg + 7) 121            // y
-                inf
-            else
-                let d = if decimals < 0 then 0 elif decimals > 9 then 9 else decimals
-                let fa = absF64 f
-                let mutable scale = 1
-                let mutable k = 0
-                while k < d do
-                    scale <- scale * 10
-                    k <- k + 1
-                let hiF = fa / 1000000000.0
-                let mutable hi = if hiF >= 2147483647.0 then 2147483647 else truncF64 hiF
-                let rest = fa - intToF64 hi * 1000000000.0
-                let mutable lo = if rest >= 999999999.0 then 999999999 elif rest < 0.0 then 0 else truncF64 rest
-                let mutable fi = truncF64 ((rest - intToF64 lo) * intToF64 scale + 0.5)
-                if fi >= scale then
-                    lo <- lo + 1
-                    fi <- fi - scale
-                    if lo >= 1000000000 then
-                        lo <- lo - 1000000000
-                        hi <- hi + 1
-                // integer digits: `hi` as is, then `lo` zero-padded to 9 digits (only when hi > 0)
-                let is =
-                    if hi = 0 then intToStr lo
-                    else
-                        let lb = wsCreate 9
-                        let mutable v = lo
-                        let mutable j = 8
-                        while j >= 0 do
-                            wsSet lb j (v % 10 + 48)
-                            v <- v / 10
-                            j <- j - 1
-                        strConcat (intToStr hi) lb
-                let la = wsLen is
-                let neg = if f < 0.0 then 1 else 0
-                let dotLen = if d > 0 then d + 1 else 0
-                let res = wsCreate (neg + la + dotLen)
-                if neg = 1 then wsSet res 0 45     // '-'
-                wsCopy res neg is 0 la
-                if d > 0 then
-                    wsSet res (neg + la) 46        // '.'
-                    let mutable fv = fi
-                    let mutable i = d
-                    while i > 0 do
-                        wsSet res (neg + la + i) (fv % 10 + 48)
-                        fv <- fv / 10
-                        i <- i - 1
-                res @>
-
 /// Runtime helper: $strJoinList(sep, list) → the strings of an F# list joined by `sep`.  This is what
 /// String.concat / String.Join / String.replicate over a list need ($strJoin only takes a string array).
 /// `consIdx` is the ListCons struct of string elements.
@@ -504,6 +378,39 @@ let makeStrRepeatHelper () : WFuncDecl =
                         ])
                     resGet
                 ]))))
+
+/// Runtime helper: $fmtPad(s, width, flags) — sign flags and padding of a printf field.
+/// flags: 1 `-` left-align · 2 `0` zero pad · 4 `+` · 8 space · 16 the field is numeric (sign flags / zero padding apply).
+let makeFmtPadHelper () : WFuncDecl =
+    q "$fmtPad"
+        <@ fun (src: WasmStr) (width: int) (flags: int) ->
+            let numeric = flags / 16 % 2
+            let negative = if wsLen src > 0 then (if wsGet src 0 = 45 then 1 else 0) else 0
+            let signChar = if numeric = 1 && negative = 0 then (if flags / 4 % 2 = 1 then 43 else (if flags / 8 % 2 = 1 then 32 else 0)) else 0
+            let sl = wsLen src
+            let total = sl + (if signChar <> 0 then 1 else 0)
+            let w = if width > total then width else total
+            let res = wsCreateFill w 32
+            if flags % 2 = 1 then
+                // left-aligned: sign + text, spaces after
+                if signChar <> 0 then wsSet res 0 signChar
+                wsCopy res (if signChar <> 0 then 1 else 0) src 0 sl
+            elif numeric = 1 && flags / 2 % 2 = 1 then
+                // zero padded: sign, zeros, digits
+                let signLen = if signChar <> 0 then 1 else negative
+                let mutable i = signLen
+                while i < w - (sl - negative) do
+                    wsSet res i 48
+                    i <- i + 1
+                if signChar <> 0 then wsSet res 0 signChar
+                if negative = 1 then wsSet res 0 45
+                wsCopy res (w - (sl - negative)) src negative (sl - negative)
+            else
+                // right-aligned
+                let start = w - total
+                if signChar <> 0 then wsSet res start signChar
+                wsCopy res (start + (if signChar <> 0 then 1 else 0)) src 0 sl
+            res @>
 
 /// Runtime helper: $strPadLeft(str, width) → pad with spaces on the left.
 let makeStrPadLeftHelper () : WFuncDecl =
