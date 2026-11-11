@@ -300,3 +300,21 @@ and getOrAddStructuralCompare (ctx: Ctx) (typeIdx: int) : string option =
             ctx.Functions.Add func
             Some funcName
         | _ -> None
+
+/// `a = b` for two values of a struct / union / tuple / option type (anything but strings and primitives falls back
+/// to reference equality).  An option is a NULLABLE reference — None is null — so both operands are bound once and
+/// compared with the null-aware `compareByWType`.
+let structuralEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
+    let ty = exprWType a
+    match ty with
+    | WType.Ref(idx, nullable) when idx <> StringTypeIdx ->
+        getOrAddStructuralEquals ctx idx |> ignore
+        ctx.UseHelper "$strEq" |> ignore                      // fields may be strings
+        if nullable then
+            WExpr.Let("$eqn_a", a, WExpr.Let("$eqn_b", b,
+                compareByWType ctx ty (WExpr.LocalGet("$eqn_a", ty)) (WExpr.LocalGet("$eqn_b", ty))))
+        else
+            match ctx.EqualityRegistry.TryGetValue idx with
+            | true, funcName -> WExpr.Call(funcName, [ a; b ], WType.I32)
+            | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
+    | _ -> WExpr.Compare(WCompareOp.Eq, a, b)

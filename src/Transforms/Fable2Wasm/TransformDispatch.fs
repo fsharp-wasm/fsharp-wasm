@@ -169,14 +169,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     match sel, wArgs, ty with
     // ── Structural equality: Fable compiles record/DU/tuple `=` as Util.equals/equalArrays ──
     | ("equals" | "op_Equality" | "equalArrays"), [a; b], WType.I32 ->
-        let wty = exprWType a
-        let typeIdx = match wty with WType.Ref(idx, _) -> idx | _ -> -1
-        if typeIdx >= 0 then
-            ctx.UseHelper("$strEq") |> ignore
-            match getOrAddStructuralEquals ctx typeIdx with
-            | Some funcName -> WExpr.Call(funcName, [a; b], WType.I32)
-            | None -> WExpr.Compare(WCompareOp.Eq, a, b)
-        else WExpr.Compare(WCompareOp.Eq, a, b)  // primitives: direct eq
+        structuralEquals ctx a b
     // Unary negation: 0 - x  (covers all int8/int16/int32/uint variants → all map to I32)
     | ("op_UnaryNegation_Int8"    | "op_UnaryNegation_UInt8"
     |  "op_UnaryNegation_Int16"   | "op_UnaryNegation_UInt16"
