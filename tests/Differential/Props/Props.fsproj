@@ -13,5 +13,6 @@
     <Compile Include="Props.fs" />
     <Compile Include="PropsStrings.fs" />
     <Compile Include="PropsInt64.fs" />
+    <Compile Include="PropsData.fs" />
   </ItemGroup>
 </Project>
