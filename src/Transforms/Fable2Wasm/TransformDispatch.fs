@@ -368,7 +368,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
             WExpr.Call(ctx.UseHelper("$strSplit"), [str; literalSep.Value], arrRef)
         | Some sepArrExpr ->
             // sepArrExpr is array of strings; take first element as the delimiter
-            let delim = WExpr.ArrayGet(sepArrExpr, i32Zero, WType.Ref(StringTypeIdx, false))
+            let delim = arrayGet sepArrExpr i32Zero (WType.Ref(StringTypeIdx, false))
             WExpr.Call(ctx.UseHelper("$strSplit"), [str; delim], arrRef)
         | None ->
             // No separator — split on whitespace (use " " as separator)

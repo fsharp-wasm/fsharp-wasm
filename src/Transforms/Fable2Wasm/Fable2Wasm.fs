@@ -299,12 +299,18 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                             let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
                             methodName, nonSelfParams, retType)
                     let vtableTypeIdx, boxTypeIdx = VT.getOrRegisterInterface ctx'' ifaceName methodSigs
-                    let _, _, funcTypeIndices, _ = ctx''.VTableRegistry.[ifaceName]
-                    let methodImpls =
-                        methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
-                            methodName, compiledFunc, compiledParams, retType)
-                    VT.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
-                        ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
+                    let _, _, funcTypeIndices, methodNames = ctx''.VTableRegistry.[ifaceName]
+                    // the vtable has one slot per member of the interface, in the order of its first implementation:
+                    // an implementation must supply exactly those members (any order)
+                    let byName = methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) -> methodName, (methodName, compiledFunc, compiledParams, retType)) |> Map.ofList
+                    let slots = methodNames |> List.map (fun n -> Map.tryFind n byName)
+                    if methods.Length = methodNames.Length && slots |> List.forall Option.isSome then
+                        VT.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
+                            ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices (slots |> List.choose id)
+                    else
+                        WasmGc.Core.Diagnostics.unsupported ctx''.Diagnostics
+                            $"'{classDecl.Entity.FullName}' implements {methods.Length} member(s) of '{ifaceName}', which has {methodNames.Length} slot(s)"
+                            "Virtual dispatch needs every member of an abstract class / interface implemented by every implementor (a default member inherited from the base is not supported yet)."
                 ctx''
 
 

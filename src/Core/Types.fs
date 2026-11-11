@@ -372,7 +372,9 @@ let getOrAddRefCellType (ctx: Ctx) (innerWType: WType) : int =
         idx
 
 /// Get or create a mutable GC array type for the given element WType.
-let getOrAddArrayType (ctx: Ctx) (elemT: WType) : int =
+let getOrAddArrayType (ctx: Ctx) (elemType: WType) : int =
+    // reference elements are stored nullable: an array can be created before its elements exist
+    let elemT = match elemType with WType.Ref(idx, _) -> WType.Ref(idx, true) | t -> t
     let key = $"GcArr_{wTypeKey elemT}"
     match ctx.ArrayRegistry.TryGetValue(key) with
     | true, idx -> idx
@@ -484,6 +486,10 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
             match ctx.GenericDuRegistry.TryGetValue(instKey) with
             | true, idx -> WType.Ref(idx, false)
             | false, _ ->
+                // A generic RECORD gets one struct per instantiation (Box<int>, Box<float>, … differ in their fields)
+                match registerGenericRecord ctx entRef genericArgs instKey with
+                | Some idx -> WType.Ref(idx, false)
+                | None ->
                 // Fall back to non-generic key (ClassDeclaration-registered types)
                 match Map.tryFind entRef.FullName ctx.TypeRegistry with
                 | Some idx -> WType.Ref(idx, false)
@@ -562,6 +568,32 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
         let elemT = mapTypeKnown ctx elementType
         WType.Ref(getOrAddArrayType ctx elemT, false)
     | _ -> mapType t
+
+
+/// On-demand struct for ONE instantiation of a generic record: the fields are mapped with the record's type
+/// parameters bound to the (already mapped) type arguments.  `None` when `entRef` is not a generic record.
+and registerGenericRecord (ctx: Ctx) (entRef: Fable.EntityRef) (genericArgs: Fable.Type list) (instKey: string) : int option =
+    let ent = try Some(ctx.Compiler.GetEntity entRef) with _ -> None
+    match ent with
+    | Some ent when ent.IsFSharpRecord && ent.GenericParameters.Length = genericArgs.Length ->
+        let idx = ctx.TypeDefs.Count
+        ctx.GenericDuRegistry.[instKey] <- idx                         // first: a recursive field finds itself
+        ctx.TypeDefs.Add({ Name = instKey; Def = WTypeDef.Struct([], None) })   // slot, filled below
+        let subst =
+            (ent.GenericParameters |> List.map (fun p -> p.Name), genericArgs |> List.map (mapTypeKnown ctx))
+            ||> List.zip |> Map.ofList
+        let inner = { ctx with TypeSubst = subst }
+        let fields = ent.FSharpFields |> List.map (fun f -> { Name = f.Name; Type = mapTypeKnown inner f.FieldType; Mutable = f.IsMutable })
+        ctx.TypeDefs.[idx] <- { Name = instKey; Def = WTypeDef.Struct(fields, None) }
+        Some idx
+    | _ -> None
+
+/// Struct type index of a declared (record / class) type — of its INSTANTIATION when it is generic.
+let declaredStructIdx (ctx: Ctx) (t: Fable.Type) : int option =
+    match t with
+    | Fable.Type.DeclaredType(entRef, _) when Map.containsKey entRef.FullName ctx.TypeRegistry ->
+        (match mapTypeKnown ctx t with WType.Ref(idx, _) -> Some idx | _ -> None)
+    | _ -> None
 
 let mapResultTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     match t with

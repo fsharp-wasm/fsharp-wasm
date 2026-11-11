@@ -256,7 +256,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             // Mutable record field assignment (Phase 3)
             match _expr.Type with
             | Fable.Type.DeclaredType(entRef, _) ->
-                match Map.tryFind entRef.FullName ctx.TypeRegistry with
+                match declaredStructIdx ctx _expr.Type with
                 | Some _ ->
                     let wObj = transformExpr ctx _expr
                     let wVal = transformExpr ctx value
@@ -300,6 +300,21 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 WExpr.ArraySet(wArr, wIdx, wVal)
         | _ -> WExpr.Nop // TODO: expr set
 
+    // JS number constants Fable emits for `nan`, `infinity`, `Double.MaxValue`, …
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Number" }, GetKind.FieldGet fi, typ, _)
+        when (match fi.Name with "NaN" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY" | "MAX_VALUE" | "MIN_VALUE" | "EPSILON" -> true | _ -> false) ->
+        let value =
+            match fi.Name with
+            | "NaN" -> nan
+            | "POSITIVE_INFINITY" -> infinity
+            | "NEGATIVE_INFINITY" -> -infinity
+            | "MAX_VALUE" -> System.Double.MaxValue
+            | "MIN_VALUE" -> System.Double.Epsilon
+            | _ -> System.Math.Pow(2.0, -52.0)
+        match mapTypeKnown ctx typ with
+        | WType.F32 -> WExpr.Const(WConst.F32(float32 value))
+        | _ -> WExpr.Const(WConst.F64 value)
+
     // anonymous record field: the struct is the tuple of the fields in name order
     | Fable.Expr.Get(expr, GetKind.FieldGet fi, typ, _)
         when (match expr.Type with Fable.Type.AnonymousRecordType(names, _, _) -> Array.contains fi.Name names | _ -> false) ->
@@ -323,9 +338,8 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let elemWT = mapTypeKnown ctx elemFableType
         let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemWT
         let arrRefT = WType.Ref(arrTypeIdx, true)
-        WExpr.ArrayGet(WExpr.Cast(WExpr.StructGet(transformExpr ctx expr, 0, arrRefT),
-                                  WType.Ref(arrTypeIdx, false)),
-                       transformExpr ctx idxExpr, mapTypeKnown ctx typ)
+        arrayGet (WExpr.Cast(WExpr.StructGet(transformExpr ctx expr, 0, arrRefT), WType.Ref(arrTypeIdx, false)))
+                 (transformExpr ctx idxExpr) (mapTypeKnown ctx typ)
 
     // ── Array length and indexing ──────────────────────────
     | Fable.Expr.Get(expr, GetKind.FieldGet fi, _, _)
@@ -338,7 +352,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let wArr = transformExpr ctx expr
         let wIdx = transformExpr ctx idxExpr
         let elemT = mapTypeKnown ctx typ
-        WExpr.ArrayGet(wArr, wIdx, elemT)
+        arrayGet wArr wIdx elemT
 
     // ── String operations (length, char indexing) ─────────
     | Fable.Expr.Get(expr, GetKind.FieldGet fi, _, _)
@@ -368,7 +382,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let wExpr = transformExpr ctx expr
         match expr.Type with
         | Fable.Type.DeclaredType(entRef, _) ->
-            match Map.tryFind entRef.FullName ctx.TypeRegistry with
+            match declaredStructIdx ctx expr.Type with
             | Some typeIdx ->
                 let ent = ctx.Compiler.GetEntity(entRef)
                 // For inherited types, parent fields come first in the struct layout

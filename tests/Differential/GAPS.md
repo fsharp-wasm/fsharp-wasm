@@ -31,6 +31,16 @@ Each of these was silently WRONG or did not compile; the property is what showed
 | `List.take/skip/item/replicate`, `Array.take/skip/sub` with bad counts | silently clamped | raise like .NET (`skip` / `truncate` keep their lenient rules) |
 | `List.windowed`, `List.distinct`, `Array.ofList`, `Array.foldBack`, `Array.sub`, `Array.find/tryFind/tryItem/tryLast/take/skip/truncate/where`, `List.find/truncate` | unhandled import → invalid module | handlers |
 
+## Found and fixed by the generics properties (`PropsGenerics.fs`)
+
+| Construct | Was | Now |
+|---|---|---|
+| generic record `Box<'T>` used at `float`, `string`, records … | one struct for every instantiation, field typed `i32` → invalid module | one struct per instantiation (`registerGenericRecord`, same scheme as generic unions) |
+| `List.map f xs` / `Array.fold f …` with `f` a closure parameter or a named function | handlers only matched literal lambdas → unhandled import | `UnaryLambda` / `BinaryLambda` eta-expand function values (identifiers / imports only, so nothing is evaluated twice) |
+| `nan`, `infinity`, `Double.MaxValue` | "unresolved identifier Number" | constants |
+| arrays of references (`(string * int)[]`, `string[]`, records) | `array.new` with a null initialiser into a non-null element type → invalid module | element type is always nullable, reads are cast (`arrayGet`) — one array type per element type |
+| abstract class / interface implemented only partially (default member in the base class) | compiler crash (`index out of range`) | error `WGC011` naming the type; proper virtual dispatch is M2 |
+
 ## Still open (coverage probe: every call below compiles to an unhandled import)
 
 | Area | Missing |
@@ -40,5 +50,8 @@ Each of these was silently WRONG or did not compile; the property is what showed
 | `List` | `pick`, `tryPick` (the chooser's option has to be evaluated ONCE: needs a binding loop, not `listSearch`) |
 | ranges | float ranges (`[0.0 .. 0.5 .. 2.0]`), non-int32 integer ranges |
 | `Array2D` | not supported by Fable itself (frontend limit, see M5) |
+| exports | every function of a project file is exported under its plain name: two modules with a function of the same name collide (`BUG-05`), and `private` does not help — an export policy (public only / module-qualified) is M6 |
+| abstract classes | base-class default members + overrides (vtable slots for ALL virtual members) — M2 |
+| `Dictionary`, `HashSet`, `Stack`, `Queue`, `Map`/`Set` with non-int keys, `Lazy`, `Decimal`, `Int32.TryParse`, `String.Format`, exception constructors (`InvalidOperationException …`) | unhandled imports (measured by the coverage probe) — M2 |
 | lazy `seq { … }` | only the eagerly consumed shapes are fused; a seq that is stored / passed around needs an enumerator (M2) |
 | performance | array sorts are insertion sorts (O(n²)); a merge sort belongs to M4 once there are benchmarks |

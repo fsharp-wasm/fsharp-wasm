@@ -172,8 +172,12 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
         | _ -> i32Zero // fallback
     | Null _ -> WExpr.Const(WConst.Null(WType.I32))
     // ── Records (Phase 3) ────────────────────────────────
-    | NewRecord(values, entRef, _) ->
-        match Map.tryFind entRef.FullName ctx.TypeRegistry with
+    | NewRecord(values, entRef, genArgs) ->
+        let instance =
+            match mapTypeKnown ctx (Fable.Type.DeclaredType(entRef, genArgs)) with
+            | WType.Ref(idx, _) -> Some idx
+            | _ -> None
+        match instance with
         | Some typeIdx ->
             let wValues = values |> List.map (eval ctx)
             WExpr.StructNew(typeIdx, wValues, WType.Ref(typeIdx, false))

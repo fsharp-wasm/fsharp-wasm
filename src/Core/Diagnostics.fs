@@ -80,6 +80,8 @@ module Code =
     /// A non-Unit `let` whose value compiled to nothing — the local keeps its default
     /// and fails validation later as an uninitialized local.
     let ValuelessBinding   = "WGC010"
+    /// A language feature the backend cannot compile (reported instead of crashing or miscompiling).
+    let Unsupported        = "WGC011"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Diagnostic bag
@@ -217,3 +219,7 @@ let valuelessBinding
         msg  = sprintf "Binding '%s' has a non-Unit type but its value compiled to nothing: %s" identName desc,
         hint = "The value expression is unhandled in TransformExpr/TransformDispatch, so the local \
                 is never initialized and the function WILL fail WAT/WASM validation.")
+
+/// A construct the backend does not support: an error with the reason, instead of an exception or a silent miscompile.
+let unsupported (bag: DiagnosticBag) (what: string) (hint: string) : unit =
+    bag.Error(Code.Unsupported, SourceLoc.Unknown, func = "<declaration>", msg = "Not supported: " + what, hint = hint)

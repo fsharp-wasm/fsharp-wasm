@@ -14,18 +14,39 @@ open Fable.AST.Fable
 // Lambda / delegate normalization
 // ─────────────────────────────────────────────────────────────────
 
-/// Single-arg lambda or single-element delegate.
+/// A function VALUE (an identifier or an import of function type — a closure parameter, a named function) seen as
+/// the lambda `fun x1 … xn -> f x1 … xn`, so every handler that pattern-matches on a literal lambda also accepts
+/// `List.map f xs` with `f` bound elsewhere.  Only atoms are expanded: nothing is evaluated more than once.
+let private etaExpand (arity: int) (f: Expr) : (Ident list * Expr) option =
+    let rec paramTypes (t: Type) (n: int) : Type list option =
+        if n = 0 then Some []
+        else
+            match t with
+            | LambdaType(a, r) -> paramTypes r (n - 1) |> Option.map (fun rest -> a :: rest)
+            | DelegateType(args, _) when args.Length = n -> Some args
+            | _ -> None
+    let isAtom = match f with IdentExpr i -> not i.IsMutable | Import _ -> true | _ -> false
+    if not isAtom then None else
+    paramTypes f.Type arity
+    |> Option.map (fun types ->
+        let idents =
+            types |> List.mapi (fun i t ->
+                { Name = $"eta{i}"; Type = t; IsMutable = false; IsThisArgument = false; IsCompilerGenerated = true; IsInlineIfLambda = false; Range = None })
+        let rec resultOf (t: Type) n = if n = 0 then t else (match t with LambdaType(_, r) -> resultOf r (n - 1) | DelegateType(_, r) -> r | _ -> t)
+        idents, CurriedApply(f, idents |> List.map IdentExpr, resultOf f.Type arity, None))
+
+/// Single-arg lambda or single-element delegate (or a function value, eta-expanded).
 let (|UnaryLambda|_|) = function
     | Lambda(arg, body, _)
     | Delegate([arg], body, _, _)                    -> Some(arg, body)
-    | _                                              -> None
+    | f -> etaExpand 1 f |> Option.map (fun (ids, body) -> ids.[0], body)
 
-/// Curried 2-arg lambda or 2-element delegate.
+/// Curried 2-arg lambda or 2-element delegate (or a function value, eta-expanded).
 let (|BinaryLambda|_|) = function
     | Lambda(a1, Lambda(a2, body, _), _)
     | Delegate([a1; a2], body, _, _)
     | Lambda(a1, Delegate([a2], body, _, _), _)      -> Some(a1, a2, body)
-    | _                                              -> None
+    | f -> etaExpand 2 f |> Option.map (fun (ids, body) -> ids.[0], ids.[1], body)
 
 /// Curried 3-arg lambda or 3-element delegate.
 let (|TernaryLambda|_|) = function

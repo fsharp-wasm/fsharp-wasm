@@ -142,7 +142,12 @@ let inline tagOf obj         = WExpr.TagOf obj
 
 // ── Arrays ───────────────────────────────────────────────────────────────────
 let inline arrayNew ti n init ty = WExpr.ArrayNew(ti, n, init, ty)
-let inline arrayGet arr i ty     = WExpr.ArrayGet(arr, i, ty)
+/// Array elements that are references are stored NULLABLE (`Array.zeroCreate<string>` is full of nulls); a read the
+/// program types as non-null is cast.
+let arrayGet arr i ty =
+    match ty with
+    | WType.Ref(idx, false) -> WExpr.Cast(WExpr.ArrayGet(arr, i, WType.Ref(idx, true)), ty)
+    | _ -> WExpr.ArrayGet(arr, i, ty)
 let inline arraySet arr i v      = WExpr.ArraySet(arr, i, v)
 let inline arrayLen arr          = WExpr.ArrayLen arr
 let arrayNewFixed ti elems ty    = WExpr.ArrayNewFixed(ti, elems, ty)
@@ -329,7 +334,7 @@ let mutTy (ty: WType) (init: WExpr) : MutRef = { Init = init; Ty = ty }
 
 /// Typed wrapper for a WasmGC array expression supporting `.[idx]` indexing.
 type WArray = { Expr: WExpr; ElemType: WType } with
-    member a.Item(i: WExpr)           = WExpr.ArrayGet(a.Expr, i, a.ElemType)
+    member a.Item(i: WExpr)           = arrayGet a.Expr i a.ElemType
     member a.Set (i: WExpr) (v: WExpr)= WExpr.ArraySet(a.Expr, i, v)
     member a.Len                      = WExpr.ArrayLen a.Expr
 

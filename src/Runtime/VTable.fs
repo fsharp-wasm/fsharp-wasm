@@ -155,7 +155,12 @@ let emitBox
         let vtableGet = WExpr.GlobalGet(vtableGlobalName, WType.Ref(vtableTypeIdx, false))
         WExpr.StructNew(boxTypeIdx, [vtableGet; obj], WType.Ref(boxTypeIdx, false))
     | false, _ ->
-        failwithf "VTable not registered for impl '%s' implementing '%s'" implTypeName ifaceName
+        // the reason (usually a "Not supported" error for the implementation itself) is in the diagnostics; the
+        // compile stops after this phase, so the placeholder never reaches the validator
+        WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics
+            $"'{implTypeName}' used as '{ifaceName}', but it has no vtable"
+            "See the earlier errors for this type: its members could not be matched to the slots of the interface / abstract class."
+        obj
 
 // ─────────────────────────────────────────────────────────────────
 // Dispatch: call interface method on a box
