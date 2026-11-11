@@ -81,7 +81,17 @@ let transformOperation
                 match exprWType wLeft with
                 | WType.Ref(idx, _) -> idx
                 | _ -> -1
-            if typeIdx < 0 then
+            // a nullable reference (an option: None is null): both null → equal, one null → different,
+            // otherwise the structural function.  The operands are bound once, the helper reads them several times.
+            if (match exprWType wLeft with WType.Ref(_, true) -> true | _ -> false) then
+                let ty = exprWType wLeft
+                getOrAddStructuralEquals ctx typeIdx |> ignore      // compareByWType looks the function up
+                ctx.UseHelper("$strEq") |> ignore
+                let eq =
+                    WExpr.Let("$eqn_a", wLeft, WExpr.Let("$eqn_b", wRight,
+                        compareByWType ctx ty (WExpr.LocalGet("$eqn_a", ty)) (WExpr.LocalGet("$eqn_b", ty))))
+                if op = BinaryUnequal then WExpr.Unary(WUnaryOp.Eqz, eq, WType.I32) else eq
+            elif typeIdx < 0 then
                 WExpr.Compare(WCompareOp.Eq, wLeft, wRight)  // fallback: ref eq
             else
                 // Ensure strEq is emitted (compareByWType may delegate some fields to it)
