@@ -2819,3 +2819,35 @@ let testExnCarrierInt () : int =
         | :? MyTypedException as e -> acc <- acc + e.Value
         | _ -> ()
     acc  // 20 + 40 = 60
+
+// ── module-level mutable state (wasm globals + start function) ────────────────────────────────────────────────
+let mutable private moduleCounter = 10
+
+/// A module-level `let mutable` is one variable for the whole module (initialised by the start function).
+let testModuleMutable () : int =
+    moduleCounter <- 10        // idempotent: the differential test calls every function more than once
+    moduleCounter <- moduleCounter + 5
+    moduleCounter  // 15
+
+let mutable private moduleSlot : int -> int = fun x -> x + 1
+
+/// A module-level mutable holding a function (the pattern of an event-handler slot).
+let testModuleMutableFn () : int =
+    moduleSlot <- (fun x -> x * 2)
+    moduleSlot 21  // 42
+
+/// `for x in list` / `for x in array` (Fable's enumerator protocol becomes a plain loop).
+let testForInListArray () : int =
+    let mutable s = 0
+    for x in [ 1; 2; 3 ] do
+        s <- s + x
+    for y in [| 10; 20 |] do
+        s <- s + y
+    s  // 36
+
+type TestBag = { BagItems: string list; BagN: int }
+
+/// A record whose first use registers the list type of its own field (type slots must not shift).
+let testRecordListField () : int =
+    let b = { BagItems = [ "a"; "b" ]; BagN = 3 }
+    b.BagN + List.length b.BagItems  // 5

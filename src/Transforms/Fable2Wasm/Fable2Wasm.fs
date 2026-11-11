@@ -104,12 +104,15 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
         let ent = ctx.Compiler.GetEntity(classDecl.Entity)
         if ent.IsFSharpRecord then
             let typeIdx = ctx.TypeDefs.Count
+            // reserve the slot first: mapping a field type can register further types (the list of this record's
+            // element type, …), and those must not take the index the registry already hands out
+            ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct([], None) })
             let ctx' = ctx.WithTypeEntry(classDecl.Entity.FullName, typeIdx)
             let fields =
                 ent.FSharpFields
                 |> List.map (fun f ->
                     { Name = f.Name; Type = mapTypeKnown ctx' f.FieldType; Mutable = f.IsMutable })
-            ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(fields, None) })
+            ctx.TypeDefs.[typeIdx] <- { Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(fields, None) }
             let ctx'' =
                 (ctx', classDecl.AttachedMembers)
                 ||> List.fold (fun c m ->
@@ -169,17 +172,20 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                 ctx.TypeDefs.Add(
                     { Name = classDecl.Entity.FullName
                       Def = WTypeDef.Struct([{ Name = "tag"; Type = WType.I32; Mutable = false }], None) })
+                // reserve every case slot before mapping any field (a field's type may register new types)
+                cases |> List.iteri (fun i _ ->
+                    ctx.TypeDefs.Add({ Name = $"{classDecl.Entity.FullName}#{i}"; Def = WTypeDef.Struct([], Some baseIdx) }))
                 cases |> List.iteri (fun i case ->
                     let dataFields =
                         case.UnionCaseFields
                         |> List.map (fun f ->
                             { Name = f.Name; Type = mapTypeKnown ctx'' f.FieldType; Mutable = false })
                         |> List.filter (fun f -> f.Type <> WType.Void)
-                    ctx.TypeDefs.Add(
+                    ctx.TypeDefs.[baseIdx + 1 + i] <-
                         { Name = $"{classDecl.Entity.FullName}#{i}"
                           Def = WTypeDef.Struct(
                                 { Name = "tag"; Type = WType.I32; Mutable = false } :: dataFields,
-                                Some baseIdx) }))
+                                Some baseIdx) })
                 (ctx'', classDecl.AttachedMembers)
                 ||> List.fold (fun c m ->
                     let func = transformMemberDecl c transformExpr m |> resolveLocals
@@ -226,6 +232,7 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                 // WasmGC requires ALL fields (including inherited) to be declared in the
                 // subtype, with the parent's fields appearing first (prefix layout).
                 let typeIdx = ctx.TypeDefs.Count
+                ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct([], None) })    // reserved, see above
                 let ctx' = ctx.WithTypeEntry(classDecl.Entity.FullName, typeIdx)
 
                 // Look up parent struct (skip System.Object / System.Exception from BCL)
@@ -255,7 +262,7 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                     | Some(parentIdx, parentFields) -> parentFields @ ownFields, Some parentIdx
                     | None -> ownFields, None
 
-                ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(allFields, superTypeOpt) })
+                ctx.TypeDefs.[typeIdx] <- { Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(allFields, superTypeOpt) }
                 // ── Synthesize constructor: takes field values, returns struct.new ──
                 // Fable's constructor body is OOP/JS-style (field sets); we replace
                 // it with a direct struct.new that matches the struct field layout.

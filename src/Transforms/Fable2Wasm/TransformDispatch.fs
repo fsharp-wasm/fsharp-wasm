@@ -557,6 +557,13 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     // file earlier in this project (in ctx.KnownFuncs), emit a direct call.
     // This handles same-project cross-file calls (e.g. Map.add → Map_add).
     | selector, _, _ ->
+        // a generic function of ANOTHER file (`onClick<'msg>` called from the app): the call site knows the type
+        // arguments, so it gets its own specialised copy instead of the unresolved (i32-typed) original
+        // (library functions are resolved by module-qualified name below; their short names are not unique)
+        let isLibraryFunc = Map.containsKey (System.IO.Path.GetFileNameWithoutExtension importInfo.Path, selector) ctx.KnownFuncsByPath
+        match (if isLibraryFunc then None else trySpecializeCall ctx eval selector info typ) with
+        | Some specialised -> specialised
+        | None ->
         // Use the import path to find the module-qualified function name.
         // importInfo.Path = e.g. "../fable-library-wasmgc/Map.fs" → stem = "Map"
         let stem = System.IO.Path.GetFileNameWithoutExtension(importInfo.Path)

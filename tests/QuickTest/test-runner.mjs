@@ -787,6 +787,10 @@ check("ExnCarrier payload round-trip → 77",                 77, exp.testExnTyp
 check("ExnTypeTest discriminate generic → 99",              99, exp.testExnTypeTestDiscriminate());
 check("ExnTypeTest match typed → 1",                         1, exp.testExnTypeTestMatch());
 check("ExnCarrier int loop sum → 60",                       60, exp.testExnCarrierInt());
+check("module-level mutable → 15",                           15, exp.testModuleMutable());
+check("module-level mutable function slot → 42",             42, exp.testModuleMutableFn());
+check("for-in over list and array → 36",                     36, exp.testForInListArray());
+check("record with list field → 5",                           5, exp.testRecordListField());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
