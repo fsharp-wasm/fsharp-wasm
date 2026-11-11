@@ -267,6 +267,44 @@ module FableNormalize =
         | _ -> visit inlinePure e
 
     // ─────────────────────────────────────────────────────────────────
+    // Pass 4 — inline single-use stream intermediates:  `xs |> List.map f |> List.filter g |> List.sum`  arrives as
+    //     let a = map f xs in let b = filter g a in sum b
+    // which hides the pipeline from the fusion in SeqFusion.  `a` moves into its only use when that use is the FIRST
+    // thing evaluated afterwards (so the order of effects is unchanged) and is a direct argument of another
+    // collection call.
+    // ─────────────────────────────────────────────────────────────────
+
+    let private isCollectionCall (e: Expr) =
+        match e with
+        | Call(Import({ Path = path }, _, _), _, _, _) ->
+            (match System.IO.Path.GetFileNameWithoutExtension path with
+             | "Seq" | "List" | "Array" | "Range" -> true
+             | _ -> false)
+        | _ -> false
+
+    /// Arguments evaluated before `name` is read must not have effects: atoms and lambdas only.
+    let private inertArg (e: Expr) = isAtom e || isLambda e || (match e with Value _ -> true | _ -> false)
+
+    /// Is `name` read, exactly once, as a direct argument of the FIRST collection call `e` evaluates?
+    let rec private usedFirstByCall (name: string) (e: Expr) : bool =
+        match e with
+        | Call(_, info, _, _) when isCollectionCall e ->
+            let isName = function IdentExpr i when i.Name = name -> true | _ -> false
+            let beforeIt = info.Args |> List.takeWhile (not << isName)
+            info.Args |> List.exists isName && List.forall inertArg beforeIt && countRefs name e = 1
+        | Let(_, value, rest) -> usedFirstByCall name value && countRefs name rest = 0
+        | TypeCast(inner, _) -> usedFirstByCall name inner
+        | _ -> false
+
+    let rec private inlineStreams (e: Expr) : Expr =
+        match e with
+        // `let x = (let y = a in b) in c`  ⇒  `let y = a in let x = b in c`   (binder names are unique, nothing is captured)
+        | Let(i, Let(j, a, b), body) -> inlineStreams (Let(j, a, Let(i, b, body)))
+        | Let(i, value, body) when not i.IsMutable && isCollectionCall value && usedFirstByCall i.Name body ->
+            inlineStreams (subst (Map [ i.Name, value ]) body)
+        | _ -> visit inlineStreams e
+
+    // ─────────────────────────────────────────────────────────────────
     // Entry points
     // ─────────────────────────────────────────────────────────────────
 
@@ -279,17 +317,22 @@ module FableNormalize =
         |> visitFromInsideOut beta
         |> inlinePure
 
-    let private normalizeMember (m: MemberDecl) : MemberDecl =
-        { m with Body = normalizeBody (m.Args |> List.map (fun a -> a.Name)) m.Body }
-
-    let rec normalizeDeclaration (decl: Declaration) : Declaration =
+    /// Apply `f paramNames body` to every function body of a declaration.
+    let rec private mapBodies (f: string list -> Expr -> Expr) (decl: Declaration) : Declaration =
+        let member' (m: MemberDecl) = { m with Body = f (m.Args |> List.map (fun a -> a.Name)) m.Body }
         match decl with
-        | ModuleDeclaration m -> ModuleDeclaration { m with Members = List.map normalizeDeclaration m.Members }
-        | ActionDeclaration a -> ActionDeclaration { a with Body = normalizeBody [] a.Body }
-        | MemberDeclaration m -> MemberDeclaration(normalizeMember m)
+        | ModuleDeclaration m -> ModuleDeclaration { m with Members = List.map (mapBodies f) m.Members }
+        | ActionDeclaration a -> ActionDeclaration { a with Body = f [] a.Body }
+        | MemberDeclaration m -> MemberDeclaration(member' m)
         | ClassDeclaration c ->
             ClassDeclaration
                 { c with
-                    Constructor = Option.map normalizeMember c.Constructor
-                    BaseCall = Option.map (normalizeBody []) c.BaseCall
-                    AttachedMembers = List.map normalizeMember c.AttachedMembers }
+                    Constructor = Option.map member' c.Constructor
+                    BaseCall = Option.map (f []) c.BaseCall
+                    AttachedMembers = List.map member' c.AttachedMembers }
+
+    let normalizeDeclaration (decl: Declaration) : Declaration = mapBodies normalizeBody decl
+
+    /// Runs AFTER Fable's uncurrying (the calls have their final shape then): single-use stream intermediates move
+    /// into the call that consumes them, which is what exposes a pipeline to the fusion.
+    let finishDeclaration (decl: Declaration) : Declaration = mapBodies (fun _ -> inlineStreams) decl

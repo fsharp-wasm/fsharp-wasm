@@ -69,7 +69,7 @@ let tryListTakeSkipSortInline
                 do! strict (gtS n.Val (i32Const 0))
                 return acc.Val
             }
-            Some(listRev gen s revCollect)
+            Some(listRevInPlace gen s revCollect)
         | None -> None
     // ── List.sortBy / List.sortByDescending ────────────────────────r
     // DSL: UnaryLambda replaces Lambda|Delegate([farg]) verbose pattern
@@ -162,8 +162,8 @@ let tryListTakeSkipSortInline
                         listFold gen s lst (i32Const 0) WType.I32
                             (fun idx elem -> sequence [arraySet arr idx elem; add idx (i32Const 1)])
                     do! fillPhase
-                    do! insertionSortInPlace gen arr len elemT readElem writeElem
-                            (fun a b -> wasmIf (inlineCmp a b) (i32Const -1) (i32Const 1))
+                    do! mergeSortInPlace arr len elemT readElem writeElem
+                            (fun a b -> inlineCmp b a)          // a goes after b  ⇔  b < a (ties keep their order)
                     return! arrayToListRev gen s arr len (fun a i -> readElem a i)
                 })
             | _ ->
@@ -214,7 +214,7 @@ let tryListTakeSkipSortInline
                     (fun idx elem ->
                         sequence [arraySet arr idx elem; add idx (i32Const 1)])
             do! fillPhase
-            do! insertionSortInPlace gen arr len elemT readElem writeElem inlineCmp
+            do! mergeSortInPlace arr len elemT readElem writeElem inlineCmp
             return! arrayToListRev gen s arr len (fun a i -> readElem a i)
         })
     // ── List.flatten / List.concat ─────────────────────────────────
@@ -242,7 +242,7 @@ let tryListTakeSkipSortInline
                 (fun acc innerList ->
                     listFold gen s innerList acc s.BaseTy
                         (fun acc2 elem -> s.Cons elem acc2))
-        Some(listRev gen s revResult)
+        Some(listRevInPlace gen s revResult)
     // ── List.zip xs ys ─────────────────────────────────────────────
     | "zip", (xsArg :: ysArg :: _) ->
         let xsElemFableT = match xsArg.Type with | Fable.Type.List t -> Some t | _ -> None
@@ -282,7 +282,7 @@ let tryListTakeSkipSortInline
                         acc.Val)
                     do! xp.Set(sX.Tail xp.Val)
                     do! yp.Set(sY.Tail yp.Val)
-                return! listRev gen sOut acc.Val
+                return! listRevInPlace gen sOut acc.Val
             })
         | _ -> None
     // ── List.map2 f xs ys ──────────────────────────────────────────
@@ -321,7 +321,7 @@ let tryListTakeSkipSortInline
                         acc.Val)
                     do! xp.Set(sX.Tail xp.Val)
                     do! yp.Set(sY.Tail yp.Val)
-                return! listRev gen sOut acc.Val
+                return! listRevInPlace gen sOut acc.Val
             })
         | _ -> None
     | _ -> None

@@ -59,6 +59,21 @@ let listRev (gen: LabelGen) (s: ListShape) (list: WExpr) : WExpr =
     listFold gen s list s.Nil s.BaseTy
         (fun acc elem -> s.Cons elem acc)
 
+/// Reverse a list IN PLACE (pointer reversal, no allocation).  Only for a list this code has just built and that
+/// nothing else references — the accumulators of map / filter / … , which are built back to front and turned
+/// around at the end.  A list the program can see must be copied with `listRev`.
+let listRevInPlace (gen: LabelGen) (s: ListShape) (list: WExpr) : WExpr =
+    wasm {
+        let! cur = mutTy s.BaseTy list
+        let! prev = mutTy s.BaseTy s.Nil
+        while! (refIsNotNull cur.Val) do
+            let! next = s.Tail cur.Val
+            do! s.SetTail cur.Val prev.Val
+            do! prev.Set cur.Val
+            do! cur.Set next
+        return prev.Val
+    }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // listLength — count elements
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +98,7 @@ let listMap
     let rev =
         listFold gen s list rs.Nil rs.BaseTy
             (fun acc elem -> rs.Cons (mapper elem) acc)
-    listRev gen rs rev
+    listRevInPlace gen rs rev
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listMapi — indexed map
@@ -108,7 +123,7 @@ let listMapi
                 do! cur.Set(s.Tail cur.Val)
             return acc.Val
         }
-    listRev gen rs rev
+    listRevInPlace gen rs rev
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listFilter — filter a list, preserving order
@@ -124,7 +139,7 @@ let listFilter
     let rev =
         listFold gen s list s.Nil s.BaseTy
             (fun acc elem -> wasmIf (pred elem) (s.Cons elem acc) acc)
-    listRev gen s rev
+    listRevInPlace gen s rev
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listIter — void traversal (no accumulator)
@@ -281,15 +296,15 @@ let listSearch
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// buildListSort — O(n²) insertion sort, fully composed from combinators
+// buildListSort — O(n log n) merge sort, fully composed from combinators
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Sort a GC linked list via insertion sort (O(n²) — suitable for typical F# sizes).
+/// Sort a GC linked list via a stable merge sort over an array copy.
 ///
 /// Passes:
 ///   1. Count length.
 ///   2. Allocate + fill a GcArray.
-///   3. Insertion sort in place.
+///   3. Merge sort (stable).
 ///   4. Rebuild list from array (backwards, so order is preserved).
 ///
 /// `arrTypeIdx` — GC array type index for elements of `s.ElemTy` (from getOrAddArrayType ctx).
@@ -317,9 +332,7 @@ let buildListSort
                     sequence [arrSet arr idx elem; add idx (i32Const 1)])
 
         // Insertion sort in-place
-        do! insertionSortInPlace gen arr len s.ElemTy
-                arrGet arrSet
-                (fun a b -> wasmIf (cmpOp a b) (i32Const -1) (i32Const 1))
+        do! mergeSortInPlace arr len s.ElemTy arrGet arrSet (fun a b -> cmpOp b a)   // a goes after b  ⇔  b < a (stable)
 
         // Rebuild list from array (right-to-left → forward order)
         return! arrayToListRev gen s arr len arrGet
@@ -346,7 +359,7 @@ let listChoose
                     wasmIf (refIsNotNull (localGet optVar (WType.Ref(-1, true))))
                         (rs.Cons (structGet (cast (localGet optVar (WType.Ref(-1, true))) rs.BaseTy) 0 rs.ElemTy) acc)
                         acc))
-    listRev gen rs rev
+    listRevInPlace gen rs rev
 
 // ─────────────────────────────────────────────────────────────────────────────
 // listCollect — flatMap (map to list, then flatten)
@@ -370,7 +383,7 @@ let listCollect
             let! tempAcc = listFold gen rs innerList acc.Val rs.BaseTy folder
             do! acc.Set(tempAcc)
             do! cur.Set(s.Tail cur.Val)
-        return! listRev gen rs acc.Val
+        return! listRevInPlace gen rs acc.Val
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -396,7 +409,7 @@ let listConcat
             let! tempAcc = listFold gen innerShape innerList acc.Val innerShape.BaseTy folder
             do! acc.Set(tempAcc)
             do! outerCur.Set(outerShape.Tail outerCur.Val)
-        return! listRev gen innerShape acc.Val
+        return! listRevInPlace gen innerShape acc.Val
     }
 
 // ─────────────────────────────────────────────────────────────────────────────

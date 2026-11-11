@@ -106,6 +106,16 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: bash tests/Differential/run-props.sh
 
+      # Same F# functions as .NET (Release) and as wasm on node: results must be identical (the checksum), the times
+      # are printed to the job summary.  Timing is informational — shared runners are too noisy to gate on.
+      - name: Benchmarks (.NET vs wasm)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: |
+          bash tests/Bench/run.sh | tee bench.txt
+          { echo '### Benchmarks (.NET Release vs wasm / node)'; echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Component Embed
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:

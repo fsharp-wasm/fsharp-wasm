@@ -761,7 +761,7 @@ let tryArrayInline
             let! len = arrayLen src
             let! res = arrayNew arrTypeIdx len arrDefault arrRefT
             do! arrayCopy res (i32Const 0) src (i32Const 0) len
-            do! insertionSortInPlace gen res len elemT readElem writeElem inlineCmp
+            do! mergeSortInPlace res len elemT readElem writeElem inlineCmp
             return res
         })
     // ── Array.sort / sortDescending / sortBy / sortByDescending / sortInPlace / sortInPlaceBy ──
@@ -788,13 +788,13 @@ let tryArrayInline
                 let wProj = proj |> Option.map (fun (x, body) -> x, transform (ctx.WithLocal(x.Name, elemT)) body)
                 let sortStmt (arr: WExpr) (len: WExpr) : WExpr =
                     match wProj with
-                    | None -> insertionSortInPlace (LabelGen "asort") arr len elemT elem.Read elem.Write cmp
+                    | None -> mergeSortInPlace arr len elemT elem.Read elem.Write cmp
                     | Some(x, projBody) ->
                         wasm {
                             let! keys = arrayNew key.TypeIdx len key.Default key.RefT
                             do! indexedLoop (LabelGen "akey") len (fun i ->
                                     key.Write keys i (WExpr.Let(x.Name, elem.Read arr i, projBody)))
-                            do! insertionSortKeyed arr len elem.Read elem.Write keys key.Read key.Write cmp
+                            do! mergeSortKeyed arr len elemT elem.Read elem.Write (Some(keys, keyT, key.Read, key.Write)) cmp
                         }
                 if inPlace then
                     Some(wasm {

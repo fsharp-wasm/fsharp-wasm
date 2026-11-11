@@ -1,0 +1,9 @@
+output/
+Wasm/output/
+Wasm/bin/
+Wasm/obj/
+bin/
+obj/
+Bench.wasm
+Bench.wat
+wit/

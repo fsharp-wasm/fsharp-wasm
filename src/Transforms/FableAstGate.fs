@@ -125,6 +125,7 @@ module FableAstGate =
                 |> List.map (fun decl ->
                     try
                         Fable.Transforms.FableTransforms.transformDeclaration (wasmTransforms com) com file (FableNormalize.normalizeDeclaration decl)
+                        |> FableNormalize.finishDeclaration
                     with ex ->
                         com.AddLog(
                             $"FableAstGate: declaration transform failed: {ex.Message}",

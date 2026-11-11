@@ -41,6 +41,14 @@ Each of these was silently WRONG or did not compile; the property is what showed
 | arrays of references (`(string * int)[]`, `string[]`, records) | `array.new` with a null initialiser into a non-null element type → invalid module | element type is always nullable, reads are cast (`arrayGet`) — one array type per element type |
 | abstract class / interface implemented only partially (default member in the base class) | compiler crash (`index out of range`) | error `WGC011` naming the type; proper virtual dispatch is M2 |
 
+## Performance work driven by `tests/Bench` (see the table the CI prints)
+
+| Finding | Change |
+|---|---|
+| array / list sorts were insertion sorts: `bench_sort` 26× slower than .NET | stable bottom-up merge sort (`mergeSortKeyed`), keyed variant permutes a parallel key array; `bench_sort` ≈ .NET |
+| list pipelines allocated twice per stage (build reversed, copy-reverse); V8 allocates a cons for ~70–90 ns | cons tails are mutable; fresh accumulators are reversed in place (`listRevInPlace`) |
+| `[1 .. n] \|> List.map f \|> List.filter g \|> List.fold h 0` built three lists | `SeqFusion`: the chain is ONE loop when the stages are pure (strict lists: an impure stage must run to completion first, so it is never fused); `FableNormalize.finishDeclaration` floats nested lets and inlines single-use stream intermediates so the chain is visible; `bench_list` 15× FASTER than .NET (no intermediate lists) |
+
 ## Still open (coverage probe: every call below compiles to an unhandled import)
 
 | Area | Missing |

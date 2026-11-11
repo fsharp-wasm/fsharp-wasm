@@ -957,6 +957,6 @@ let private transformCallCore
 /// is fused into loops BEFORE its lazy, closure-based arguments are compiled; everything else takes the normal route.
 let transformCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (callee: Expr) (info: CallInfo) (typ: Type) : WExpr =
     match callee with
-    | Import({ Selector = sel }, _, _) when info.ThisArg.IsNone -> trySeqFusionInline eval ctx sel info.Args typ
+    | Import _ when info.ThisArg.IsNone -> trySeqFusionInline eval ctx (Call(callee, info, typ, None))
     | _ -> None
     |> Option.defaultWith (fun () -> transformCallCore ctx eval callee info typ)

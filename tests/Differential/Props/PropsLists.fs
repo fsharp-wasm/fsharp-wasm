@@ -129,3 +129,50 @@ let prop_c_ifThenElseClosure (a: int) (b: int) : int = (if a > b then adder a el
 let prop_c_matchClosure (a: int) (b: int) : int =
     let f = match a % 3 with 0 -> adder 1 | 1 -> (fun x -> x * 2) | _ -> twice (adder b)
     f 7
+
+// ── sorting at sizes that exercise the merge passes (stability, odd lengths, many duplicates) ───
+let private many (a: int) (b: int) (n: int) : int list = [ for i in 0 .. n - 1 -> (a * i + b * i * i) % 17 ]
+let private checksum (xs: int list) : int = xs |> List.fold (fun acc v -> acc * 31 + v) 7
+let private checksumA (xs: int[]) : int = xs |> Array.fold (fun acc v -> acc * 31 + v) 7
+let prop_ls_sortBig (a: int) (b: int) (n: int) : int = many a b (abs (n % 60)) |> List.sort |> checksum
+let prop_ls_sortDescBig (a: int) (b: int) (n: int) : int = many a b (abs (n % 60)) |> List.sortDescending |> checksum
+let prop_ls_sortWithBig (a: int) (b: int) (n: int) : int = many a b (abs (n % 60)) |> List.sortWith (fun x y -> compare (y % 5) (x % 5)) |> checksum
+let prop_ls_sortByStable (a: int) (b: int) (n: int) : int =
+    many a b (abs (n % 60)) |> List.mapi (fun i v -> (v % 5, i)) |> List.sortBy fst |> List.map snd |> checksum
+let prop_a_sortBig (a: int) (b: int) (n: int) : int = many a b (abs (n % 60)) |> Array.ofList |> Array.sort |> checksumA
+let prop_a_sortDescBig (a: int) (b: int) (n: int) : int = many a b (abs (n % 60)) |> Array.ofList |> Array.sortDescending |> checksumA
+let prop_a_sortWithBig (a: int) (b: int) (n: int) : int =
+    many a b (abs (n % 60)) |> Array.ofList |> Array.sortWith (fun x y -> compare (y % 5, y) (x % 5, x)) |> checksumA   // total order: .NET's array sort is not stable
+let prop_a_sortByInjective (a: int) (b: int) (n: int) : int =
+    many a b (abs (n % 60)) |> List.mapi (fun i v -> v * 100 + i) |> Array.ofList |> Array.sortBy (fun v -> -v) |> checksumA
+let prop_a_sortInPlaceBig (a: int) (b: int) (n: int) : int =
+    let x = many a b (abs (n % 60)) |> Array.ofList
+    Array.sortInPlace x
+    checksumA x
+let prop_ls_sortStrings (a: int) (n: int) : int =
+    many a 3 (abs (n % 40)) |> List.map (fun v -> string (v * 7919 % 1000)) |> List.sort |> List.sumBy (fun s -> s.Length * 31 + int s.[0])
+
+// ── fused pipelines: the same answers as the stage-by-stage evaluation ──────────────────────────
+let prop_f_mapFilterSum (a: int) (n: int) : int = [ 1 .. abs (n % 40) ] |> List.map (fun v -> v * a) |> List.filter (fun v -> v % 3 = 0) |> List.sum
+let prop_f_mapFold (a: int) (n: int) : int = [ 0 .. abs (n % 40) ] |> List.map (fun v -> v + a) |> List.fold (fun s v -> s * 31 + v) 7
+let prop_f_filterLength (a: int) (n: int) : int = [ a .. a + abs (n % 40) ] |> List.filter (fun v -> v % 2 = 0) |> List.length
+let prop_f_sumBy (a: int) (n: int) : int = [ 1 .. abs (n % 40) ] |> List.map (fun v -> v + a) |> List.sumBy (fun v -> v % 7)
+let prop_f_toArray (a: int) (n: int) : int = [ 1 .. abs (n % 40) ] |> List.map (fun v -> v * a) |> Array.ofList |> Array.fold (fun s v -> s * 31 + v) 7
+let prop_f_arrayChain (a: int) (n: int) : int =
+    Array.init (abs (n % 40)) (fun i -> i * a) |> Array.map (fun v -> v + 1) |> Array.filter (fun v -> v % 2 = 0) |> Array.sum
+let prop_f_listInit (a: int) (n: int) : int = List.init (abs (n % 40)) (fun i -> i * a) |> List.map (fun v -> v ^^^ a) |> List.sum
+let prop_f_arrayToList (a: int) (n: int) : int =
+    Array.init (abs (n % 40)) (fun i -> i + a) |> Array.map (fun v -> v * 2) |> Array.toList |> List.fold (fun s v -> s * 31 + v) 7
+let prop_f_empty (a: int) : int = [ 1 .. 0 ] |> List.map (fun v -> v * a) |> List.sum
+let prop_f_reverseRange (a: int) (n: int) : int = [ 10 .. -1 .. (abs (n % 10)) ] |> List.map (fun v -> v - a) |> List.fold (fun s v -> s * 31 + v) 7
+let prop_f_steps (a: int) (n: int) : int = [ 0 .. 3 .. abs (n % 100) ] |> List.filter (fun v -> v > a % 50) |> List.length
+let prop_f_tupleStage (a: int) (n: int) : int =
+    [ 1 .. abs (n % 30) ] |> List.map (fun v -> (v, v * a)) |> List.filter (fun (x, _) -> x % 2 = 1) |> List.sumBy (fun (x, y) -> x + y)
+let prop_f_stringStage (a: int) (n: int) : int = [ 1 .. abs (n % 30) ] |> List.map (fun v -> string (v * a)) |> List.sumBy (fun s -> s.Length)
+let prop_f_overflowSum (a: int) : int = [ 1 .. 3 ] |> List.map (fun v -> v * a) |> List.sum        // Checked.(+): raises on overflow
+let prop_f_nested (a: int) (n: int) : int =
+    [ 1 .. abs (n % 10) ] |> List.map (fun i -> [ 1 .. i ] |> List.map (fun j -> j * a) |> List.sum) |> List.sum
+let prop_f_impureStage (a: int) (n: int) : int =
+    let log = ref 0
+    let r = [ 1 .. abs (n % 10) ] |> List.map (fun v -> log.Value <- log.Value * 31 + v; v + a) |> List.map (fun v -> log.Value <- log.Value * 17 + v; v) |> List.sum
+    r + log.Value                                   // not fused: the stage runs completely before the next one (strict lists)

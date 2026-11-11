@@ -31,6 +31,8 @@ type ListShape = {
     Tail      : WExpr -> WExpr
     /// Prepend an element to a list: Cons elem tail → new cons node.
     Cons      : WExpr -> WExpr -> WExpr
+    /// Overwrite the tail of a cons node: `SetTail node newTail` (only on lists this code has just built).
+    SetTail   : WExpr -> WExpr -> WExpr
 }
 
 /// Build a ListShape for a concrete list element type.
@@ -49,4 +51,5 @@ let mkListShape (elemT: WType) (consIdx: int) : ListShape =
         Head      = fun n -> WExpr.StructGet(castNN n, 0, elemT)
         Tail      = fun n -> WExpr.StructGet(castNN n, 1, baseTy)
         Cons      = fun elem tail -> WExpr.StructNew(consIdx, [elem; tail], baseTy)
+        SetTail   = fun node tail -> WExpr.StructSet(castNN node, 1, tail)
     }

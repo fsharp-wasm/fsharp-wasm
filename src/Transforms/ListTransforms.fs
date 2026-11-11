@@ -260,7 +260,7 @@ let tryListCollectInline
                                 no.Set(s.Cons e no.Val),
                                 WType.Void)
                         })
-                    return structNew tupleIdx [listRev gen s yes.Val; listRev gen s no.Val] tupleRefT
+                    return structNew tupleIdx [listRevInPlace gen s yes.Val; listRevInPlace gen s no.Val] tupleRefT
                 })
         | None -> None
     | "concat", [listArg] ->
@@ -326,7 +326,7 @@ let tryListChooseInline
                                             (structGet (cast (localGet optVar optNullableT) optNonNullT) 0 outputElemT)
                                             acc)
                                         acc))
-                    Some(listRev gen sOut revChosen)
+                    Some(listRevInPlace gen sOut revChosen)
                 | _ -> None
             | _ -> None
         | None -> None
@@ -531,7 +531,7 @@ let tryListPairwiseInline
                                     do! prev.Set e
                                     return sOut.Cons pair acc
                                 })
-                    return! listRev gen sOut revAcc
+                    return! listRevInPlace gen sOut revAcc
                 })
         })
     | _ -> None
@@ -640,7 +640,7 @@ let tryListCountByInline
                                                     revAcc
                                             ])
                                             (sOut.Cons pairElem revAcc)))
-                            WExpr.Let(rv, listRev gen sOut rebuiltRev.Val,
+                            WExpr.Let(rv, listRevInPlace gen sOut rebuiltRev.Val,
                                 acc.Set(
                                     wasmIf found.Val
                                         (WExpr.LocalGet(rv, sOut.BaseTy))
@@ -648,7 +648,7 @@ let tryListCountByInline
                                             (WExpr.StructNew(tupleIdx, [k; i32Const 1], tupleRefT))
                                             (WExpr.LocalGet(rv, sOut.BaseTy)))))
                         ])))
-            return! listRev gen sOut acc.Val
+            return! listRevInPlace gen sOut acc.Val
         })
     | _ -> None
 
@@ -716,7 +716,7 @@ let tryListGroupByInline
                                                     revAcc
                                             ])
                                             (sOut.Cons pairElem revAcc)))
-                            WExpr.Let(rv, listRev gen sOut rebuiltRev.Val,
+                            WExpr.Let(rv, listRevInPlace gen sOut rebuiltRev.Val,
                                 acc.Set(
                                     wasmIf found.Val
                                         (WExpr.LocalGet(rv, sOut.BaseTy))
@@ -775,7 +775,7 @@ let tryListDistinctInline
                             seen.Set(sIn.Cons e seen.Val)
                             rev.Set(sOut.Cons e rev.Val)
                         ])))
-            return! listRev gen sOut rev.Val
+            return! listRevInPlace gen sOut rev.Val
         })
     | _ -> None
 
@@ -820,7 +820,7 @@ let tryListDistinctByInline
                                 seen.Set(sKey.Cons k seen.Val)
                                 rev.Set(sOut.Cons e rev.Val)
                             ]))))
-            return! listRev gen sOut rev.Val
+            return! listRevInPlace gen sOut rev.Val
         })
     | _ -> None
 
@@ -871,7 +871,7 @@ let tryListUnzipInline
                                     return sA.Cons (structGet p 0 aElemT) aAcc
                                 })
                     return structNew resultTupleIdx
-                        [listRev gen sA aRev; listRev gen sB bRev.Val]
+                        [listRevInPlace gen sA aRev; listRevInPlace gen sB bRev.Val]
                         resultTupleRefT
                 })
             | _ -> None

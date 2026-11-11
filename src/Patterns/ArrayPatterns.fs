@@ -161,7 +161,7 @@ let sortBy arrTypeIdx arrRefTy elemTy keyTy zero src (keyFn: WExpr -> WExpr) : W
         let! (n: WExpr)   = arrayLen src
         let! (res: WExpr) = WExpr.ArrayNew(arrTypeIdx, n, zero, arrRefTy)
         do! WExpr.ArrayCopy(res, i32Const 0, src, i32Const 0, n)
-        do! insertionSortInPlace gen res n elemTy
+        do! mergeSortInPlace res n elemTy
                 (fun a i -> arrayGet a i elemTy)
                 (fun a i v -> arraySet a i v)
                 cmp

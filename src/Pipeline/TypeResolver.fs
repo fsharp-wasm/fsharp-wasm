@@ -159,7 +159,7 @@ let rec resolveType (ctx: Ctx) (t: Fable.Type) : WType =
                 { Name = $"ListCons_{typeIdx}"
                   Def = WTypeDef.Struct(
                     [ { Name = "head"; Type = elemWType; Mutable = false }
-                      { Name = "tail"; Type = WType.Ref(ListBaseTypeIdx, true); Mutable = false } ],
+                      { Name = "tail"; Type = WType.Ref(ListBaseTypeIdx, true); Mutable = true } ],
                     Some ListBaseTypeIdx) })
             ctx.ListRegistry.[key] <- typeIdx
         WType.Ref(ListBaseTypeIdx, true)
