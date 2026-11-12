@@ -38,6 +38,39 @@ open WasmGc.Util.FableQuery
 
 let private arrElemT = function ArrayOf e -> Some e | _ -> None
 
+/// Is this the type of a `seq<'T>` (what a `seq` parameter, or a coercion to `seq`, says)?
+let isSeqType (t: Fable.Type) =
+    match t with
+    | Fable.Type.DeclaredType(e, [ _ ]) -> e.FullName = "System.Collections.Generic.IEnumerable`1"
+    | _ -> false
+
+/// An array where a `seq<'T>` is expected: `seq` is represented as a (strict) list, so the array is copied into one.
+/// A list passes as it is; any other argument is returned unchanged (the caller reports what it cannot convert).
+let coerceToSeq (ctx: Ctx) (argType: Fable.Type) (w: WExpr) : WExpr =
+    let unsupported what =
+        WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics
+            $"a {what} where a seq<'T> is expected"
+            "A seq is a list here: lists and arrays convert, other collections (ResizeArray, Set, Map, string) do not yet — use `List.ofSeq` / `Set.toList` first."
+        w
+    match argType with
+    | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) -> unsupported "ResizeArray"
+    | Fable.Type.String -> unsupported "string"
+    | Fable.Type.DeclaredType(e, _) when e.FullName.StartsWith "Microsoft.FSharp.Collections.FSharpSet" || e.FullName.StartsWith "Microsoft.FSharp.Collections.FSharpMap" ->
+        unsupported "Set or Map"
+    | _ ->
+    match arrElemT argType with
+    | Some elemFableT ->
+        match tryListTypeInfoFromElemType ctx elemFableT with
+        | Some(elemT, consIdx) ->
+            let s = mkListShape elemT consIdx
+            let gen = LabelGen("a2s")
+            wasm {
+                let! a = w
+                return! arrayToListRev gen s a (arrayLen a) (fun ar i -> arrayGet ar i elemT)
+            }
+        | None -> w
+    | None -> w
+
 // let private shapeOf (ctx: Ctx) et =
 //    let wt = mapTypeKnown ctx et
 //    mkArrayShape wt (getOrAddArrayType ctx wt)

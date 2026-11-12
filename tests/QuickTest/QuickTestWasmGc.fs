@@ -2875,3 +2875,32 @@ let label = 100
 let testLocalShadowsModuleValue (label: int) : int =
     let f = fun () -> label + 1
     f ()  // testLocalShadowsModuleValue 4 = 5
+
+// ── seq<'T> parameters: a list or an array is passed where a seq is expected ──────────────────────
+
+let sumSeq (xs: seq<int>) : int = xs |> Seq.sum
+
+/// A list is a seq as it is.
+let testSeqParamList () : int = sumSeq [ 1; 2; 3 ]   // 6
+
+/// An array is converted where F# coerces it silently.
+let testSeqParamArray () : int = sumSeq [| 4; 5 |]   // 9
+
+let countSeq (xs: seq<string>) : int = xs |> Seq.length
+
+/// A seq of strings, from a list and from an array, through `:>` and through the signature.
+let testSeqParamStrings () : int =
+    countSeq [ "a"; "b" ] + countSeq [| "c" |] + countSeq ([| "d"; "e"; "f" |] :> seq<string>)   // 2 + 1 + 3 = 6
+
+let doubled (xs: seq<int>) : int list = xs |> Seq.map (fun x -> x * 2) |> Seq.toList
+
+/// A seq pipeline inside the function, called with both shapes.
+let testSeqPipeline () : int = List.sum (doubled [ 1; 2; 3 ]) + List.sum (doubled [| 5 |])   // 12 + 10 = 22
+
+type Collector() =
+    member _.Collect(xs: seq<'a>, f: 'a -> int list) : int list = xs |> Seq.toList |> List.collect f
+
+/// A generic instance member with a seq parameter (what a computation-expression `For` is).
+let testSeqGenericMember () : int =
+    let c = Collector()
+    List.length (c.Collect([| 1; 2; 3 |], fun x -> [ x; x ])) + List.length (c.Collect([ "a" ], fun s -> [ s.Length ]))   // 6 + 1 = 7

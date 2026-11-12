@@ -505,6 +505,10 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     // StringBuilder: always maps to the pre-registered $StringBuilder struct
     | Fable.Type.DeclaredType(entRef, _) when entRef.FullName = "System.Text.StringBuilder" ->
         WType.Ref(StringBuilderTypeIdx, false)
+    // `seq<'T>` is a (strict) list: the Seq handlers already read a seq-typed value as a list, a list is a seq as is, and
+    // an array or other collection passed as a seq is converted where it is coerced (`toSeqList`)
+    | Fable.Type.DeclaredType(entRef, [ elem ]) when entRef.FullName = "System.Collections.Generic.IEnumerable`1" ->
+        mapTypeKnown ctx (Fable.Type.List elem)
     | Fable.Type.DeclaredType(entRef, genericArgs) ->
         // Try the generic instance key first (for on-demand registered DUs like Result<T,E>)
         if not genericArgs.IsEmpty then

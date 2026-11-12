@@ -793,6 +793,11 @@ check("for-in over list and array → 36",                     36, exp.testForIn
 check("captured mutable local is shared → 64",                64, exp.testCapturedMutable());
 check("two closures share one mutable → 3",                   3,  exp.testSharedMutableCells());
 check("local shadows module value, closure captures it → 5",  5,  exp.testLocalShadowsModuleValue(4));
+check("seq parameter, list → 6",                              6,  exp.testSeqParamList());
+check("seq parameter, array → 9",                             9,  exp.testSeqParamArray());
+check("seq of strings from list, array and :> → 6",           6,  exp.testSeqParamStrings());
+check("seq pipeline inside, both shapes → 22",                22, exp.testSeqPipeline());
+check("generic member with a seq parameter → 7",              7,  exp.testSeqGenericMember());
 check("record with list field → 5",                           5, exp.testRecordListField());
 
 console.log(`\n────────────────────────────────────────────────`);

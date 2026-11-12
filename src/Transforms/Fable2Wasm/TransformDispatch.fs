@@ -695,7 +695,13 @@ let private transformCallCore
     // TODO: for better diagnostics, we could match on the callee expression and print more info about it here
     // eprintfn "[WasmGc] Call callee=%A in func=%A" callee ctx.CurrentFunc
     let ty = mapTypeKnown ctx typ
-    let wArgs = info.Args |> List.map (eval ctx)
+    let wArgs =
+        let evaluated = info.Args |> List.map (eval ctx)
+        // an array passed where the signature says `seq<'T>` (F# coerces silently) becomes the list a seq is
+        if info.SignatureArgTypes.Length = evaluated.Length then
+            List.zip3 info.SignatureArgTypes (info.Args |> List.map (fun a -> a.Type)) evaluated
+            |> List.map (fun (declared, actual, w) -> if isSeqType declared then coerceToSeq ctx actual w else w)
+        else evaluated
 
     // ── Interface vtable dispatch ─────────────────────────────────────────────
     // Detect `iface.Method(args)` where the receiver is a known vtable-boxed interface.

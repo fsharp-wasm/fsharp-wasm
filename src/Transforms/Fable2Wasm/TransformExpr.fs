@@ -16,6 +16,7 @@ module RT = WasmGc.Runtime.Runtime
 module Q  = WasmGc.Util.FableQuery
 
 open WasmGc.Transforms.MathMap
+open WasmGc.Transforms.ArrayReplacements
 
 open TransformConstruct
 open TransformClosures
@@ -739,6 +740,9 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             WExpr.Unary(WUnaryOp.ExtendI32U, w, WType.I64)
         // char → string
         | Fable.Type.Char, Fable.Type.String when exprWType w = WType.I32 -> charToString w
+        // `arr :> seq<_>`: a seq is a list
+        | Fable.Type.Array _, target when isSeqType target -> coerceToSeq ctx innerExpr.Type w
+        | _, target when isSeqType target -> w
         | _ -> buildTypeCast ctx w targetTy
 
     // ── Import as value ─────────────────────────────────────────
