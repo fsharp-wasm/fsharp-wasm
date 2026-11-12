@@ -113,6 +113,11 @@ let buildTypeCast (ctx: Ctx) (wExpr: WExpr) (targetFableType: Fable.Type) : WExp
 let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExpr) : WExpr =
     match kind with
     | UnitConstant -> WExpr.Nop
+    // `this` inside a constructor body: the instance the constructor is initialising (see Fable2Wasm, class constructors)
+    | ThisValue _ ->
+        match Map.tryFind "$this" ctx.Locals with
+        | Some t -> WExpr.LocalGet("$this", t)
+        | None -> WExpr.Nop
     | BoolConstant b -> WExpr.Const(WConst.I32(if b then 1 else 0))
     | CharConstant c -> WExpr.Const(WConst.I32(int c))
     | StringConstant s ->

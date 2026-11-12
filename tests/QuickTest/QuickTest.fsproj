@@ -20,6 +20,7 @@
     <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
     <Compile Include="../../fable-library-wasmgc/Collections/Map.fs" />
     <Compile Include="../../fable-library-wasmgc/Collections/Set.fs" />
+    <Compile Include="../../fable-library-wasmgc/System.Collections.Generic.fs" />
     <Compile Include="QuickTestWasmGc.fs" />
   </ItemGroup>
 

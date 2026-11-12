@@ -213,10 +213,15 @@ let tryArrayInline
             let elemT = mapTypeKnown ctx elemFableT
             let arrTypeIdx = getOrAddArrayType ctx elemT
             let arrRefT = WType.Ref(arrTypeIdx, false)
+            // `Array.zeroCreate<'T> n` fills with `null` (`Unchecked.defaultof`) whatever 'T is: for a number that is zero
+            let fillValue (v: WExpr) =
+                match v, elemT with
+                | WExpr.Const(WConst.Null _), (WType.I32 | WType.I64 | WType.F32 | WType.F64) -> WasmGc.Builder.Core.makeNumericZero elemT
+                | _ -> v
             match wArgs with
-            | [_; _; wCount; wValue] -> Some(arrayNew arrTypeIdx wCount wValue arrRefT)
-            | [_; wCount; wValue]    -> Some(arrayNew arrTypeIdx wCount wValue arrRefT)
-            | [wCount; wValue]       -> Some(arrayNew arrTypeIdx wCount wValue arrRefT)
+            | [_; _; wCount; wValue] -> Some(arrayNew arrTypeIdx wCount (fillValue wValue) arrRefT)
+            | [_; wCount; wValue]    -> Some(arrayNew arrTypeIdx wCount (fillValue wValue) arrRefT)
+            | [wCount; wValue]       -> Some(arrayNew arrTypeIdx wCount (fillValue wValue) arrRefT)
             | _ -> None
         | None ->
             match fableArgs, wArgs with

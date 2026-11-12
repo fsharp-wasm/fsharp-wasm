@@ -34,6 +34,11 @@ let private preScanGenerics (ctx: Ctx) (decls: Declaration list) : unit =
         | ClassDeclaration cd ->
             cd.AttachedMembers |> List.iter (fun m ->
                 ctx.GenericFuncRegistry.[m.Name] <- (ctx.Compiler, m :> obj))
+            // the constructor of a generic class is instantiated per type-argument list (see trySpecializeCall)
+            match cd.Constructor with
+            | Some ctor when (match ctx.Compiler.TryGetEntity cd.Entity with Some e -> e.GenericParameters.Length > 0 | None -> false) ->
+                ctx.GenericCtors.[ctor.Name] <- (ctx.Compiler, cd)
+            | _ -> ()
         | ActionDeclaration _ -> ()
     decls |> List.iter scan
 
@@ -251,10 +256,14 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                     | None -> None
 
                 // Child's own fields declared in this class body
+                // A class field of reference type is stored nullable: the instance exists before its constructor has
+                // initialised the fields (`let items = Array.zeroCreate 4`), and reads cast back to the declared type.
                 let ownFields =
                     ent.FSharpFields
                     |> List.map (fun f ->
-                        { Name = f.Name; Type = mapTypeKnown ctx' f.FieldType; Mutable = f.IsMutable })
+                        let ty = match mapTypeKnown ctx' f.FieldType with WType.Ref(i, _) -> WType.Ref(i, true) | t -> t
+                        // mutable in the struct whatever F# says: the constructor body assigns every field once
+                        { Name = f.Name; Type = ty; Mutable = true })
 
                 // Flattened layout: parent prefix fields + own new fields
                 let allFields, superTypeOpt =
@@ -276,22 +285,7 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                                 let ty = mapTypeKnown ctx' a.Type
                                 if ty = WType.Void then None else Some(a.Name, ty))
                         let retTy = WType.Ref(typeIdx, false)
-                        // Build struct.new: map each allFields field to a ctor arg (by name),
-                        // falling back to a zero/null constant for fields not in ctor args.
-                        let fieldGetters =
-                            allFields |> List.map (fun fd ->
-                                match ctorParams |> List.tryFind (fun (n, _) -> n = fd.Name) with
-                                | Some(name, ty) -> WExpr.LocalGet(name, ty)
-                                | None ->
-                                    // Default: zero for value types, null for ref types
-                                    match fd.Type with
-                                    | WType.Ref(_, _) -> WExpr.Const(WConst.Null fd.Type)
-                                    | WType.AnyRef     -> WExpr.Const(WConst.Null WType.AnyRef)
-                                    | _                -> WExpr.Const(WConst.I32 0))
-                        let ctorBody = WExpr.StructNew(typeIdx, fieldGetters, retTy)
-                        let ctorFunc : WFuncDecl =
-                            { Name = ctorDecl.Name; Params = ctorParams; Result = retTy
-                              Locals = []; Body = ctorBody; Exported = false }
+                        let ctorFunc = TransformDispatch.buildClassCtor transformExpr ctx' ctorDecl retTy ctorParams ctorDecl.Name |> resolveLocals
                         ctx'.Functions.Add(ctorFunc)
                         // Register synthesized constructor for cross-file import dispatch.
                         // Fable uses the full qualified name (e.g. "ArgumentException_$ctor_Z...") as

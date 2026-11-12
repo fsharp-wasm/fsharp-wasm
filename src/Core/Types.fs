@@ -198,6 +198,10 @@ type Ctx =
         /// Names assigned anywhere (`x <- …` on an identifier): a module value among them is a mutable global.
         AssignedIdents: System.Collections.Generic.HashSet<string>
 
+        /// Constructors of generic classes (ctor function name → declaring compiler, class declaration): a generic class is
+        /// instantiated per type-argument list, its constructor included.
+        GenericCtors: System.Collections.Generic.Dictionary<string, ICompilerCore * Fable.ClassDecl>
+
         /// Host callbacks (function-typed arguments of JS imports): signature key → index into `CallbackTramps`.
         CallbackSigs: System.Collections.Generic.Dictionary<string, int>
         /// Per callback signature: (trampoline function name, number of boxed JS arguments it takes).
@@ -291,6 +295,7 @@ type Ctx =
             GlobalDecls = new ResizeArray<WGlobalDecl>()
             InitSteps = new ResizeArray<WExpr>()
             AssignedIdents = System.Collections.Generic.HashSet<string>()
+            GenericCtors = System.Collections.Generic.Dictionary<string, ICompilerCore * Fable.ClassDecl>()
             CallbackSigs = System.Collections.Generic.Dictionary<string, int>()
             CallbackTramps = new ResizeArray<string * int>()
             ResizeArrayRegistry = System.Collections.Generic.Dictionary<string, int * int>()
@@ -521,6 +526,9 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
                 match registerGenericRecord ctx entRef genericArgs instKey with
                 | Some idx -> WType.Ref(idx, false)
                 | None ->
+                match registerGenericClass ctx entRef genericArgs instKey with
+                | Some idx -> WType.Ref(idx, false)
+                | None ->
                 // Fall back to non-generic key (ClassDeclaration-registered types)
                 match Map.tryFind entRef.FullName ctx.TypeRegistry with
                 | Some idx -> WType.Ref(idx, false)
@@ -600,6 +608,32 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
         WType.Ref(getOrAddArrayType ctx elemT, false)
     | _ -> mapType t
 
+
+/// On-demand struct for ONE instantiation of a generic class (`Stack<'T>`), when the class was compiled from source: its
+/// fields with the class's type parameters bound to the (already mapped) type arguments.  Reference fields are stored
+/// nullable and every field is mutable — the constructor body assigns them.  `None` for anything else.
+and registerGenericClass (ctx: Ctx) (entRef: Fable.EntityRef) (genericArgs: Fable.Type list) (instKey: string) : int option =
+    if not (Map.containsKey entRef.FullName ctx.TypeRegistry) then None else
+    let ent = try Some(ctx.Compiler.GetEntity entRef) with _ -> None
+    match ent with
+    | Some ent when not ent.IsFSharpRecord && not ent.IsFSharpUnion && not ent.IsInterface
+                    && ent.GenericParameters.Length = genericArgs.Length
+                    && (match ent.BaseType with None -> true | Some b -> b.Entity.FullName = "System.Object") ->
+        let idx = ctx.TypeDefs.Count
+        ctx.GenericDuRegistry.[instKey] <- idx
+        ctx.TypeDefs.Add({ Name = instKey; Def = WTypeDef.Struct([], None) })   // slot, filled below
+        let subst =
+            (ent.GenericParameters |> List.map (fun p -> p.Name), genericArgs |> List.map (mapTypeKnown ctx))
+            ||> List.zip |> Map.ofList
+        let inner = { ctx with TypeSubst = subst }
+        let fields =
+            ent.FSharpFields
+            |> List.map (fun f ->
+                let ty = match mapTypeKnown inner f.FieldType with WType.Ref(i, _) -> WType.Ref(i, true) | t -> t
+                { Name = f.Name; Type = ty; Mutable = true })
+        ctx.TypeDefs.[idx] <- { Name = instKey; Def = WTypeDef.Struct(fields, None) }
+        Some idx
+    | _ -> None
 
 /// On-demand struct for ONE instantiation of a generic record: the fields are mapped with the record's type
 /// parameters bound to the (already mapped) type arguments.  `None` when `entRef` is not a generic record.

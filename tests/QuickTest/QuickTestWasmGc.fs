@@ -2904,3 +2904,96 @@ type Collector() =
 let testSeqGenericMember () : int =
     let c = Collector()
     List.length (c.Collect([| 1; 2; 3 |], fun x -> [ x; x ])) + List.length (c.Collect([ "a" ], fun s -> [ s.Length ]))   // 6 + 1 = 7
+
+// ── classes: field initialisers, receivers, generic classes ───────────────────────────────────────
+
+type InitCounter(start: int) =
+    let mutable n = start * 2
+    let items : int array = Array.zeroCreate 3
+    member _.Next() = n <- n + 1; n + items.Length
+
+/// `let` fields of a class are initialised by its constructor, and a receiver may be any expression.
+let testClassInitialisers () : int = InitCounter(5).Next()   // 11 + 3 = 14
+
+let testClassInitialisersTwice () : int =
+    let c = InitCounter(1)
+    c.Next() + c.Next()   // (3 + 3) + (4 + 3) = 13
+
+/// A generic class: only arrays and a counter, instantiated at two types in one module.
+type PortableStack<'T>() =
+    let mutable items : 'T array = Array.zeroCreate 4
+    let mutable count = 0
+    member _.Count = count
+    member _.Push(x: 'T) =
+        if count = items.Length then
+            let bigger : 'T array = Array.zeroCreate (items.Length * 2)
+            for i in 0 .. count - 1 do bigger.[i] <- items.[i]
+            items <- bigger
+        items.[count] <- x
+        count <- count + 1
+    member _.Pop() : 'T =
+        count <- count - 1
+        items.[count]
+
+let testGenericClassInt () : int =
+    let s = PortableStack<int>()
+    for i in 1 .. 10 do s.Push i       // grows twice
+    s.Pop() + s.Pop() + s.Count        // 10 + 9 + 8 = 27
+
+let testGenericClassString () : int =
+    let s = PortableStack<string>()
+    s.Push "ab"
+    s.Push "cde"
+    (s.Pop()).Length + s.Count         // 3 + 1 = 4
+
+let testGenericClassRecord () : int =
+    let s = PortableStack<TestBag>()
+    s.Push { BagItems = [ "x" ]; BagN = 7 }
+    s.Push { BagItems = [ "y"; "z" ]; BagN = 8 }
+    (s.Pop()).BagN + (s.Pop()).BagItems.Length   // 8 + 1 = 9
+
+// ── System.Collections.Generic: Stack<'T> and Queue<'T> (portable F#, instantiated per type) ────────
+
+let testStackInt () : int =
+    let s = System.Collections.Generic.Stack<int>()
+    s.Push 1; s.Push 2; s.Push 3
+    s.Pop() * 100 + s.Peek() * 10 + s.Count   // 300 + 20 + 2 = 322
+
+let testStackString () : int =
+    let s = System.Collections.Generic.Stack<string>()
+    s.Push "a"; s.Push "bcd"
+    (s.Pop()).Length * 10 + s.Count            // 31
+
+let testStackToArrayAndClear () : int =
+    let s = System.Collections.Generic.Stack<int>()
+    for i in 1 .. 6 do s.Push i               // grows past 4
+    let a = s.ToArray()                        // top first: 6 5 4 3 2 1
+    let r = a.Length * 100 + a.[0] * 10 + a.[5]
+    s.Clear()
+    r + s.Count                                // 600 + 60 + 1 + 0 = 661
+
+let testStackContains () : int =
+    let s = System.Collections.Generic.Stack<string>()
+    s.Push "x"
+    (if s.Contains "x" then 1 else 0) + (if s.Contains "y" then 10 else 0)   // 1
+
+let testQueueInt () : int =
+    let q = System.Collections.Generic.Queue<int>()
+    q.Enqueue 1; q.Enqueue 2; q.Enqueue 3
+    q.Dequeue() * 100 + q.Peek() * 10 + q.Count   // 100 + 20 + 2 = 122
+
+/// Fills, drains part, refills: the ring buffer wraps and grows.
+let testQueueWrapAndGrow () : int =
+    let q = System.Collections.Generic.Queue<int>()
+    for i in 1 .. 4 do q.Enqueue i
+    q.Dequeue() |> ignore
+    q.Dequeue() |> ignore
+    for i in 5 .. 8 do q.Enqueue i
+    let a = q.ToArray()                        // 3 4 5 6 7 8
+    a.Length * 100 + a.[0] * 10 + a.[5]        // 600 + 30 + 8 = 638
+
+let testQueueOfRecords () : int =
+    let q = System.Collections.Generic.Queue<TestBag>()
+    q.Enqueue { BagItems = [ "x" ]; BagN = 7 }
+    q.Enqueue { BagItems = [ "y"; "z" ]; BagN = 8 }
+    (q.Dequeue()).BagN * 10 + (q.Dequeue()).BagItems.Length   // 70 + 2 = 72

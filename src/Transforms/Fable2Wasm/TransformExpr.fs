@@ -426,7 +426,15 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                     match exprWType wExpr with
                     | WType.Ref(idx, _) when idx = typeIdx -> wExpr
                     | _ -> WExpr.Cast(wExpr, targetRefTy)
-                WExpr.StructGet(wSelf, fieldIdx, mapTypeKnown ctx typ)
+                let mapped = mapTypeKnown ctx typ
+                // a field stored nullable (a class field) is read back as the non-null type the program declared
+                match ctx.TypeDefs.[typeIdx].Def with
+                | WTypeDef.Struct(fields, _) when fieldIdx < fields.Length ->
+                    match fields.[fieldIdx].Type, mapped with
+                    | WType.Ref(i, true), WType.Ref(j, false) when i = j ->
+                        WExpr.Cast(WExpr.StructGet(wSelf, fieldIdx, fields.[fieldIdx].Type), mapped)
+                    | _ -> WExpr.StructGet(wSelf, fieldIdx, mapped)
+                | _ -> WExpr.StructGet(wSelf, fieldIdx, mapped)
             | None -> i32Zero
         | _ -> i32Zero
 

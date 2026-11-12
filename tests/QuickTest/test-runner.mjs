@@ -798,6 +798,18 @@ check("seq parameter, array → 9",                             9,  exp.testSeqP
 check("seq of strings from list, array and :> → 6",           6,  exp.testSeqParamStrings());
 check("seq pipeline inside, both shapes → 22",                22, exp.testSeqPipeline());
 check("generic member with a seq parameter → 7",              7,  exp.testSeqGenericMember());
+check("class field initialisers → 14",                         14, exp.testClassInitialisers());
+check("class field initialisers, two calls → 13",              13, exp.testClassInitialisersTwice());
+check("generic class at int (grows twice) → 27",               27, exp.testGenericClassInt());
+check("generic class at string → 4",                           4,  exp.testGenericClassString());
+check("generic class at a record → 9",                         9,  exp.testGenericClassRecord());
+check("Stack<int> → 322",                                      322, exp.testStackInt());
+check("Stack<string> → 31",                                    31, exp.testStackString());
+check("Stack ToArray / Clear, grows past 4 → 661",             661, exp.testStackToArrayAndClear());
+check("Stack<string>.Contains → 1",                            1,  exp.testStackContains());
+check("Queue<int> → 122",                                      122, exp.testQueueInt());
+check("Queue wraps and grows → 638",                           638, exp.testQueueWrapAndGrow());
+check("Queue of records → 72",                                 72, exp.testQueueOfRecords());
 check("record with list field → 5",                           5, exp.testRecordListField());
 
 console.log(`\n────────────────────────────────────────────────`);

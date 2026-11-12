@@ -96,6 +96,14 @@ let transformOperation
                 | BinaryGreater -> WCompareOp.GtS
                 | _ -> WCompareOp.GeS
             WExpr.Compare(cop, cmp, WExpr.Const(WConst.I32 0))
+        // `=` in generic code (`items.[i] = item` with 'T = string): the operands' Fable type is the parameter, the
+        // evaluated value says what it became in this instantiation
+        | BinaryEqual | BinaryUnequal when (match exprWType wLeft with WType.Ref(i, _) -> i = StringTypeIdx | _ -> false) ->
+            let eq = WExpr.Call(ctx.UseHelper("$strEq"), [wLeft; wRight], WType.I32)
+            if op = BinaryUnequal then WExpr.Unary(WUnaryOp.Eqz, eq, WType.I32) else eq
+        | BinaryEqual | BinaryUnequal when structural ->
+            let eq = structuralEquals ctx wLeft wRight
+            if op = BinaryUnequal then WExpr.Unary(WUnaryOp.Eqz, eq, WType.I32) else eq
         // Comparisons → WExpr.Compare
         | BinaryEqual ->
             WExpr.Compare(WCompareOp.Eq, wLeft, wRight)

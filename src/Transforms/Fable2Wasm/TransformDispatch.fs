@@ -25,7 +25,85 @@ module VT = WasmGc.Runtime.VTable
 // Sprint 5: Monomorphization — demand-driven generic specialization
 // ─────────────────────────────────────────────────────────────────
 
-/// Try to specialize a call to a generic function.
+/// The constructor function of a class: allocate its struct (parameters that name a field go in directly), then run
+/// Fable's constructor body on the new instance — that body is what initialises the fields (`let mutable n = start * 2`
+/// is `this.n <- start * 2`).  `instTy` is the struct type of the instance (one per instantiation for a generic class).
+let buildClassCtor
+        (eval: Ctx -> Expr -> WExpr)
+        (ctx: Ctx)
+        (ctorDecl: MemberDecl)
+        (instTy: WType)
+        (ctorParams: (string * WType) list)
+        (name: string)
+        : WFuncDecl =
+    let typeIdx = match instTy with WType.Ref(i, _) -> i | _ -> 0
+    let fieldDefs = match ctx.TypeDefs.[typeIdx].Def with WTypeDef.Struct(fs, _) -> fs | _ -> []
+    let fieldValues =
+        fieldDefs |> List.map (fun fd ->
+            match ctorParams |> List.tryFind (fun (n, _) -> n = fd.Name) with
+            | Some(n, t) -> WExpr.LocalGet(n, t)
+            | None ->
+                match fd.Type with
+                | WType.Ref(_, _) -> WExpr.Const(WConst.Null fd.Type)
+                | WType.AnyRef -> WExpr.Const(WConst.Null WType.AnyRef)
+                | WType.I64 -> WExpr.Const(WConst.I64 0L)
+                | WType.F64 -> WExpr.Const(WConst.F64 0.0)
+                | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
+                | _ -> WExpr.Const(WConst.I32 0))
+    let allocate = WExpr.StructNew(typeIdx, fieldValues, instTy)
+    let bodyCtx = ctorParams |> List.fold (fun (c: Ctx) (n, t) -> c.WithLocal(n, t)) (ctx.WithLocal("$this", instTy))
+    // the base-constructor call (an empty object expression) has no effect here
+    let initExpr =
+        match ctorDecl.Body with
+        | Sequential(ObjectExpr _ :: rest) -> Fable.Expr.Sequential rest
+        | b -> b
+    let init = eval bodyCtx initExpr
+    let body =
+        if init = WExpr.Nop then allocate
+        else WExpr.Let("$this", allocate, WExpr.Sequence [ init; WExpr.LocalGet("$this", instTy) ])
+    { Name = name; Params = ctorParams; Result = instTy; Locals = []; Body = body; Exported = false }
+
+/// Bind the type parameters of `declared` against the types `actual` of a call site (`'T` against `string`, …).
+/// Structural; a shape that does not match binds nothing.  The first binding of a name wins.
+let rec private unify (declared: Type) (actual: Type) (acc: Map<string, Type>) : Map<string, Type> =
+    match declared, actual with
+    | Type.GenericParam(name, _, _), _ ->
+        (match actual with
+         | Type.GenericParam(n, _, _) when n = name -> acc   // inside its own specialisation: nothing new
+         | _ -> if Map.containsKey name acc then acc else Map.add name actual acc)
+    | Type.List d, Type.List a -> unify d a acc
+    | Type.Option(d, _), Type.Option(a, _) -> unify d a acc
+    | Type.Array(d, _), Type.Array(a, _) -> unify d a acc
+    | Type.Tuple(ds, _), Type.Tuple(xs, _) when ds.Length = xs.Length -> List.fold2 (fun m d a -> unify d a m) acc ds xs
+    | Type.LambdaType(d1, d2), Type.LambdaType(a1, a2) -> unify d2 a2 (unify d1 a1 acc)
+    | Type.DelegateType(ds, dr), Type.DelegateType(xs, ar) when ds.Length = xs.Length ->
+        unify dr ar (List.fold2 (fun m d a -> unify d a m) acc ds xs)
+    | Type.DeclaredType(de, dargs), Type.DeclaredType(ae, aargs) when de.FullName = ae.FullName && dargs.Length = aargs.Length ->
+        List.fold2 (fun m d a -> unify d a m) acc dargs aargs
+    | _ -> acc
+
+let rec private hasGenericParam (t: Type) =
+    match t with
+    | Type.GenericParam _ -> true
+    | Type.List e | Type.Option(e, _) | Type.Array(e, _) -> hasGenericParam e
+    | Type.Tuple(ts, _) -> List.exists hasGenericParam ts
+    | Type.LambdaType(a, r) -> hasGenericParam a || hasGenericParam r
+    | Type.DelegateType(ts, r) -> List.exists hasGenericParam ts || hasGenericParam r
+    | Type.DeclaredType(_, ts) -> List.exists hasGenericParam ts
+    | _ -> false
+
+/// The type arguments of a call to a generic function that the call does not state: read them off the types at the call
+/// site.  A member of a generic class (`Stack<'T>.Push`) has no type arguments of its own — `'T` is the class's — so
+/// the receiver and arguments are what say it.  `[]` when nothing generic is bound.
+let private inferTypeArgs (memberDecl: MemberDecl) (info: CallInfo) (resultFableType: Type) : (string * Type) list =
+    let actuals = (info.ThisArg |> Option.toList |> List.map (fun t -> t.Type)) @ (info.Args |> List.map (fun a -> a.Type))
+    let declared = memberDecl.Args |> List.map (fun a -> a.Type)
+    let fromArgs =
+        if actuals.Length = declared.Length then List.fold2 (fun m d a -> unify d a m) Map.empty declared actuals
+        else Map.empty
+    unify memberDecl.Body.Type resultFableType fromArgs |> Map.toList
+
+/// Try to specialize a call to a generic function (or a member / constructor of a generic class).
 /// Returns Some(WExpr.Call to the specialized version) or None if not applicable.
 /// None means: fall through to the regular (unspecialized) call handling.
 let trySpecializeCall
@@ -36,17 +114,67 @@ let trySpecializeCall
     (resultFableType: Type)
     : WExpr option =
 
-    // 1. Quick exit: no GenericArgs = not a generic call.
-    if info.GenericArgs.IsEmpty then None else
-
-    // 2. Is this function body registered (i.e., defined in-module)?
-    match ctx.GenericFuncRegistry.TryGetValue(funcName) with
-    | false, _ -> None
-    | true, (declCom, regObj) ->
+    // 1. Is this function body registered (i.e., defined in-module)?
+    let isCtor, registered =
+        match ctx.GenericCtors.TryGetValue funcName with
+        | true, (declCom, classDecl) -> true, Some(declCom, classDecl.Constructor.Value :> obj)
+        | _ ->
+            match ctx.GenericFuncRegistry.TryGetValue funcName with
+            | true, entry -> false, Some entry
+            | _ -> false, None
+    if System.Environment.GetEnvironmentVariable "WASMGC_TRACE_SPEC" = "1" then
+        eprintfn "[spec] %s registered=%b ctor=%b ctors=%d funcs=%d" funcName registered.IsSome isCtor ctx.GenericCtors.Count ctx.GenericFuncRegistry.Count
+    match registered with
+    | None -> None
+    | Some(declCom, regObj) ->
         let memberDecl = regObj :?> MemberDecl
 
-        // 3. Map concrete Fable types to WTypes.
-        let wTypeArgs = info.GenericArgs |> List.map (mapTypeKnown ctx)
+        // 2. The type arguments: stated by the call, or read off its types.
+        //    A generic class's constructor takes them from the instance type it returns.
+        let stated : (string * WType) list option =
+            if info.GenericArgs.IsEmpty then None
+            else
+                // 3. The call states them: names in declaration order via the declaring compiler.
+                match memberDecl.MemberRef with
+                | MemberRef(entityRef, memberRefInfo) ->
+                    match declCom.TryGetEntity(entityRef) with
+                    | Some entity ->
+                        match entity.TryFindMember(memberRefInfo) with
+                        | Some mfv ->
+                            let names = mfv.GenericParameters |> List.map (fun p -> p.Name)
+                            let wTypeArgs = info.GenericArgs |> List.map (mapTypeKnown ctx)
+                            if names.Length = wTypeArgs.Length then Some(List.zip names wTypeArgs) else None
+                        | None -> None
+                    | None -> None
+                | GeneratedMemberRef _ -> None
+        // … or, when it does not (or states a class's arguments, which the member's own parameter list does not name),
+        // the types at the call site say them
+        let named : (string * WType) list option =
+            match stated with
+            | Some _ -> stated
+            | None ->
+                let isGeneric =
+                    isCtor
+                    || (memberDecl.Args |> List.exists (fun a -> hasGenericParam a.Type) || hasGenericParam memberDecl.Body.Type)
+                if not isGeneric then None
+                else
+                    let declType =
+                        if isCtor then
+                            let _, classDecl = ctx.GenericCtors.[funcName]
+                            let ent = (declCom.TryGetEntity classDecl.Entity).Value
+                            Type.DeclaredType(classDecl.Entity, ent.GenericParameters |> List.map (fun p -> Type.GenericParam(p.Name, false, [])))
+                        else memberDecl.Body.Type
+                    let inferred =
+                        if isCtor then unify declType resultFableType Map.empty |> Map.toList
+                        else inferTypeArgs memberDecl info resultFableType
+                    if inferred.IsEmpty then None
+                    else Some(inferred |> List.map (fun (n, t) -> n, mapTypeKnown ctx t))
+        if System.Environment.GetEnvironmentVariable "WASMGC_TRACE_SPEC" = "1" then
+            eprintfn "[spec]   → %s named=%A resultType=%A" funcName (named |> Option.map (List.map fst)) resultFableType
+        match named with
+        | None -> None
+        | Some named ->
+        let paramNames, wTypeArgs = List.unzip named
 
         // 4. Compute the mangled name for this specialization.
         let mangledName = mangleGenericName funcName wTypeArgs
@@ -65,53 +193,46 @@ let trySpecializeCall
         if ctx.MonoCache.ContainsKey(mangledName) then
             Some(WExpr.Call(mangledName, wArgs, retTy))
         else
-            // 7. Get generic param names in declaration order via the declaring compiler.
-            //    Use declCom (the compiler for the file that DECLARES the generic function)
-            //    so that entity lookups resolve correctly even for cross-file generics.
-
-            let paramNamesOpt = // TODO: rewrite with Option.bind or add OptionBuilder for our staircases here! Who shold read this!
-                match memberDecl.MemberRef with
-                | MemberRef(entityRef, memberRefInfo) ->
-                    match declCom.TryGetEntity(entityRef) with
-                    | Some entity ->
-                        match entity.TryFindMember(memberRefInfo) with
-                        | Some mfv ->
-                            let names = mfv.GenericParameters |> List.map (fun p -> p.Name)
-                            if names.Length = wTypeArgs.Length then Some names else None
-                        | None -> None
-                    | None -> None
-                | GeneratedMemberRef _ -> None
-            match paramNamesOpt with
-            | None -> None  // can't retrieve param names — fall through to normal call
-            | Some paramNames ->
-
-            // 8. Register sentinel early to handle recursive specializations.
+            // 7. Register sentinel early to handle recursive specializations.
             ctx.MonoCache.[mangledName] <- mangledName
 
-            // 9. Build TypeSubst: generic param name → concrete WType.
+            // 8. Build TypeSubst: generic param name → concrete WType.
             let subst = List.zip paramNames wTypeArgs |> Map.ofList
 
-            // 10. Build specialized context: set substitution + populate arg locals.
-            //     Override Compiler with the declaring file's compiler so entity lookups
-            //     within the body resolve against the right compilation unit.
+            // 9. Build specialized context: set substitution + populate arg locals.
+            //    Override Compiler with the declaring file's compiler so entity lookups
+            //    within the body resolve against the right compilation unit.
             let ctx' = { ctx with TypeSubst = subst; CurrentFunc = Some mangledName; Compiler = declCom }
             let ctx' =
                 (ctx', memberDecl.Args)
                 ||> List.fold (fun c a -> c.WithLocal(a.Name, mapTypeKnown c a.Type))
 
-            // 11. Translate the specialized function body.
+            if isCtor then
+                // the constructor of one instantiation: allocate its struct, run the field initialisers
+                let _, classDecl = ctx.GenericCtors.[funcName]
+                let ent = (declCom.TryGetEntity classDecl.Entity).Value
+                let instType = Type.DeclaredType(classDecl.Entity, ent.GenericParameters |> List.map (fun p -> Type.GenericParam(p.Name, false, [])))
+                let instTy = mapTypeKnown ctx' instType
+                let ctorParams =
+                    memberDecl.Args |> List.choose (fun a ->
+                        let ty = mapTypeKnown ctx' a.Type
+                        if ty = WType.Void then None else Some(a.Name, ty))
+                let ctorFunc = buildClassCtor eval ctx' memberDecl instTy ctorParams mangledName
+                ctx.Functions.Add(ctorFunc |> resolveLocals)
+                Some(WExpr.Call(mangledName, wArgs, instTy))
+            else
+            // 10. Translate the specialized function body.
             let retTy' = mapResultTypeKnown ctx' memberDecl.Body.Type
-            // let wBody = transformExpr ctx' memberDecl.Body
             let wBody = eval ctx' memberDecl.Body
 
-            // 12. Build params list (filter out unit/void).
+            // 11. Build params list (filter out unit/void).
             let funcParams =
                 memberDecl.Args
                 |> List.choose (fun a ->
                     let ty = mapTypeKnown ctx' a.Type
                     if ty = WType.Void then None else Some(a.Name, ty))
 
-            // 13. Emit the specialized WFuncDecl.
+            // 12. Emit the specialized WFuncDecl.
             let func : WFuncDecl =
                 {   Name = mangledName
                     Params = funcParams
@@ -581,7 +702,10 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         // arguments, so it gets its own specialised copy instead of the unresolved (i32-typed) original
         // (library functions are resolved by module-qualified name below; their short names are not unique)
         let isLibraryFunc = Map.containsKey (System.IO.Path.GetFileNameWithoutExtension importInfo.Path, selector) ctx.KnownFuncsByPath
-        match (if isLibraryFunc then None else trySpecializeCall ctx eval selector info typ) with
+        // a member or constructor of a generic CLASS (`Queue$1__Enqueue_…`, `Queue$1_$ctor`) is instantiated even when it
+        // lives in the core library: its name is the class's, there is no plain-name collision to fear
+        let isClassMember = selector.Contains "$"
+        match (if isLibraryFunc && not isClassMember then None else trySpecializeCall ctx eval selector info typ) with
         | Some specialised -> specialised
         | None ->
         // Use the import path to find the module-qualified function name.
@@ -746,7 +870,11 @@ let private transformCallCore
                     // Func type from the callee's declared type (see ClosureBuilder.applyClosure);
                     // the ClosureBase is created on demand so closureTypeIdx is never 0.
                     ClosureBuilder.applyClosure ctx ident.Type wClosure (info.Args |> List.map (fun a -> a.Type)) wArgs ty
-                | _ -> WExpr.Call(actualName, wArgs, ty)  // Direct function call (non-generic or unregistered generic).
+                | _ ->
+                    // Direct function call (non-generic or unregistered generic).  An instance member called on an
+                    // expression (`Counter(5).Next()`) carries its receiver in `ThisArg`; the function takes it first.
+                    let receiver = match info.ThisArg with Some t -> [ eval ctx t ] | None -> []
+                    WExpr.Call(actualName, receiver @ wArgs, ty)
 
         | Import(importInfo, _, _) ->
             // For string instance methods (IndexOf, Substring, etc.), Fable puts the

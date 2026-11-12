@@ -328,11 +328,19 @@ let dumpFuncDecl (func: MemberDecl) : string =
     $"%s{header}\n%s{body}"
 
 /// Dump all declarations in a module.
-let dumpModule (decls: Declaration list) : string =
+let rec dumpModule (decls: Declaration list) : string =
     decls
-    |> List.choose (function
-        | Declaration.MemberDeclaration md -> Some(dumpFuncDecl md)
-        | _ -> None)
+    |> List.collect (function
+        | Declaration.MemberDeclaration md -> [ dumpFuncDecl md ]
+        | Declaration.ModuleDeclaration m -> [ dumpModule m.Members ]
+        | Declaration.ClassDeclaration c ->
+            // the class's constructor is not a member: it is what initialises the fields (`let` bindings of the class)
+            [ yield $"[Class] %s{c.Entity.FullName}"
+              match c.Constructor with
+              | Some ctor -> yield "  " + (dumpFuncDecl ctor).Replace("\n", "\n  ").Replace("[Function]", "[Constructor]")
+              | None -> ()
+              for m in c.AttachedMembers do yield "  " + (dumpFuncDecl m).Replace("\n", "\n  ") ]
+        | _ -> [])
     |> String.concat "\n\n"
 
 /// Write the Fable AST dump to a file.

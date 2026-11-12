@@ -435,5 +435,7 @@ let structuralEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
         else
             match ctx.EqualityRegistry.TryGetValue idx with
             | true, funcName -> WExpr.Call(funcName, [ a; b ], WType.I32)
-            | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
+            // strings compare by content (generic code reaches `=` with a string only once instantiated)
+    | WType.Ref(idx, _) when idx = StringTypeIdx -> WExpr.Call(ctx.UseHelper "$strEq", [ a; b ], WType.I32)
+    | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
     | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
