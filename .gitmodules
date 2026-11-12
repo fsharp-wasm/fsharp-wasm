@@ -1,6 +1,6 @@
 [submodule "vendor/Fable"]
 	path = vendor/Fable
-	url = https://github.com/aiqs4/Fable.git
+	url = ../Fable
 	branch = feature/wasmgc-backend
 [submodule "vendor/fsharp"]
 	path = vendor/fsharp
