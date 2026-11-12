@@ -81,4 +81,11 @@ let testWithNames () : int =
     withNames (fun xs -> n <- xs.Length * 100 + xs.[0].Length)
     n   // 3 names, first "a" → 301
 
+/// Registers a closure with the host `n` times; each is dropped by the host right away.
+let testChurn (n: int) : int =
+    let mutable calls = 0
+    for _ in 1 .. n do
+        each 1 (fun _ -> calls <- calls + 1)
+    calls
+
 let testBool () : int = (if isEven 4 then 1 else 0) + (if isEven 5 then 10 else 0)   // 1

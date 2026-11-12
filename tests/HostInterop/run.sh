@@ -7,4 +7,4 @@ OUT="$HERE/output"
 
 dotnet run --project "$ROOT/tools/FSharp.Wasm.Cli" -- "$HERE" --outDir "$OUT" --noCache
 if command -v wasm-tools &>/dev/null; then wasm-tools validate "$OUT/HostInterop.wasm" --features gc; fi
-node "$HERE/test-runner.mjs"
+node --expose-gc "$HERE/test-runner.mjs"

@@ -158,40 +158,60 @@ let private box (ctx: Ctx) (t: WType) (v: WExpr) : WExpr =
 let private closureArray (ctx: Ctx) = getOrAddArrayType ctx (WType.Ref(AnyFnTypeIdx, true))
 let private sigArray (ctx: Ctx) = getOrAddArrayType ctx WType.I32
 
-/// The closure table (`$cb_clos` / `$cb_sigs` / `$cb_n`) and `$host_cbRegister(closure, signature) → id`.
+/// The closure table — `$cb_clos` (the closures), `$cb_sigs` (their signatures), `$cb_free` (a stack of released ids),
+/// `$cb_n` (ids handed out so far), `$cb_nfree` — and `$host_cbRegister(closure, signature) → id`.  An id is reused once
+/// the host has released it (`__cbFree`, called when the JS function that stood for the closure is garbage collected).
 let private cbRegister (ctx: Ctx) : string =
     let name = "$host_cbRegister"
+    let closArr, sigArr = closureArray ctx, sigArray ctx
+    let freeArr = sigArr                               // an i32 array
     if not (hasGlobal ctx "$cb_n") then
-        let closArr, sigArr = closureArray ctx, sigArray ctx
         let initial = 16
-        ctx.GlobalDecls.Add
-            { Name = "$cb_clos"; Type = WType.Ref(closArr, true); Mutable = true; Exported = false
-              Init = WExpr.ArrayNew(closArr, i32 initial, nullOf (WType.Ref(AnyFnTypeIdx, true)), WType.Ref(closArr, false)) }
-        ctx.GlobalDecls.Add
-            { Name = "$cb_sigs"; Type = WType.Ref(sigArr, true); Mutable = true; Exported = false
-              Init = WExpr.ArrayNew(sigArr, i32 initial, i32 0, WType.Ref(sigArr, false)) }
-        ctx.GlobalDecls.Add
-            { Name = "$cb_n"; Type = WType.I32; Mutable = true; Exported = false; Init = i32 0 }
+        let table name (arr: int) (init: WExpr) =
+            ctx.GlobalDecls.Add
+                { Name = name; Type = WType.Ref(arr, true); Mutable = true; Exported = false
+                  Init = WExpr.ArrayNew(arr, i32 initial, init, WType.Ref(arr, false)) }
+        table "$cb_clos" closArr (nullOf (WType.Ref(AnyFnTypeIdx, true)))
+        table "$cb_sigs" sigArr (i32 0)
+        table "$cb_free" freeArr (i32 0)
+        for counter in [ "$cb_n"; "$cb_nfree" ] do
+            ctx.GlobalDecls.Add { Name = counter; Type = WType.I32; Mutable = true; Exported = false; Init = i32 0 }
     define ctx name [ "$clo", closureSelfTy; "$sig", WType.I32 ] WType.I32 (fun () ->
-        let closArr, sigArr = closureArray ctx, sigArray ctx
-        let clos, sigs = WExpr.GlobalGet("$cb_clos", WType.Ref(closArr, true)), WExpr.GlobalGet("$cb_sigs", WType.Ref(sigArr, true))
-        let n = local "$n" WType.I32
+        let nullableArr idx = WType.Ref(idx, true)
+        let clos () = WExpr.GlobalGet("$cb_clos", nullableArr closArr)
+        let sigs () = WExpr.GlobalGet("$cb_sigs", nullableArr sigArr)
+        let free () = WExpr.GlobalGet("$cb_free", nullableArr freeArr)
+        let n, nfree, id = local "$n" WType.I32, local "$nfree" WType.I32, local "$id" WType.I32
+        let add (a: WExpr) (b: int) = WExpr.Binary(WBinaryOp.Add, a, i32 b, WType.I32)
         let grow (arr: string) (arrIdx: int) (elemInit: WExpr) (current: WExpr) =
             let fresh = local $"$fresh{arr}" (WType.Ref(arrIdx, false))
             WExpr.Let($"$fresh{arr}", WExpr.ArrayNew(arrIdx, WExpr.Binary(WBinaryOp.Mul, n, i32 2, WType.I32), elemInit, WType.Ref(arrIdx, false)),
                 WExpr.Sequence [ WExpr.ArrayCopy(fresh, i32 0, current, i32 0, n); WExpr.GlobalSet(arr, fresh) ])
-        WExpr.Let("$n", WExpr.GlobalGet("$cb_n", WType.I32),
-            WExpr.Sequence [
-                WExpr.If(
-                    WExpr.Compare(WCompareOp.GeS, n, WExpr.ArrayLen clos),
+        // a released id, else a new one (growing the three tables together: the free stack never outgrows them)
+        let nextId =
+            WExpr.If(
+                WExpr.Compare(WCompareOp.GtS, nfree, i32 0),
+                WExpr.Let("$top", add nfree -1,
+                    WExpr.Sequence [ WExpr.GlobalSet("$cb_nfree", local "$top" WType.I32)
+                                     WExpr.ArrayGet(free (), local "$top" WType.I32, WType.I32) ]),
+                WExpr.Let("$n", WExpr.GlobalGet("$cb_n", WType.I32),
                     WExpr.Sequence [
-                        grow "$cb_clos" closArr (nullOf (WType.Ref(AnyFnTypeIdx, true))) clos
-                        grow "$cb_sigs" sigArr (i32 0) sigs ],
-                    WExpr.Nop, WType.Void)
-                WExpr.ArraySet(WExpr.GlobalGet("$cb_clos", WType.Ref(closArr, true)), n, local "$clo" closureSelfTy)
-                WExpr.ArraySet(WExpr.GlobalGet("$cb_sigs", WType.Ref(sigArr, true)), n, local "$sig" WType.I32)
-                WExpr.GlobalSet("$cb_n", WExpr.Binary(WBinaryOp.Add, n, i32 1, WType.I32))
-                n ]))
+                        WExpr.If(
+                            WExpr.Compare(WCompareOp.GeS, n, WExpr.ArrayLen (clos ())),
+                            WExpr.Sequence [
+                                grow "$cb_clos" closArr (nullOf (WType.Ref(AnyFnTypeIdx, true))) (clos ())
+                                grow "$cb_sigs" sigArr (i32 0) (sigs ())
+                                grow "$cb_free" freeArr (i32 0) (free ()) ],
+                            WExpr.Nop, WType.Void)
+                        WExpr.GlobalSet("$cb_n", add n 1)
+                        n ]),
+                WType.I32)
+        WExpr.Let("$nfree", WExpr.GlobalGet("$cb_nfree", WType.I32),
+            WExpr.Let("$id", nextId,
+                WExpr.Sequence [
+                    WExpr.ArraySet(clos (), id, local "$clo" closureSelfTy)
+                    WExpr.ArraySet(sigs (), id, local "$sig" WType.I32)
+                    id ])))
     name
 
 /// Parameter and result types of a function type (`a -> b -> c` → [a; b], c).
@@ -302,6 +322,26 @@ let finalize (ctx: Ctx) (kept: WFuncDecl list) : bool =
                     WExpr.Let("$clo",
                         WExpr.Cast(WExpr.ArrayGet(WExpr.GlobalGet("$cb_clos", WType.Ref(closArr, true)), id, WType.Ref(AnyFnTypeIdx, true)), closureSelfTy),
                         dispatch)) }
+            |> Lc.resolveLocals)
+        // the host's garbage collector found the JS function of a closure unreachable: free its slot (idempotent)
+        let freeArr = sigArr
+        let clos () = WExpr.GlobalGet("$cb_clos", WType.Ref(closArr, true))
+        let nfree = WExpr.GlobalGet("$cb_nfree", WType.I32)
+        ctx.Functions.Add(
+            { Name = "__cbFree"
+              Params = [ "$id", WType.I32 ]
+              Result = WType.Void
+              Locals = []
+              Exported = true
+              Body =
+                WExpr.If(
+                    WExpr.RefIsNull(WExpr.ArrayGet(clos (), id, WType.Ref(AnyFnTypeIdx, true))),
+                    WExpr.Nop,
+                    WExpr.Sequence [
+                        WExpr.ArraySet(clos (), id, nullOf (WType.Ref(AnyFnTypeIdx, true)))
+                        WExpr.ArraySet(WExpr.GlobalGet("$cb_free", WType.Ref(freeArr, true)), nfree, id)
+                        WExpr.GlobalSet("$cb_nfree", WExpr.Binary(WBinaryOp.Add, nfree, i32 1, WType.I32)) ],
+                    WType.Void) }
             |> Lc.resolveLocals)
         added <- true
     added

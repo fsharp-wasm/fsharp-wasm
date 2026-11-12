@@ -6,8 +6,9 @@ const here = new URL(".", import.meta.url).pathname;
 let instance;
 const registered = { text: null, mixed: null, later: null };
 let reported = null;
+const ids = [];
 const imports = {
-  ...hostImports(() => instance),
+  ...hostImports(() => instance, (id) => ids.push(id)),
   "host.js": {
     shout: (s) => s.toUpperCase() + "!",
     maybeNull: () => null,
@@ -52,9 +53,23 @@ registered.later();
 exp.testReport();
 check("callbacks delivered later", "hi;there;x|1.5|7;later;", reported);
 
+// a closure's slot is released when its JS function is garbage collected, and the id is reused
+{
+  ids.length = 0;
+  check("churn: 500 closures, all called", 500, exp.testChurn(500));
+  const firstRound = Math.max(...ids);
+  await new Promise((r) => setTimeout(r, 0));
+  for (let i = 0; i < 5; i++) { globalThis.gc(); await new Promise((r) => setTimeout(r, 20)); }
+  ids.length = 0;
+  check("churn again after GC", 500, exp.testChurn(500));
+  const secondRound = Math.max(...ids);
+  check("closure table does not grow (ids are reused)", true, secondRound <= firstRound);
+  console.log(`      highest id: first round ${firstRound}, second round ${secondRound}`);
+}
+
 // the surface of the module: the exports the host needs, no more
 const names = Object.keys(exp);
-check("exports __cb", true, names.includes("__cb"));
+check("exports __cb and __cbFree", true, names.includes("__cb") && names.includes("__cbFree"));
 check("exports only the program's functions", false, names.some((n) => /^\$|host_|^__str/.test(n)));
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nhost interop: all checks passed");

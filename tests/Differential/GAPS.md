@@ -77,7 +77,7 @@ Each of these was silently wrong or produced an invalid module; none showed in s
 | generic instance member called from another file (`builder.For(xs, f)`) | specialised copy called without its receiver | `ThisArg` is the first argument |
 | project outside the repository | `fable-library-wasmgc` not found → core files treated as program files | searched from the CLI too; `FSHARP_WASM_LIBRARY` overrides |
 | every public function of every file was a wasm export, every declared extern an import | a 47 KB module for a counter; a library's functions collide (`BUG-05`) | only the ENTRY project's functions are exports; an extern is imported only if a surviving function calls it (11 KB → 19 KB with all the code that now compiles, vs 47 KB before) |
-| `[<Import("f", "x.js")>] let f (s: string) (cb: string -> unit) : string = nativeOnly` | strings and closures are GC objects JS cannot touch | host interop ABI, see `docs/host-interop.md` |
+| `[<Import("f", "x.js")>] let f (s: string) (cb: string -> unit) : string = nativeOnly` | strings and closures are GC objects JS cannot touch | host interop ABI, see `docs/host-interop.md`; a closure's table slot is released when the host's JS function is garbage collected (`__cbFree`), so re-registering handlers on every render does not leak |
 
 Still open from that work:
 
@@ -85,7 +85,7 @@ Still open from that work:
 |---|---|
 | `seq<'T>` parameters | the type is not represented (`i32`): a function taking `seq` cannot be called with a list or array (the HTML builder's `For` takes `list` and `array` instead) |
 | strings are never null | `s = null`, `isNull s` cannot be written for a string; a JS `null` / `undefined` arrives as `""` |
-| host callbacks | registrations in the closure table are never released (a view that re-registers handlers on every render grows it); only `int`/`bool`/`float`/`string`/`string array` cross the boundary (no `int64`, records) |
+| host callbacks | only `int`/`bool`/`float`/`string`/`string array` cross the boundary (no `int64`, records) |
 | `printfn` in the browser | the host reads the string through the `__str_len` / `__str_at` exports (one call per character) |
 
 ## Still open (coverage probe: every call below compiles to an unhandled import)
