@@ -3029,3 +3029,55 @@ let testHashGeneric () : int =
     (if hashOf 7 = 7 then 1 else 0)
     + (if hashOf "k" = hash "k" then 10 else 0)
     + (if hashOf (1, 2) = hash (1, 2) then 100 else 0)                                                // 111
+
+// ── System.Collections.Generic: Dictionary<'K,'V> and HashSet<'T> (portable F#, hash table with the .NET layout) ──
+
+let testDictIntBasics () : int =
+    let d = System.Collections.Generic.Dictionary<int, string>()
+    d.Add(1, "one"); d.Add(2, "two"); d.[3] <- "three"
+    d.[2] <- "TWO"
+    d.Count * 100 + d.[2].Length * 10 + (if d.ContainsKey 3 then 1 else 0)    // 300 + 30 + 1
+
+let testDictStringKeysGrow () : int =
+    let d = System.Collections.Generic.Dictionary<string, int>()
+    for i in 0 .. 99 do d.[string i] <- i * i      // grows through several prime sizes
+    let mutable sum = 0
+    for i in 0 .. 99 do sum <- sum + d.[string i]
+    sum + d.Count                                  // 328350 + 100
+
+let testDictRemoveReuse () : int =
+    let d = System.Collections.Generic.Dictionary<int, int>()
+    for i in 1 .. 5 do d.[i] <- i * 10
+    let removed = d.Remove 2
+    let missing = d.Remove 42
+    d.[9] <- 90                                    // takes the freed slot: enumeration order 1 9 3 4 5 like the BCL
+    let keys = d.Keys
+    (if removed && not missing then 1000 else 0) + keys.[1] * 10 + d.Count   // 1000 + 90 + 5
+
+let testDictTryGetValue () : int =
+    let d = System.Collections.Generic.Dictionary<string, int>()
+    d.["a"] <- 7
+    let a = match d.TryGetValue "a" with | true, v -> v | _ -> -1
+    let b = match d.TryGetValue "b" with | true, v -> v | _ -> -1
+    a * 10 + b                                     // 69
+
+let testDictRecordKeys () : int =
+    let d = System.Collections.Generic.Dictionary<HKey, int>()
+    d.[{ HName = "a"; HId = 1 }] <- 1
+    d.[{ HName = "a"; HId = 2 }] <- 2
+    d.[{ HName = "a"; HId = 1 }] <- 10             // same key as the first
+    d.Count * 100 + d.[{ HName = "a"; HId = 1 }]   // 210
+
+let testDictForIn () : int =
+    let d = System.Collections.Generic.Dictionary<int, int>()
+    for i in 1 .. 4 do d.[i] <- i * i
+    let mutable s = 0
+    for kv in d do s <- s + kv.Key * kv.Value      // 1 + 8 + 27 + 64
+    s
+
+let testHashSetBasics () : int =
+    let h = System.Collections.Generic.HashSet<string>()
+    let a = h.Add "x"
+    let b = h.Add "x"
+    h.Add "y" |> ignore
+    (if a && not b then 100 else 0) + h.Count * 10 + (if h.Contains "y" then 1 else 0)   // 100 + 20 + 1

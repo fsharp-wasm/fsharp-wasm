@@ -811,6 +811,13 @@ check("hash: primitives and strings → 11111",                    11111, exp.te
 check("hash: tuples, records, unions, lists, arrays → 111111",   111111, exp.testHashStructures());
 check("hash: options → 111",                                     111, exp.testHashOption());
 check("hash: generic → 111",                                     111, exp.testHashGeneric());
+check("Dictionary<int,string> basics → 331",                     331, exp.testDictIntBasics());
+check("Dictionary<string,int> grows to 100 entries → 328450",    328450, exp.testDictStringKeysGrow());
+check("Dictionary remove / free-slot reuse → 1095",              1095, exp.testDictRemoveReuse());
+check("Dictionary.TryGetValue → 69",                             69, exp.testDictTryGetValue());
+check("Dictionary<record,int> → 210",                            210, exp.testDictRecordKeys());
+check("Dictionary for-in over entries → 100",                    100, exp.testDictForIn());
+check("HashSet<string> → 121",                                   121, exp.testHashSetBasics());
 check("Queue<int> → 122",                                      122, exp.testQueueInt());
 check("Queue wraps and grows → 638",                           638, exp.testQueueWrapAndGrow());
 check("Queue of records → 72",                                 72, exp.testQueueOfRecords());

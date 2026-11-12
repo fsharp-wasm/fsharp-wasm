@@ -130,8 +130,10 @@ let private getOrAddExnType (ctx: Ctx) (fullName: string) : int =
         idx
 
 let tryHandleException (ctx: Ctx) (selector: string) (wArgs: WExpr list) (ty: WType) : WExpr option =
+    // `KeyNotFoundException(msg)` arrives as `KeyNotFoundException_$ctor_Z721C83C5`: the overload hash is not part of the type
+    let typeName = match selector.IndexOf "_$ctor" with -1 -> selector | i -> selector.Substring(0, i)
     let exnFullName =
-        match selector with
+        match typeName with
         | "Exception"                  -> Some "System.Exception"
         | "ArgumentException"          -> Some "System.ArgumentException"
         | "ArgumentNullException"      -> Some "System.ArgumentNullException"

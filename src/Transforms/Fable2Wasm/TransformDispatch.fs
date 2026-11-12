@@ -67,10 +67,7 @@ let buildClassCtor
 /// Structural; a shape that does not match binds nothing.  The first binding of a name wins.
 let rec private unify (declared: Type) (actual: Type) (acc: Map<string, Type>) : Map<string, Type> =
     match declared, actual with
-    | Type.GenericParam(name, _, _), _ ->
-        (match actual with
-         | Type.GenericParam(n, _, _) when n = name -> acc   // inside its own specialisation: nothing new
-         | _ -> if Map.containsKey name acc then acc else Map.add name actual acc)
+    | Type.GenericParam(name, _, _), _ -> if Map.containsKey name acc then acc else Map.add name actual acc
     | Type.List d, Type.List a -> unify d a acc
     | Type.Option(d, _), Type.Option(a, _) -> unify d a acc
     | Type.Array(d, _), Type.Array(a, _) -> unify d a acc
@@ -167,8 +164,11 @@ let trySpecializeCall
                     let inferred =
                         if isCtor then unify declType resultFableType Map.empty |> Map.toList
                         else inferTypeArgs memberDecl info resultFableType
-                    if inferred.IsEmpty then None
-                    else Some(inferred |> List.map (fun (n, t) -> n, mapTypeKnown ctx t))
+                    // a binding to a type parameter that nothing here resolves (`'K` for `'K` outside any specialisation) says nothing;
+                    // inside a specialisation (one member of a generic class calling another) TypeSubst resolves it
+                    let known = inferred |> List.filter (fun (_, t) -> match t with Type.GenericParam(n, _, _) -> ctx.TypeSubst.ContainsKey n | _ -> true)
+                    if known.IsEmpty then None
+                    else Some(known |> List.map (fun (n, t) -> n, mapTypeKnown ctx t))
         if System.Environment.GetEnvironmentVariable "WASMGC_TRACE_SPEC" = "1" then
             eprintfn "[spec]   → %s named=%A resultType=%A" funcName (named |> Option.map (List.map fst)) resultFableType
         match named with
@@ -334,6 +334,16 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | ("equals" | "op_Equality" | "equalArrays"), [a; b], WType.I32
     | "equalsWith", [_; a; b], WType.I32 ->
         structuralEquals ctx a b
+    // ── out / byref argument of a mutable local (`d.TryGetValue(k, &v)`): Fable passes `FSharpRef(fun () -> v, fun x -> v <- x)`.
+    //    `v` is captured and assigned, so it already lives in a cell (BoxedLocals) — and the cell is the byref ──
+    | "FSharpRef", [ _; _ ], _
+        when (match info.Args with
+              | [ (Fable.Lambda(_, Fable.IdentExpr id, _) | Fable.Delegate(_, Fable.IdentExpr id, _, _)); _ ] -> ctx.BoxedLocals.ContainsKey id.Name
+              | _ -> false) ->
+        match info.Args with
+        | (Fable.Lambda(_, Fable.IdentExpr id, _) | Fable.Delegate(_, Fable.IdentExpr id, _, _)) :: _ ->
+            WExpr.LocalGet(id.Name, WType.Ref(getOrAddRefCellType ctx ctx.BoxedLocals[id.Name], false))
+        | _ -> WExpr.Nop
     // ── hashing: `hash x` and the Dictionary / HashSet key hash; by the value's WType, whichever Fable helper it came through ──
     | ("numberHash" | "stringHash" | "safeHash" | "structuralHash" | "arrayHash" | "fastStructuralHash" | "bigintHash"), [x], WType.I32 ->
         structuralHash ctx x

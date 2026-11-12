@@ -293,7 +293,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         // Replacements.setRefCell uses setExpr which emits ExprSet(StringConst "contents")
         | ExprSet(Fable.Expr.Value(Fable.ValueKind.StringConstant "contents", _))
               when (match _expr.Type with
-                    | Fable.Type.DeclaredType(e, _) -> e.FullName = FSharpRefFullName
+                    | Fable.Type.DeclaredType(e, _) -> isRefCellEntity e.FullName
                     | _ -> false) ->
             let wObj = transformExpr ctx _expr
             let wVal = transformExpr ctx value
@@ -391,7 +391,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     | Fable.Expr.Get(expr, GetKind.FieldGet fi, typ, _)
           when fi.Name = "contents"
             && (match expr.Type with
-                | Fable.Type.DeclaredType(e, _) -> e.FullName = FSharpRefFullName
+                | Fable.Type.DeclaredType(e, _) -> isRefCellEntity e.FullName
                 | _ -> false) ->
         let wObj = transformExpr ctx expr
         let innerWType = mapTypeKnown ctx typ

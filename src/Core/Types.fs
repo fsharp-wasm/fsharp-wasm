@@ -393,6 +393,14 @@ let mapResultType (t: Fable.Type) : WType =
 /// Full type name for FSharpRef (used to detect ref cell types)
 let [<Literal>] FSharpRefFullName = "Microsoft.FSharp.Core.FSharpRef`1"
 
+/// A ref cell or a byref / outref / inref to one: all are the same single-field box (`d.TryGetValue(k, &v)` hands over
+/// the cell of `v`).
+let isRefCellEntity (fullName: string) =
+    fullName = FSharpRefFullName
+    || fullName.StartsWith("Microsoft.FSharp.Core.byref`", System.StringComparison.Ordinal)
+    || fullName.StartsWith("Microsoft.FSharp.Core.outref`", System.StringComparison.Ordinal)
+    || fullName.StartsWith("Microsoft.FSharp.Core.inref`", System.StringComparison.Ordinal)
+
 /// Get or create the mutable 1-field box struct type for FSharpRef<T>.
 let getOrAddRefCellType (ctx: Ctx) (innerWType: WType) : int =
     let key = wTypeKey innerWType
@@ -507,7 +515,7 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
         match Map.tryFind name ctx.TypeSubst with
         | Some wty -> wty
         | None -> WType.I32  // unresolved — not inside a specialized body
-    | Fable.Type.DeclaredType(entRef, genericArgs) when entRef.FullName = FSharpRefFullName ->
+    | Fable.Type.DeclaredType(entRef, genericArgs) when isRefCellEntity entRef.FullName ->
         let innerT = match genericArgs with | [t] -> mapTypeKnown ctx t | _ -> WType.I32
         WType.Ref(getOrAddRefCellType ctx innerT, false)
     // StringBuilder: always maps to the pre-registered $StringBuilder struct

@@ -518,10 +518,12 @@ and hashValue (ctx: Ctx) (ty: WType) (x: WExpr) : WExpr =
                 WType.I32))
     | WType.F32 | WType.F64 ->
         // 0.0 and -0.0 are equal, so they hash alike; every other value by its bits
-        let bits = if ty = WType.F32 then WUnaryOp.ReinterpretF32ToI32 else WUnaryOp.ReinterpretF64ToI64
-        let asI32 = WExpr.Unary(bits, local "$h_x" ty, (if ty = WType.F32 then WType.I32 else WType.I64))
-        let folded = if ty = WType.F32 then asI32 else hashValue ctx WType.I64 asI32
-        WExpr.Let("$h_x", x, WExpr.If(WExpr.Compare(WCompareOp.Eq, local "$h_x" ty, (if ty = WType.F32 then WExpr.Const(WConst.F32 0.0f) else WExpr.Const(WConst.F64 0.0))), i32Const 0, folded, WType.I32))
+        let is32 = (ty = WType.F32)
+        let bits = WExpr.Unary((if is32 then WUnaryOp.ReinterpretF32ToI32 else WUnaryOp.ReinterpretF64ToI64), local "$h_f" ty, (if is32 then WType.I32 else WType.I64))
+        let zero = if is32 then WExpr.Const(WConst.F32 0.0f) else WExpr.Const(WConst.F64 0.0)
+        WExpr.Let("$h_f", x,
+            WExpr.If(WExpr.Compare(WCompareOp.Eq, local "$h_f" ty, zero), i32Const 0,
+                (if is32 then bits else hashValue ctx WType.I64 bits), WType.I32))
     | WType.Ref(idx, false) when idx = StringTypeIdx -> WExpr.Call(ctx.UseHelper "$strHash", [ x ], WType.I32)
     | WType.Ref(idx, false) ->
         match getOrAddStructuralHash ctx idx with
