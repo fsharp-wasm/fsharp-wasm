@@ -89,6 +89,25 @@ Still open from that work:
 | host callbacks | only `int`/`bool`/`float`/`string`/`string array` cross the boundary (no `int64`, records) |
 | `printfn` in the browser | the host reads the string through the `__str_len` / `__str_at` exports (one call per character) |
 
+## Portable collections (`fable-library-wasmgc/System.Collections.Generic.fs`, M2)
+
+`Stack<'T>`, `Queue<'T>`, `Dictionary<'K,'V>` and `HashSet<'T>` are plain F# — arrays, counters, `=` and `hash` — that the
+compiler instantiates once per type-argument list, like a generic function. A type defined in source in a `System.*`
+namespace is not a Fable replacement candidate, so calls on it are ordinary member calls and the BCL names stay. Nothing
+in them is wasm specific: the same file compiles to any Fable target.
+
+| Construct | Was | Now |
+|---|---|---|
+| `new Stack<int>()`, `Queue`, `Dictionary`, `HashSet` | JS idioms (`Map`, `set/has/delete/size`) or unhandled imports | library classes; `Dictionary` is a chained hash table with the .NET layout (entries in index order, removed entries reused through a free list), so `for kv in d` / `d.Keys` enumerate in the BCL's order |
+| generic class | compiled once with `i32` fields | one struct per instantiation (`registerGenericClass`), constructor and members specialised; constructors run their `let` initialisers |
+| `hash x`, `numberHash` / `stringHash` / `arrayHash` / `structuralHash` | unhandled imports | structural hash consistent with `=` (`Equality.hashValue`): primitives by value (`0.0` = `-0.0`), strings FNV-1a, records / tuples / unions / arrays / lists folded; references without structure hash to 0 |
+| `d.TryGetValue(k, &v)`, `match d.TryGetValue k with | true, v -> …` | byref parameter mapped to the value | `byref` / `outref` / `inref` are the ref-cell struct; the caller's `v` lives in a cell |
+| one member of a generic class calling another | not specialised (same type-parameter name was ignored) | the class's own `TypeSubst` resolves it |
+
+Limits found while writing them (the library works around each): module-level functions of a library file are not compiled
+from source (only its classes are), a non-generic `let` helper inside a generic class is not specialised, and a local generic
+function used at several types (`let grow (a: 'T array) = …` called with `int array` and `'K array`) is compiled once.
+
 ## Still open (coverage probe: every call below compiles to an unhandled import)
 
 | Area | Missing |
@@ -100,6 +119,7 @@ Still open from that work:
 | `Array2D` | not supported by Fable itself (frontend limit, see M5) |
 | exports | every function of a project file is exported under its plain name: two modules with a function of the same name collide (`BUG-05`), and `private` does not help — an export policy (public only / module-qualified) is M6 |
 | abstract classes | base-class default members + overrides (vtable slots for ALL virtual members) — M2 |
-| `Dictionary`, `HashSet`, `Stack`, `Queue`, `Map`/`Set` with non-int keys, `Lazy`, `Decimal`, `Int32.TryParse`, `String.Format`, exception constructors (`InvalidOperationException …`) | unhandled imports (measured by the coverage probe) — M2 |
+| `Map`/`Set` with non-int keys, `Lazy`, `Decimal`, `Int32.TryParse`, `String.Format`, exception constructors (`InvalidOperationException …`) | unhandled imports (measured by the coverage probe) — M2 |
+| `Dictionary` / `HashSet` | `Keys` / `Values` are arrays (the BCL's `KeyCollection` has `.Count`), no `ContainsValue` (needs `'V : equality`), no comparer / capacity / `IEnumerable` constructors, `HashSet` has no set operations beyond `UnionWith`, a `Dictionary` is not a `seq<KeyValuePair>` (`d \|> Seq.map …` does not compile; `for kv in d` does); class instances as keys compare structurally, not by reference — M2 |
 | lazy `seq { … }` | only the eagerly consumed shapes are fused; a seq that is stored / passed around needs an enumerator (M2) |
 | performance | array sorts are insertion sorts (O(n²)); a merge sort belongs to M4 once there are benchmarks |
