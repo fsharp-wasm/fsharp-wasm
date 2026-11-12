@@ -36,7 +36,6 @@ let srcDir        = Path.combine root "src"
 let testsDir      = Path.combine root "tests"
 let publishDir    = Path.combine root "publish"
 let cliDir        = Path.combine root "tools/FSharp.Wasm.Cli"
-let coreDir       = Path.combine root "fsharp-wasm-core/FSharp.Wasm.Core"
 let vendorFableFsc = Path.combine root "vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll"
 
 // ── Version ─────────────────────────────────────────────────────────────────
@@ -88,7 +87,6 @@ Target.create "Clean" (fun _ ->
     Shell.cleanDir publishDir
     !! "src/bin" ++ "src/obj"
     ++ "tools/FSharp.Wasm.Cli/bin" ++ "tools/FSharp.Wasm.Cli/obj"
-    ++ "fsharp-wasm-core/FSharp.Wasm.Core/bin" ++ "fsharp-wasm-core/FSharp.Wasm.Core/obj"
     |> Shell.cleanDirs
 )
 
@@ -112,16 +110,6 @@ Target.create "BuildCli" (fun _ ->
     Trace.log "✅ fsharp-wasm CLI build complete"
 )
 
-// ── Target: Build Core ───────────────────────────────────────────────────────
-Target.create "BuildCore" (fun _ ->
-    DotNet.build (fun o ->
-        { o with
-            Configuration = DotNet.BuildConfiguration.Release
-            Common = dotnetOpts o.Common }
-    ) (Path.combine coreDir "FSharp.WasmCore.fsproj")
-    Trace.log "✅ FSharp.Wasm.Core build complete"
-)
-
 // ── Target: Tests ────────────────────────────────────────────────────────────
 Target.create "QuickTest" (fun _ ->
     runBashScript (Path.combine testsDir "QuickTest") "run.sh"
@@ -133,7 +121,7 @@ Target.create "Showcase" (fun _ ->
     Trace.log "✅ Showcase passed"
 )
 
-// Run Expecto unit tests for fsharp-wasm-core (once they exist)
+// Unit tests of the compiler (once the project exists)
 Target.create "UnitTests" (fun _ ->
     let testProj = Path.combine testsDir "Unit/WatTests/WatTests.fsproj"
     if File.exists testProj then
@@ -168,15 +156,6 @@ Target.create "Pack" (fun _ ->
             Common         = dotnetOpts o.Common
             MSBuildParams  = { o.MSBuildParams with Properties = [ "Version", version ] } }
     ) (Path.combine cliDir "FSharp.Wasm.Cli.fsproj")
-
-    // Pack Core BCL
-    DotNet.pack (fun o ->
-        { o with
-            Configuration  = DotNet.BuildConfiguration.Release
-            OutputPath     = Some (Path.combine publishDir "nuget")
-            Common         = dotnetOpts o.Common
-            MSBuildParams  = { o.MSBuildParams with Properties = [ "Version", version ] } }
-    ) (Path.combine coreDir "FSharp.WasmCore.fsproj")
 
     Trace.log $"✅ NuGet packages packed to {publishDir}/nuget"
 )
@@ -227,7 +206,6 @@ open Fake.Core.TargetOperators
 "Clean"
     ==> "Build"
     ==> "BuildCli"
-    ==> "BuildCore"
     ==> "Default"
 
 "Default"

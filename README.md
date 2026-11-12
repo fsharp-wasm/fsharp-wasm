@@ -86,18 +86,25 @@ dotnet fable hello.fsproj --lang wasmgc
 - [Node.js 22+](https://nodejs.org/) (for running tests)
 - [`wasm-tools`](https://github.com/bytecodealliance/wasm-tools) (optional, for binary validation and Component Model)
 
-### 1. Clone with submodule
+### 0. Or just use a release
+
+Every tagged release carries the compiler as a self-contained binary — `fsharp-wasm-<rid>.tar.gz` (Linux, macOS) or `.zip`
+(Windows) — with `fable-library-wasmgc/` next to it, plus the NuGet packages. Unpack it, put a .NET SDK on the `PATH`
+(the CLI cracks projects through `dotnet`), and run `fsharp-wasm <project> --outDir <dir>`. Other repositories
+(`fsharp-wasm-runtime`, …) fetch the compiler from here this way; none of them is a submodule of this repository.
+
+### 1. Clone (to work on the compiler)
 
 ```bash
-git clone --recursive https://github.com/fsharp-wasm/fsharp-wasm.git
+git clone https://github.com/fsharp-wasm/fsharp-wasm.git
 cd fsharp-wasm
+git submodule update --init --depth 1 vendor/Fable vendor/fsharp
 ```
 
-If you already cloned without `--recursive`:
-
-```bash
-git submodule update --init --recursive
-```
+`vendor/Fable` (the Fable fork the backend is built on) and `vendor/fsharp` (the patched F# compiler) are the only
+submodules: build-time dependencies, not products. The sibling repositories are separate; the two test suites that
+compile their sources (`bclbootstrap` → `fsharp-wasm-core`, `wasmecto` → `fsharp-wasmecto`) look for a checkout next to
+this repository (or `FSHARP_WASM_CORE_DIR` / `FSHARP_WASMECTO_DIR`) and are skipped without one.
 
 ### 2. Build
 
@@ -107,7 +114,7 @@ dotnet build src/Fable.WasmGc.fsproj
 
 This builds:
 - The WasmGC backend (`Fable.WasmGc.fsproj`)
-- All required Fable projects from the vendored submodule (`Fable.Compiler`, `Fable.Cli`, etc.)
+- All required Fable projects from `vendor/Fable` (`Fable.Compiler`, `Fable.Transforms`, …)
 
 ### 3. Run tests
 

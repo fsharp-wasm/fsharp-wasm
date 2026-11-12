@@ -46,6 +46,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The library the compiled programs import (found next to the binary by Program.findFableLibWasmGc). -->
+    <Content Include="../../fable-library-wasmgc/**/*.fs;../../fable-library-wasmgc/**/*.fsproj"
+             Exclude="../../fable-library-wasmgc/**/bin/**;../../fable-library-wasmgc/**/obj/**"
+             Link="fable-library-wasmgc/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!--
       Reference our WasmGc backend — provides WasmGcPipeline.compileFile.
       PrivateAssets="none" so that this CLI can load it in-process.

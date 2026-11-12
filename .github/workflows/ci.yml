@@ -23,13 +23,8 @@ jobs:
         with:
           submodules: false
 
-      # Public submodules always; the private ones (fsharp-wasm-core, -graphics, -runtime, fsharp-glyph-aura,
-      # fsharp-wasmecto) only when the SUBMODULES_TOKEN secret exists. Without it the public subset runs.
-      - name: Init submodules
-        id: submodules
+      - name: Init submodules (vendor/Fable, vendor/fsharp)
         uses: ./.github/actions/init-submodules
-        with:
-          token: ${{ secrets.SUBMODULES_TOKEN }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -64,17 +59,13 @@ jobs:
 
       # build.fsx (FAKE) remains the local entry point; CI runs the same steps directly. FAKE 6 needs a net6.0
       # targeting pack and a locked FSharp.Core, and both kept breaking on the runner image (see build.fsx).
-      - name: Build Fable.WasmGc, CLI and (with private submodules) fsharp-wasm-core
+      - name: Build Fable.WasmGc and the CLI
         id: build
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
-          HAVE_PRIVATE: ${{ steps.submodules.outputs.private }}
         run: |
           dotnet build src/WasmGc.fsproj -c Release
           dotnet build tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj -c Release
-          if [ "$HAVE_PRIVATE" = "true" ]; then
-            dotnet build fsharp-wasm-core/FSharp.Wasm.Core/FSharp.WasmCore.fsproj -c Release
-          fi
 
       - name: QuickTest
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

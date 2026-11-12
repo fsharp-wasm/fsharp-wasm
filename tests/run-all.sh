@@ -28,7 +28,7 @@ SUITES=(
   "backendharness|tests/BackendHarness/run.sh"
   "component-embed|examples/component-embed/run.sh"
   "component-linking|examples/component-linking/run.sh"
-  "wasmecto|fsharp-wasmecto/run-tests.sh"
+  "wasmecto|bash ${FSHARP_WASMECTO_DIR:-../fsharp-wasmecto}/run-tests.sh"
 )
 
 ONLY=""; FAIL_FAST=0; VERBOSE=0
@@ -52,13 +52,13 @@ print_summary() {
   echo; echo "══════════════════════════════════════════════════════════════"
   printf "  %-20s %-8s %s\n" SUITE RESULT TIME
   echo "──────────────────────────────────────────────────────────────"
-  local failed=0
+  local failed=0 skipped=0
   for i in "${!names[@]}"; do
     printf "  %-20s %-8s %ss\n" "${names[$i]}" "${results[$i]}" "${times[$i]}"
-    [ "${results[$i]}" = "PASS" ] || failed=$((failed+1))
+    case "${results[$i]}" in PASS) ;; SKIP|MISSING) skipped=$((skipped+1)) ;; *) failed=$((failed+1)) ;; esac   # a skipped suite is not a failure
   done
   echo "══════════════════════════════════════════════════════════════"
-  echo "  $((${#names[@]}-failed))/${#names[@]} suites passed   (logs: tests/.results/)"
+  echo "  $((${#names[@]}-failed-skipped))/${#names[@]} suites passed$([ "$skipped" -gt 0 ] && echo ", $skipped skipped (no sibling checkout)")   (logs: tests/.results/)"
   return $failed
 }
 trap 'echo; echo "interrupted"; print_summary; exit 130' INT
@@ -66,7 +66,7 @@ trap 'echo; echo "interrupted"; print_summary; exit 130' INT
 for entry in "${SUITES[@]}"; do
   name="${entry%%|*}"; cmd="${entry#*|}"
   [ -n "$ONLY" ] && [[ "$ONLY" != *",$name,"* ]] && continue
-  script="${cmd%% *}"
+  script="${cmd%% *}"; [ "$script" = bash ] && { rest="${cmd#bash }"; script="${rest%% *}"; }
   if [[ "$cmd" != dotnet* ]] && [ ! -f "$ROOT/$script" ]; then
     names+=("$name"); results+=("MISSING"); times+=("0"); continue
   fi
@@ -82,11 +82,14 @@ for entry in "${SUITES[@]}"; do
   dur=$((SECONDS-start))
 
   verdict=PASS
-  if [ "$rc" -ne 0 ]; then verdict=FAIL
+  if [ "$rc" -eq 77 ]; then verdict=SKIP
+  elif [ "$rc" -ne 0 ]; then verdict=FAIL
   elif grep -Eq "$FAIL_MARKERS" "$log"; then verdict="FAIL*"; fi
   names+=("$name"); results+=("$verdict"); times+=("$dur")
 
-  if [ "$verdict" != PASS ]; then
+  if [ "$verdict" = SKIP ]; then
+    echo "  ○ SKIP — $(grep -m1 '^SKIP' "$log" | cut -c1-200)"
+  elif [ "$verdict" != PASS ]; then
     echo "  ✗ $verdict (exit $rc) — last lines of $log:"
     tail -n 12 "$log" | sed 's/^/    | /'
     [ "$FAIL_FAST" = 1 ] && break

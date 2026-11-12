@@ -1,9 +1,13 @@
 name: Release
 
+# Tag vX.Y.Z[-suffix] publishes a release: the compiler CLI as self-contained binaries (with fable-library-wasmgc next to
+# them — the other repositories fetch the compiler from here instead of embedding it as a submodule) and the NuGet packages.
+# "Run workflow" (workflow_dispatch) runs the same build without publishing anything and keeps the archives as an artifact.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,19 +16,17 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    if: github.ref_type == 'tag'
-    environment: production
+    environment: ${{ github.ref_type == 'tag' && 'production' || 'dry-run' }}
+    env:
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}   # job level: a step-level `env` is not visible to that step's `if`
 
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: false
 
-      - name: Init submodules
+      - name: Init submodules (vendor/Fable, vendor/fsharp)
         uses: ./.github/actions/init-submodules
-        with:
-          token: ${{ secrets.SUBMODULES_TOKEN }}
-          require-private: 'true'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -84,7 +86,7 @@ jobs:
           cd win-x64 && zip -r ../fsharp-wasm-win-x64.zip . && cd ..
 
       - name: Publish to NuGet.org
-        if: env.NUGET_API_KEY != ''
+        if: github.ref_type == 'tag' && env.NUGET_API_KEY != ''
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
@@ -95,6 +97,7 @@ jobs:
 
       # Also publish to GitHub Packages (free repo-scoped feed — no NUGET_API_KEY needed).
       - name: Publish to GitHub Packages
+        if: github.ref_type == 'tag'
         run: |
           dotnet nuget add source \
             --username "${{ github.actor }}" \
@@ -109,12 +112,24 @@ jobs:
             --skip-duplicate
 
       - name: Create GitHub Release
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             publish/nuget/*.nupkg
             publish/fsharp-wasm-linux-x64.tar.gz
             publish/fsharp-wasm-osx-x64.tar.gz
             publish/fsharp-wasm-osx-arm64.tar.gz
             publish/fsharp-wasm-win-x64.zip
+
+      # a dry run (or any run) keeps what would have been released
+      - name: Keep the archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-archives
+          path: |
+            publish/nuget/*.nupkg
+            publish/fsharp-wasm-*.tar.gz
+            publish/fsharp-wasm-*.zip
