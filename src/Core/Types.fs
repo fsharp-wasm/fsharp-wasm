@@ -518,6 +518,9 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     | Fable.Type.DeclaredType(entRef, genericArgs) when isRefCellEntity entRef.FullName ->
         let innerT = match genericArgs with | [t] -> mapTypeKnown ctx t | _ -> WType.I32
         WType.Ref(getOrAddRefCellType ctx innerT, false)
+    // KeyValuePair<'K,'V> is a pair, like in Fable (`kv.Key` / `kv.Value` read the items; the constructor makes the tuple)
+    | Fable.Type.DeclaredType(entRef, [ k; v ]) when entRef.FullName = "System.Collections.Generic.KeyValuePair`2" ->
+        mapTypeKnown ctx (Fable.Type.Tuple([ k; v ], false))
     // StringBuilder: always maps to the pre-registered $StringBuilder struct
     | Fable.Type.DeclaredType(entRef, _) when entRef.FullName = "System.Text.StringBuilder" ->
         WType.Ref(StringBuilderTypeIdx, false)

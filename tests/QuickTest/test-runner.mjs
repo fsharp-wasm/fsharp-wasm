@@ -818,6 +818,17 @@ check("Dictionary.TryGetValue → 69",                             69, exp.testD
 check("Dictionary<record,int> → 210",                            210, exp.testDictRecordKeys());
 check("Dictionary for-in over entries → 100",                    100, exp.testDictForIn());
 check("HashSet<string> → 121",                                   121, exp.testHashSetBasics());
+check("Dictionary: for KeyValue(k, v) in d → 50",               50, exp.testDictKeyValuePattern());
+check("Dictionary: Seq functions over d, Keys, Values → 636",    636, exp.testDictSeqFunctions());
+check("Dictionary(d): constructed from another → 32",           32, exp.testDictFromSeq());
+check("Dictionary.GetValueOrDefault → 50",                       50, exp.testDictGetValueOrDefault());
+check("Dictionary.TryGetValue(k, &v) → 101",                     101, exp.testDictOutVariable());
+check("HashSet(seq), for x in h → 36",                           36, exp.testHashSetFromSeqAndFor());
+check("HashSet set operations → 111",                            111, exp.testHashSetOperations());
+check("HashSet as seq → 3",                                      3, exp.testHashSetAsSeq());
+check("Stack / Queue: for-in and seq → 330",                     330, exp.testStackQueueAsSeq());
+check("for x in (xs: seq<int>) → 36",                            36, exp.testForInSeqParameter());
+check("Dictionary<string, ResizeArray<int>> → 26",               26, exp.testDictOfLists());
 check("Queue<int> → 122",                                      122, exp.testQueueInt());
 check("Queue wraps and grows → 638",                           638, exp.testQueueWrapAndGrow());
 check("Queue of records → 72",                                 72, exp.testQueueOfRecords());

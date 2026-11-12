@@ -103,6 +103,11 @@ in them is wasm specific: the same file compiles to any Fable target.
 | `hash x`, `numberHash` / `stringHash` / `arrayHash` / `structuralHash` | unhandled imports | structural hash consistent with `=` (`Equality.hashValue`): primitives by value (`0.0` = `-0.0`), strings FNV-1a, records / tuples / unions / arrays / lists folded; references without structure hash to 0 |
 | `d.TryGetValue(k, &v)`, `match d.TryGetValue k with | true, v -> …` | byref parameter mapped to the value | `byref` / `outref` / `inref` are the ref-cell struct; the caller's `v` lives in a cell |
 | one member of a generic class calling another | not specialised (same type-parameter name was ignored) | the class's own `TypeSubst` resolves it |
+| `d :> seq<_>` / `d |> Seq.map …` for `Dictionary`, `HashSet`, `Stack`, `Queue` | not a seq | the classes implement `IEnumerable<_>` for the type checker; the coercion calls their `ToSeqList()` (a seq is a list here) |
+| `for x in (xs: seq<'T>)` | iterator protocol (`getEnumerator`), no handler | normalised to `Seq.iterate` like the list / array loops |
+| `KeyValuePair<'K,'V>` | `i32` | a pair, as in Fable (`kv.Key` / `kv.Value`) |
+| `Dictionary<_,_>()` / `HashSet<_>(seq)` | an omitted optional argument is dropped by Fable: the call had 0 arguments for 1 parameter | the missing trailing options are filled with `None` |
+| members of a generic class | all compiled up front without type arguments (dead code that still reported its diagnostics) | compiled per instantiation only |
 
 Limits found while writing them (the library works around each): module-level functions of a library file are not compiled
 from source (only its classes are), a non-generic `let` helper inside a generic class is not specialised, and a local generic
@@ -120,6 +125,7 @@ function used at several types (`let grow (a: 'T array) = …` called with `int 
 | exports | every function of a project file is exported under its plain name: two modules with a function of the same name collide (`BUG-05`), and `private` does not help — an export policy (public only / module-qualified) is M6 |
 | abstract classes | base-class default members + overrides (vtable slots for ALL virtual members) — M2 |
 | `Map`/`Set` with non-int keys, `Lazy`, `Decimal`, `Int32.TryParse`, `String.Format`, exception constructors (`InvalidOperationException …`) | unhandled imports (measured by the coverage probe) — M2 |
-| `Dictionary` / `HashSet` | `Keys` / `Values` are arrays (the BCL's `KeyCollection` has `.Count`), no `ContainsValue` (needs `'V : equality`), no comparer / capacity / `IEnumerable` constructors, `HashSet` has no set operations beyond `UnionWith`, a `Dictionary` is not a `seq<KeyValuePair>` (`d \|> Seq.map …` does not compile; `for kv in d` does); class instances as keys compare structurally, not by reference — M2 |
+| `Dictionary` / `HashSet` | `Keys` / `Values` are arrays (the BCL's `KeyCollection` has `.Count`), no `ContainsValue` (needs `'V : equality`), no capacity / comparer constructor overloads (secondary constructors are not lowered: Fable emits them as free functions with JS `this` semantics; the library takes one optional `?items` argument instead), `HashSet` has `UnionWith` / `ExceptWith` / `IntersectWith` / `IsSubsetOf` / `IsSupersetOf` / `Overlaps` / `SetEquals` but not the strict variants; class instances as keys compare structurally, not by reference — M2 |
+| `dict [...]`, `List.countBy`, `Map` / `Set` with string keys (`m.[k]`, `s.Count`) | unhandled imports (`getItemFromDict`, `List_countBy`, `FSharpMap__get_Item`, `FSharpSet__get_Count`) — M2: the portable-library route (a class compiled from source) is the plan |
 | lazy `seq { … }` | only the eagerly consumed shapes are fused; a seq that is stored / passed around needs an enumerator (M2) |
 | performance | array sorts are insertion sorts (O(n²)); a merge sort belongs to M4 once there are benchmarks |

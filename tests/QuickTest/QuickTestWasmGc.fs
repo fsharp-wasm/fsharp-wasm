@@ -3081,3 +3081,80 @@ let testHashSetBasics () : int =
     let b = h.Add "x"
     h.Add "y" |> ignore
     (if a && not b then 100 else 0) + h.Count * 10 + (if h.Contains "y" then 1 else 0)   // 100 + 20 + 1
+
+// ── collections used the way real programs use them: KeyValue patterns, seq functions, constructors from sequences ──
+
+let testDictKeyValuePattern () : int =
+    let d = System.Collections.Generic.Dictionary<int, int>()
+    d.[1] <- 10; d.[2] <- 20
+    let mutable s = 0
+    for KeyValue(k, v) in d do s <- s + k * v
+    s                                                        // 10 + 40
+
+let testDictSeqFunctions () : int =
+    let d = System.Collections.Generic.Dictionary<string, int>()
+    d.["a"] <- 1; d.["b"] <- 2; d.["c"] <- 3
+    let total = d |> Seq.sumBy (fun kv -> kv.Value)          // 6
+    let keys = d.Keys |> Seq.length                           // 3
+    let sumV = Seq.sum d.Values                               // 6
+    total * 100 + keys * 10 + sumV                            // 636
+
+let testDictFromSeq () : int =
+    let d = System.Collections.Generic.Dictionary<int, string>()
+    d.[1] <- "a"; d.[2] <- "bb"
+    let e = System.Collections.Generic.Dictionary<int, string>(d)
+    e.[3] <- "ccc"
+    e.Count * 10 + d.Count                                    // 32
+
+let testDictGetValueOrDefault () : int =
+    let d = System.Collections.Generic.Dictionary<string, int>()
+    d.["x"] <- 5
+    d.GetValueOrDefault "x" * 10 + d.GetValueOrDefault "y"    // 50
+
+let testDictOutVariable () : int =
+    let d = System.Collections.Generic.Dictionary<string, int>()
+    d.["a"] <- 1
+    let mutable v = 0
+    if d.TryGetValue("a", &v) then v + 100 else -1            // 101
+
+let testHashSetFromSeqAndFor () : int =
+    let h = System.Collections.Generic.HashSet<int>([ 1; 2; 3; 2; 1 ])
+    let mutable s = 0
+    for x in h do s <- s + x
+    h.Count * 10 + s                                          // 30 + 6
+
+let testHashSetOperations () : int =
+    let h = System.Collections.Generic.HashSet<int>([ 1; 2; 3; 4 ])
+    h.ExceptWith [ 2 ]
+    h.IntersectWith [ 1; 3; 5 ]                               // 1, 3
+    h.UnionWith [ 7 ]                                         // 1, 3, 7
+    (if h.IsSubsetOf [ 1; 3; 7; 9 ] then 100 else 0)
+    + (if h.IsSupersetOf [ 3; 7 ] then 10 else 0)
+    + (if h.Overlaps [ 9; 7 ] then 1 else 0)                  // 111
+
+let testHashSetAsSeq () : int =
+    let h = System.Collections.Generic.HashSet<string>()
+    h.Add "x" |> ignore; h.Add "yy" |> ignore
+    h |> Seq.sumBy (fun s -> s.Length)                        // 3
+
+let testStackQueueAsSeq () : int =
+    let s = System.Collections.Generic.Stack<int>()
+    s.Push 1; s.Push 2; s.Push 3
+    let q = System.Collections.Generic.Queue<int>()
+    q.Enqueue 4; q.Enqueue 5
+    let mutable top = 0
+    for x in s do top <- top * 10 + x                         // top first: 3, 2, 1 -> 321
+    top + (q |> Seq.sum)                                      // 321 + 9
+
+let testForInSeqParameter () : int =
+    let total (xs: seq<int>) =
+        let mutable s = 0
+        for x in xs do s <- s + x
+        s
+    total [ 1; 2; 3 ] + total [| 10; 20 |]                    // 6 + 30
+
+let testDictOfLists () : int =
+    let d = System.Collections.Generic.Dictionary<string, ResizeArray<int>>()
+    d.["a"] <- ResizeArray<int>()
+    d.["a"].Add 5; d.["a"].Add 6
+    d.["a"].Count * 10 + d.["a"].[1]                          // 26

@@ -4,7 +4,16 @@
 // (`Stack$1__Push_…`), which is why the types and members are named exactly like the BCL ones.
 namespace System.Collections.Generic
 
-/// LIFO.  `for x in s` is not supported yet; use `ToArray()`.
+/// `for x in collection` over a snapshot array (the BCL enumerators of Stack / Queue / HashSet are snapshots of the order too).
+type ArrayEnumerator<'T>(items: 'T array) =
+    let mutable index = -1
+    member _.MoveNext() : bool =
+        index <- index + 1
+        index < items.Length
+    member _.Current : 'T = items.[index]
+    member _.Dispose() : unit = ()
+
+/// LIFO.
 type Stack<'T when 'T : equality>() =
     let mutable items : 'T array = Array.zeroCreate 4
     let mutable count = 0
@@ -47,6 +56,15 @@ type Stack<'T when 'T : equality>() =
         let result : 'T array = Array.zeroCreate count
         for i in 0 .. count - 1 do result.[i] <- items.[count - 1 - i]
         result
+
+    /// A seq is a list in the wasm backend: `s :> seq<_>` calls this.
+    member this.ToSeqList() : 'T list = List.ofArray (this.ToArray())
+    member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator(this.ToArray())
+
+    interface IEnumerable<'T> with
+        member this.GetEnumerator() : IEnumerator<'T> = (List.toSeq (this.ToSeqList())).GetEnumerator()
+    interface System.Collections.IEnumerable with
+        member this.GetEnumerator() : System.Collections.IEnumerator = ((this :> IEnumerable<'T>).GetEnumerator()) :> System.Collections.IEnumerator
 
 /// FIFO over a growing ring buffer.
 type Queue<'T when 'T : equality>() =
@@ -96,6 +114,15 @@ type Queue<'T when 'T : equality>() =
         for i in 0 .. count - 1 do result.[i] <- items.[(head + i) % items.Length]
         result
 
+    /// A seq is a list in the wasm backend: `s :> seq<_>` calls this.
+    member this.ToSeqList() : 'T list = List.ofArray (this.ToArray())
+    member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator(this.ToArray())
+
+    interface IEnumerable<'T> with
+        member this.GetEnumerator() : IEnumerator<'T> = (List.toSeq (this.ToSeqList())).GetEnumerator()
+    interface System.Collections.IEnumerable with
+        member this.GetEnumerator() : System.Collections.IEnumerator = ((this :> IEnumerable<'T>).GetEnumerator()) :> System.Collections.IEnumerator
+
 /// Walks the live entries in index order; `hashes.[i] < 0` marks a removed one.
 type DictionaryEnumerator<'K, 'V>(keys: 'K array, values: 'V array, hashes: int array, used: int) =
     let mutable index = -1
@@ -108,7 +135,7 @@ type DictionaryEnumerator<'K, 'V>(keys: 'K array, values: 'V array, hashes: int 
 
 /// Chained hash table with the .NET layout: entries are handed out in index order, a removed entry joins a free
 /// list that the next insert reuses first — so enumeration order is the BCL's.
-type Dictionary<'K, 'V when 'K : equality>() =
+type Dictionary<'K, 'V when 'K : equality>(?items: seq<KeyValuePair<'K, 'V>>) =
     let mutable buckets : int array = Array.zeroCreate 0      // entry index + 1; 0 = empty bucket
     let mutable hashes : int array = Array.zeroCreate 0       // < 0: the entry is on the free list
     let mutable next : int array = Array.zeroCreate 0         // next entry of the chain, or of the free list (index + 1)
@@ -180,6 +207,11 @@ type Dictionary<'K, 'V when 'K : equality>() =
             count <- count + 1
             true
 
+    do
+        match items with
+        | Some xs -> for kv in xs do insert kv.Key kv.Value true false |> ignore
+        | None -> ()
+
     member _.Count : int = count
 
     member _.Item
@@ -245,18 +277,32 @@ type Dictionary<'K, 'V when 'K : equality>() =
 
     member _.GetEnumerator() : DictionaryEnumerator<'K, 'V> = DictionaryEnumerator(keys, values, hashes, used)
 
-type HashSetEnumerator<'T>(items: 'T array, hashes: int array, used: int) =
-    let mutable index = -1
-    member _.MoveNext() : bool =
-        index <- index + 1
-        while index < used && hashes.[index] < 0 do index <- index + 1
-        index < used
-    member _.Current : 'T = items.[index]
-    member _.Dispose() : unit = ()
+    /// Same as `TryGetValue`, but the default of `'V` (0, false, null) for a missing key — the BCL extension method.
+    member _.GetValueOrDefault(key: 'K) : 'V =
+        let i = find key
+        if i >= 0 then values.[i] else Unchecked.defaultof<'V>
+
+    /// A seq is a list in the wasm backend: `d :> seq<_>` calls this.  Entries in enumeration order.
+    member _.ToSeqList() : KeyValuePair<'K, 'V> list =
+        let mutable r : KeyValuePair<'K, 'V> list = []
+        let mutable i = used - 1
+        while i >= 0 do
+            if hashes.[i] >= 0 then r <- KeyValuePair(keys.[i], values.[i]) :: r
+            i <- i - 1
+        r
+
+    interface IEnumerable<KeyValuePair<'K, 'V>> with
+        member this.GetEnumerator() : IEnumerator<KeyValuePair<'K, 'V>> = (List.toSeq (this.ToSeqList())).GetEnumerator()
+    interface System.Collections.IEnumerable with
+        member this.GetEnumerator() : System.Collections.IEnumerator = ((this :> IEnumerable<KeyValuePair<'K, 'V>>).GetEnumerator()) :> System.Collections.IEnumerator
 
 /// A Dictionary without values (same layout, same enumeration order).
-type HashSet<'T when 'T : equality>() =
+type HashSet<'T when 'T : equality>(?items: seq<'T>) =
     let table = Dictionary<'T, bool>()
+    do
+        match items with
+        | Some xs -> for x in xs do table.TryAdd(x, true) |> ignore
+        | None -> ()
 
     member _.Count : int = table.Count
     member _.Add(item: 'T) : bool = table.TryAdd(item, true)
@@ -264,5 +310,38 @@ type HashSet<'T when 'T : equality>() =
     member _.Remove(item: 'T) : bool = table.Remove item
     member _.Clear() : unit = table.Clear()
     member _.ToArray() : 'T array = table.Keys
-    member this.UnionWith(other: 'T array) : unit = for x in other do this.Add x |> ignore
-    member _.GetEnumerator() : DictionaryEnumerator<'T, bool> = table.GetEnumerator()
+
+    member this.UnionWith(other: seq<'T>) : unit = for x in other do this.Add x |> ignore
+    member this.ExceptWith(other: seq<'T>) : unit = for x in other do this.Remove x |> ignore
+    member this.IntersectWith(other: seq<'T>) : unit =
+        let keep = HashSet<'T>(other)
+        for x in table.Keys do
+            if not (keep.Contains x) then table.Remove x |> ignore
+    member this.IsSubsetOf(other: seq<'T>) : bool =
+        let o = HashSet<'T>(other)
+        let mutable ok = true
+        for x in table.Keys do
+            if not (o.Contains x) then ok <- false
+        ok
+    member this.IsSupersetOf(other: seq<'T>) : bool =
+        let mutable ok = true
+        for x in other do
+            if not (this.Contains x) then ok <- false
+        ok
+    member this.Overlaps(other: seq<'T>) : bool =
+        let mutable any = false
+        for x in other do
+            if this.Contains x then any <- true
+        any
+    member this.SetEquals(other: seq<'T>) : bool =
+        let o = HashSet<'T>(other)
+        o.Count = this.Count && this.IsSubsetOf(other)
+
+    /// A seq is a list in the wasm backend: `h :> seq<_>` calls this.
+    member this.ToSeqList() : 'T list = List.ofArray (this.ToArray())
+    member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator(this.ToArray())
+
+    interface IEnumerable<'T> with
+        member this.GetEnumerator() : IEnumerator<'T> = (List.toSeq (this.ToSeqList())).GetEnumerator()
+    interface System.Collections.IEnumerable with
+        member this.GetEnumerator() : System.Collections.IEnumerator = ((this :> IEnumerable<'T>).GetEnumerator()) :> System.Collections.IEnumerator

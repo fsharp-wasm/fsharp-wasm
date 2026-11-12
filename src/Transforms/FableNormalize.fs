@@ -325,6 +325,8 @@ module FableNormalize =
              | Type.List _ -> iterate "List"
              | Type.Array(_, ArrayKind.ResizeArray) -> visit foreachLoops e
              | Type.Array _ -> iterate "Array"
+             // a seq is a list here
+             | Type.DeclaredType(ent, [ _ ]) when ent.FullName = "System.Collections.Generic.IEnumerable`1" -> iterate "Seq"
              | _ -> visit foreachLoops e)
         | _ -> visit foreachLoops e
 

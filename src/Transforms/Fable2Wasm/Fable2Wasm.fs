@@ -293,8 +293,11 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                         let kf = ctx'.KnownFuncs |> Map.add ctorFunc.Name (List.map snd ctorParams, retTy)
                         let kfByPath = ctx'.KnownFuncsByPath |> Map.add (ctx'.CurrentFileStem, ctorFunc.Name) ctorFunc.Name
                         { ctx' with KnownFuncs = kf; KnownFuncsByPath = kfByPath }
+                // The members of a generic class are compiled per instantiation, when a call asks for them (trySpecializeCall);
+                // compiled here, without type arguments, they would be dead code that still reports its diagnostics.
+                let isGenericClass = ent.GenericParameters |> List.exists (fun p -> not p.IsMeasure)
                 let ctx'' =
-                    (ctx'', classDecl.AttachedMembers)
+                    (ctx'', if isGenericClass then [] else classDecl.AttachedMembers)
                     ||> List.fold (fun c m ->
                         let func = transformMemberDecl c transformExpr m |> resolveLocals
                         let func =

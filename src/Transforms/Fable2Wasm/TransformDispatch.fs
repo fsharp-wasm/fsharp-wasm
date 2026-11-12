@@ -95,9 +95,9 @@ let rec private hasGenericParam (t: Type) =
 let private inferTypeArgs (memberDecl: MemberDecl) (info: CallInfo) (resultFableType: Type) : (string * Type) list =
     let actuals = (info.ThisArg |> Option.toList |> List.map (fun t -> t.Type)) @ (info.Args |> List.map (fun a -> a.Type))
     let declared = memberDecl.Args |> List.map (fun a -> a.Type)
-    let fromArgs =
-        if actuals.Length = declared.Length then List.fold2 (fun m d a -> unify d a m) Map.empty declared actuals
-        else Map.empty
+    // a declared `unit` parameter (`ToSeqList()`) or an omitted optional one has no actual: the leading pairs line up
+    let n = min actuals.Length declared.Length
+    let fromArgs = List.fold2 (fun m d a -> unify d a m) Map.empty (List.truncate n declared) (List.truncate n actuals)
     unify memberDecl.Body.Type resultFableType fromArgs |> Map.toList
 
 /// Try to specialize a call to a generic function (or a member / constructor of a generic class).
@@ -181,12 +181,21 @@ let trySpecializeCall
 
         // 5. Pre-evaluate call arguments under the OUTER (non-specialized) ctx.
         //    An instance member's receiver comes in `ThisArg`; the compiled function takes it as its first parameter.
+        //    Fable drops the trailing `None`s of omitted optional arguments (`HashSet<int>()` for `?items`): they are filled in.
+        let isOptional (a: Ident) = match a.Type with Type.Option _ -> true | _ -> false
+        let omittedOptional (given: int) = memberDecl.Args |> List.skip (min given memberDecl.Args.Length) |> List.forall isOptional
         let wArgs =
             let receiver =
                 match info.ThisArg with
-                | Some t when memberDecl.Args.Length = info.Args.Length + 1 -> [ eval ctx t ]
+                | Some t when memberDecl.Args.Length = info.Args.Length + 1
+                              || (memberDecl.Args.Length > info.Args.Length + 1 && omittedOptional (info.Args.Length + 1)) -> [ eval ctx t ]
                 | _ -> []
-            receiver @ (info.Args |> List.map (eval ctx))
+            let given = receiver @ (info.Args |> List.map (eval ctx))
+            let substCtx = { ctx with TypeSubst = List.zip paramNames wTypeArgs |> Map.ofList }
+            let missing = memberDecl.Args |> List.skip (min given.Length memberDecl.Args.Length)
+            if not missing.IsEmpty && missing |> List.forall isOptional then
+                given @ (missing |> List.map (fun a -> WExpr.Const(WConst.Null(mapTypeKnown substCtx a.Type))))
+            else given
         let retTy = mapTypeKnown ctx resultFableType
 
         // 6. Already emitted? Just emit a call — body is already in ctx.Functions.

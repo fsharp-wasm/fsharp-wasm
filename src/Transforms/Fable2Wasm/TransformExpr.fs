@@ -750,6 +750,12 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         | Fable.Type.Char, Fable.Type.String when exprWType w = WType.I32 -> charToString w
         // `arr :> seq<_>`: a seq is a list
         | Fable.Type.Array _, target when isSeqType target -> coerceToSeq ctx innerExpr.Type w
+        // `d :> seq<_>` of a portable collection (Dictionary, HashSet, Stack, Queue): its `ToSeqList()` member builds the list
+        | Fable.Type.DeclaredType(e, _), target when isSeqType target && e.FullName.StartsWith "System.Collections.Generic." ->
+            let selector = e.FullName.Substring(e.FullName.LastIndexOf '.' + 1).Replace('`', '$') + "__ToSeqList"
+            match trySpecializeCall ctx transformExpr selector (Fable.CallInfo.Create(thisArg = innerExpr, args = [ Fable.Expr.Value(Fable.ValueKind.UnitConstant, None) ])) targetTy with
+            | Some call -> call
+            | None -> w
         | _, target when isSeqType target -> w
         | _ -> buildTypeCast ctx w targetTy
 
