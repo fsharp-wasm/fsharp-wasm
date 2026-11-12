@@ -31,10 +31,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          # FAKE 6 runs on net6.0 and needs its targeting pack, which the current runner image no longer ships.
-          dotnet-version: |
-            6.0.x
-            10.0.x
+          dotnet-version: '10.0.x'
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -62,20 +59,29 @@ jobs:
           find . -maxdepth 2 -name wasm-tools -type f | head -1 | xargs -I{} sudo install -m755 {} /usr/local/bin/wasm-tools
           wasm-tools --version
 
-      - name: Restore dotnet tools (FAKE)
-        run: dotnet tool restore
+      # No FAKE here: FAKE 6 runs on net6 with FSharp.Core 8 and breaks on the runner image (see ci.yml).  The same
+      # dotnet commands the build uses; the tests run in CI on the commit that is tagged.
+      - name: Version
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dryrun"; fi
+          echo "value=$v" >> "$GITHUB_OUTPUT"
 
-      - name: Run full release build (Build + Test + Pack)
+      - name: NuGet packages
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
-          VERSION: ${{ github.ref_name }}
-        run: dotnet fake run build.fsx --target Pack
+        run: |
+          dotnet pack src/WasmGc.fsproj -c Release -p:Version=${{ steps.version.outputs.value }} -o publish/nuget
+          dotnet pack tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj -c Release -p:Version=${{ steps.version.outputs.value }} -o publish/nuget
 
-      - name: Publish self-contained CLI binaries
+      - name: Self-contained CLI binaries (with fable-library-wasmgc beside them)
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
-          VERSION: ${{ github.ref_name }}
-        run: dotnet fake run build.fsx --target PublishBinaries
+        run: |
+          for rid in linux-x64 osx-x64 osx-arm64 win-x64; do
+            dotnet publish tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj -c Release -r "$rid" --self-contained \
+              -p:PublishReadyToRun=false -p:Version=${{ steps.version.outputs.value }} -o "publish/$rid"
+          done
 
       - name: Package CLI binaries as archives
         run: |
@@ -84,6 +90,8 @@ jobs:
           tar czf fsharp-wasm-osx-x64.tar.gz    -C osx-x64    .
           tar czf fsharp-wasm-osx-arm64.tar.gz  -C osx-arm64  .
           cd win-x64 && zip -r ../fsharp-wasm-win-x64.zip . && cd ..
+          # what fsharp-wasm-runtime's build.js (FSHARP_WASM_VERSION) checks a download against
+          sha256sum fsharp-wasm-*.tar.gz fsharp-wasm-*.zip > SHA256SUMS
 
       - name: Publish to NuGet.org
         if: github.ref_type == 'tag' && env.NUGET_API_KEY != ''
@@ -123,6 +131,7 @@ jobs:
             publish/fsharp-wasm-osx-x64.tar.gz
             publish/fsharp-wasm-osx-arm64.tar.gz
             publish/fsharp-wasm-win-x64.zip
+            publish/SHA256SUMS
 
       # a dry run (or any run) keeps what would have been released
       - name: Keep the archives
@@ -133,3 +142,4 @@ jobs:
             publish/nuget/*.nupkg
             publish/fsharp-wasm-*.tar.gz
             publish/fsharp-wasm-*.zip
+            publish/SHA256SUMS
