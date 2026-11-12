@@ -334,6 +334,9 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | ("equals" | "op_Equality" | "equalArrays"), [a; b], WType.I32
     | "equalsWith", [_; a; b], WType.I32 ->
         structuralEquals ctx a b
+    // ── hashing: `hash x` and the Dictionary / HashSet key hash; by the value's WType, whichever Fable helper it came through ──
+    | ("numberHash" | "stringHash" | "safeHash" | "structuralHash" | "arrayHash" | "fastStructuralHash" | "bigintHash"), [x], WType.I32 ->
+        structuralHash ctx x
     // Unary negation: 0 - x  (covers all int8/int16/int32/uint variants → all map to I32)
     | ("op_UnaryNegation_Int8"    | "op_UnaryNegation_UInt8"
     |  "op_UnaryNegation_Int16"   | "op_UnaryNegation_UInt16"
@@ -639,9 +642,9 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         // TODO: Implement via ctx.ListRegistry like ListOps.fs does
         // For now: stub with Nop to unblock wasmecto
         WExpr.Nop
-    // ── Object.GetHashCode stub → identityHash (return 0) ────────────────────────────
-    | "identityHash", [_obj], WType.I32 ->
-        i32Zero
+    // ── Object.GetHashCode without a structural hash of its own: values by value, references 0 ──
+    | "identityHash", [x], WType.I32 ->
+        identityHash ctx x
     // ── toConsole (printfn final stage): calls $consolePrint(str) ─────────────
     // Emits a call to the JS-imported $consolePrint function.
     // String.toConsole is called with the final formatted string.

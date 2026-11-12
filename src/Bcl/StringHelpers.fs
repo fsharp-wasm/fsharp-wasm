@@ -45,6 +45,18 @@ let makeStrEqHelper () : WFuncDecl =
                 while i < la && wsGet a i = wsGet b i do i <- i + 1
                 if i = la then 1 else 0 @>
 
+/// Runtime helper: $strHash(a) → FNV-1a over the UTF-16 code units.  Equal strings hash equal; Dictionary / HashSet use it.
+let makeStrHashHelper () : WFuncDecl =
+    q "$strHash"
+        <@ fun (a: WasmStr) ->
+            let la = wsLen a
+            let mutable h = -2128831035   // 0x811C9DC5, the FNV offset basis
+            let mutable i = 0
+            while i < la do
+                h <- (h ^^^ wsGet a i) * 16777619
+                i <- i + 1
+            h @>
+
 /// Runtime helper: $strIndexOf(haystack, needle) → first position, or -1 if not found.
 /// Brute-force O(n·m). needle="" always returns 0.
 /// Short-circuit `&&` from the QuotationWalker prevents out-of-bounds array access.

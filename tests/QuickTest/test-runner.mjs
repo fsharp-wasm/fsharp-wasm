@@ -807,6 +807,10 @@ check("Stack<int> → 322",                                      322, exp.testSt
 check("Stack<string> → 31",                                    31, exp.testStackString());
 check("Stack ToArray / Clear, grows past 4 → 661",             661, exp.testStackToArrayAndClear());
 check("Stack<string>.Contains → 1",                            1,  exp.testStackContains());
+check("hash: primitives and strings → 11111",                    11111, exp.testHashPrimitives());
+check("hash: tuples, records, unions, lists, arrays → 111111",   111111, exp.testHashStructures());
+check("hash: options → 111",                                     111, exp.testHashOption());
+check("hash: generic → 111",                                     111, exp.testHashGeneric());
 check("Queue<int> → 122",                                      122, exp.testQueueInt());
 check("Queue wraps and grows → 638",                           638, exp.testQueueWrapAndGrow());
 check("Queue of records → 72",                                 72, exp.testQueueOfRecords());

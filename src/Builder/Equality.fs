@@ -435,7 +435,136 @@ let structuralEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
         else
             match ctx.EqualityRegistry.TryGetValue idx with
             | true, funcName -> WExpr.Call(funcName, [ a; b ], WType.I32)
-            // strings compare by content (generic code reaches `=` with a string only once instantiated)
+            | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
+    // strings compare by content (generic code reaches `=` with a string only once instantiated)
     | WType.Ref(idx, _) when idx = StringTypeIdx -> WExpr.Call(ctx.UseHelper "$strEq", [ a; b ], WType.I32)
     | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
-    | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
+
+// ─────────────────────────────────────────────────────────────────
+// Structural hashing — `hash x`, Dictionary / HashSet keys
+//   Consistent with `compareByWType`: whatever `=` calls equal hashes equal.  Primitives hash to their value
+//   (as in .NET), strings by FNV-1a, records / tuples / unions / arrays / lists by an FNV fold over their parts.
+//   References that are compared by identity (closures, anything without structure) hash to 0: correct, just slow.
+// ─────────────────────────────────────────────────────────────────
+
+[<Literal>]
+let private FnvBasis = -2128831035   // 0x811C9DC5
+[<Literal>]
+let private FnvPrime = 16777619
+
+/// Fold one more part into a running hash.
+let private mix (h: WExpr) (x: WExpr) = mul (xor_ h x) (i32Const FnvPrime)
+
+let private hashFunc (name: string) (parms: (string * WType) list) (body: WExpr) : WFuncDecl =
+    { Name = name; Params = parms; Result = WType.I32
+      Locals = collectLocals (parms |> List.map fst |> Set.ofList) body |> List.distinctBy fst |> List.filter (fun (_, t) -> t <> WType.Void)
+      Body = body; Exported = false }
+
+/// `$hash_N(x)` for the struct / union / array type at `typeIdx`, or None for types without structure.
+let rec getOrAddStructuralHash (ctx: Ctx) (typeIdx: int) : string option =
+    if typeIdx = ListBaseTypeIdx then Some(getOrAddListHash ctx) else
+    match ctx.HashRegistry.TryGetValue typeIdx with
+    | true, name -> Some name
+    | false, _ ->
+        if typeIdx >= ctx.TypeDefs.Count then None else
+        let name = $"$hash_{typeIdx}"
+        let defs = ctx.TypeDefs :> System.Collections.Generic.IList<_>
+        let isCaseOf parent i = i < defs.Count && (match defs.[i].Def with WTypeDef.Struct(_, Some p) -> p = parent | _ -> false)
+        let register (build: unit -> WFuncDecl) =
+            ctx.HashRegistry.[typeIdx] <- name              // before the body: recursive types ask for themselves
+            ctx.Functions.Add(build ())
+            Some name
+        let refT = WType.Ref(typeIdx, false)
+        let self = WExpr.LocalGet("$h_a", refT)
+        match defs.[typeIdx].Def with
+        | WTypeDef.Struct(_, None) when isCaseOf typeIdx (typeIdx + 1) ->
+            // union: the tag, then the fields of the case the value is
+            let cases = Seq.initInfinite ((+) (typeIdx + 1)) |> Seq.takeWhile (isCaseOf typeIdx) |> Seq.toList
+            register (fun () ->
+                let tag = WExpr.LocalGet("$h_tag", WType.I32)
+                let seed = mix (i32Const FnvBasis) tag
+                let caseHash caseIdx =
+                    let caseRef = WType.Ref(caseIdx, false)
+                    let fs = match defs.[caseIdx].Def with WTypeDef.Struct(fs, _) -> List.tail fs | _ -> []
+                    fs |> List.mapi (fun fi f -> hashValue ctx f.Type (WExpr.StructGet(WExpr.Cast(self, caseRef), fi + 1, f.Type)))
+                       |> List.fold mix seed
+                let chain =
+                    List.foldBack (fun (i, c) rest -> WExpr.If(WExpr.Compare(WCompareOp.Eq, tag, i32Const i), caseHash c, rest, WType.I32))
+                        (cases |> List.mapi (fun i c -> i, c)) seed
+                hashFunc name [ "$h_a", refT ] (WExpr.Let("$h_tag", WExpr.StructGet(self, 0, WType.I32), chain)))
+        | WTypeDef.Struct(fields, None) ->
+            register (fun () ->
+                let parts = fields |> List.mapi (fun i f -> hashValue ctx f.Type (WExpr.StructGet(self, i, f.Type)))
+                hashFunc name [ "$h_a", refT ] (parts |> List.fold mix (i32Const FnvBasis)))
+        | WTypeDef.Array(elemT, _) ->
+            register (fun () ->
+                let i, h = WExpr.LocalGet("$h_i", WType.I32), WExpr.LocalGet("$h_h", WType.I32)
+                let loop =
+                    whileLoop "$h_loop" (WExpr.Compare(WCompareOp.LtS, i, WExpr.ArrayLen self))
+                        (WExpr.Sequence [ WExpr.Assign("$h_h", mix h (hashValue ctx elemT (WExpr.ArrayGet(self, i, elemT))))
+                                          WExpr.Assign("$h_i", add i (i32Const 1)) ])
+                hashFunc name [ "$h_a", refT ] (WExpr.LetMut("$h_i", i32Const 0, WExpr.LetMut("$h_h", i32Const FnvBasis, WExpr.Sequence [ loop; h ]))))
+        | _ -> None
+
+/// The hash (an i32 expression) of `x`, a value of `ty`.
+and hashValue (ctx: Ctx) (ty: WType) (x: WExpr) : WExpr =
+    let local n t = WExpr.LocalGet(n, t)
+    match ty with
+    | WType.I32 -> x
+    | WType.I64 ->
+        WExpr.Let("$h_x", x,
+            WExpr.Unary(WUnaryOp.WrapI64,
+                WExpr.Binary(WBinaryOp.Xor, local "$h_x" ty, WExpr.Binary(WBinaryOp.ShrU, local "$h_x" ty, WExpr.Const(WConst.I64 32L), WType.I64), WType.I64),
+                WType.I32))
+    | WType.F32 | WType.F64 ->
+        // 0.0 and -0.0 are equal, so they hash alike; every other value by its bits
+        let bits = if ty = WType.F32 then WUnaryOp.ReinterpretF32ToI32 else WUnaryOp.ReinterpretF64ToI64
+        let asI32 = WExpr.Unary(bits, local "$h_x" ty, (if ty = WType.F32 then WType.I32 else WType.I64))
+        let folded = if ty = WType.F32 then asI32 else hashValue ctx WType.I64 asI32
+        WExpr.Let("$h_x", x, WExpr.If(WExpr.Compare(WCompareOp.Eq, local "$h_x" ty, (if ty = WType.F32 then WExpr.Const(WConst.F32 0.0f) else WExpr.Const(WConst.F64 0.0))), i32Const 0, folded, WType.I32))
+    | WType.Ref(idx, false) when idx = StringTypeIdx -> WExpr.Call(ctx.UseHelper "$strHash", [ x ], WType.I32)
+    | WType.Ref(idx, false) ->
+        match getOrAddStructuralHash ctx idx with
+        | Some fn -> WExpr.Call(fn, [ x ], WType.I32)
+        | None -> WExpr.Let("$h_d", x, i32Const 0)
+    | WType.Ref(idx, true) ->
+        // None / null hashes to 0
+        let nonNull = WType.Ref(idx, false)
+        WExpr.Let("$h_n", x,
+            wasmIf (WExpr.RefIsNull(local "$h_n" ty)) (i32Const 0) (hashValue ctx nonNull (WExpr.Cast(local "$h_n" ty, nonNull))))
+    | _ -> WExpr.Let("$h_d", x, i32Const 0)
+
+/// `$hash_list_vN(list)` for a NON-NULL list: the heads folded in order; N as for `$equals_list_vN`.
+and getOrAddListHash (ctx: Ctx) : string =
+    let name = $"$hash_list_v{(consTypes ctx).Length}"
+    match ctx.HashRegistry.TryGetValue ListBaseTypeIdx with
+    | true, n when n = name -> n
+    | _ ->
+        ctx.HashRegistry.[ListBaseTypeIdx] <- name
+        let baseRef, baseNull = WType.Ref(ListBaseTypeIdx, false), WType.Ref(ListBaseTypeIdx, true)
+        let list = WExpr.LocalGet("$la", baseRef)
+        let walk consIdx headT =
+            let consT = WType.Ref(consIdx, false)
+            let node, h = WExpr.LocalGet("$lx", baseNull), WExpr.LocalGet("$lh", WType.I32)
+            let cons = WExpr.Cast(node, consT)
+            WExpr.LetMut("$lx", WExpr.Cast(list, baseNull),
+                WExpr.LetMut("$lh", i32Const FnvBasis,
+                    WExpr.Sequence [ whileLoop "$lw" (WExpr.Unary(WUnaryOp.Eqz, WExpr.RefIsNull node, WType.I32))
+                                         (WExpr.Sequence [ WExpr.Assign("$lh", mix h (hashValue ctx headT (WExpr.StructGet(cons, 0, headT))))
+                                                           WExpr.Assign("$lx", WExpr.StructGet(cons, 1, baseNull)) ])
+                                     h ]))
+        let perCons = consTypes ctx |> List.map (fun (consIdx, headT) -> consIdx, addOnce ctx (hashFunc $"$hash_list_c{consIdx}" [ "$la", baseRef ] (walk consIdx headT)))
+        let dispatch =
+            List.foldBack (fun (consIdx, fn) rest -> WExpr.If(WExpr.RefTest(list, WType.Ref(consIdx, false)), WExpr.Call(fn, [ list ], WType.I32), rest, WType.I32))
+                perCons (i32Const 0)
+        addOnce ctx (hashFunc name [ "$la", baseRef ] dispatch)
+
+/// `hash x` — what Fable's `numberHash` / `stringHash` / `safeHash` / `structuralHash` / `arrayHash` calls compile to.
+let structuralHash (ctx: Ctx) (x: WExpr) : WExpr = hashValue ctx (exprWType x) x
+
+/// `GetHashCode()` of something without a structural hash of its own (`identityHash`): values hash as above, but
+/// references have no address to read, so they all hash to 0 (still correct, merely collides).
+let identityHash (ctx: Ctx) (x: WExpr) : WExpr =
+    match exprWType x with
+    | WType.Ref(idx, _) when idx <> StringTypeIdx -> WExpr.Let("$h_d", x, i32Const 0)
+    | _ -> structuralHash ctx x

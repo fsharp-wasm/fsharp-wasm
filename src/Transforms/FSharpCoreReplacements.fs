@@ -62,15 +62,10 @@ let tryHandleDisposeSafe (ctx: Ctx) (wArgs: WExpr list) (ty: WType) : WExpr opti
 // Object.GetHashCode stub → identityHash
 // ─────────────────────────────────────────────────────────────────
 
-/// Handle `identityHash(obj)` imports.
-/// For now: returns a constant 0 (all objects have the same hash).
-/// This is used by Dictionary as a fallback. In future, use ref address.
+/// Handle `identityHash(obj)` imports: values hash by value, references to 0 (there is no address to read).
 let tryHandleIdentityHash (ctx: Ctx) (wArgs: WExpr list) (ty: WType) : WExpr option =
     match wArgs with
-    | [_obj] ->
-        // Stub: return 0 for all objects.
-        // (In future: extract address bits from ref, or use ref identity)
-        Some (i32Zero)
+    | [x] -> Some (WasmGc.Runtime.Equality.identityHash ctx x)
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────

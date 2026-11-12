@@ -122,6 +122,8 @@ type Ctx =
         EqualityRegistry: System.Collections.Generic.Dictionary<int, string>
         /// Structural ordering functions (`$compare_N`), by struct / DU type index.
         CompareRegistry: System.Collections.Generic.Dictionary<int, string>
+        /// Structural hash functions (`$hash_N`), by struct / DU / array type index — consistent with EqualityRegistry.
+        HashRegistry: System.Collections.Generic.Dictionary<int, string>
 
         /// Generic MemberDecl bodies, pre-scanned before translation.
         /// Key: fully-qualified F# function name (e.g. "MyModule.swap")
@@ -275,6 +277,7 @@ type Ctx =
             UsedHelpers = System.Collections.Generic.HashSet<string>()
             EqualityRegistry = System.Collections.Generic.Dictionary<int, string>()
             CompareRegistry = System.Collections.Generic.Dictionary<int, string>()
+            HashRegistry = System.Collections.Generic.Dictionary<int, string>()
             GenericFuncRegistry = System.Collections.Generic.Dictionary<string, ICompilerCore * obj>()
             MonoCache = System.Collections.Generic.Dictionary<string, string>()
             TypeSubst = Map.empty

@@ -2997,3 +2997,35 @@ let testQueueOfRecords () : int =
     q.Enqueue { BagItems = [ "x" ]; BagN = 7 }
     q.Enqueue { BagItems = [ "y"; "z" ]; BagN = 8 }
     (q.Dequeue()).BagN * 10 + (q.Dequeue()).BagItems.Length   // 70 + 2 = 72
+
+// ── hash: equal values hash equal (what Dictionary / HashSet rely on); different ones differ ─────────────
+
+type HKey = { HName: string; HId: int }
+type HShape = HCircle of float | HRect of int * int | HNothing
+
+let testHashPrimitives () : int =
+    (if hash 42 = 42 then 1 else 0)
+    + (if hash "abc" = hash ("ab" + "c") then 10 else 0)
+    + (if hash "abc" <> hash "abd" then 100 else 0)
+    + (if hash 0.0 = hash (-0.0) then 1000 else 0)
+    + (if hash 5L = hash (2L + 3L) && hash 5L <> hash 6L then 10000 else 0)    // 11111
+
+let testHashStructures () : int =
+    let r1, r2 = { HName = "a"; HId = 1 }, { HName = "a"; HId = 1 }
+    (if hash (1, "x") = hash (1, "x") && hash (1, "x") <> hash (2, "x") then 1 else 0)
+    + (if hash r1 = hash r2 && hash r1 <> hash { r1 with HId = 2 } then 10 else 0)
+    + (if hash (HRect(2, 3)) = hash (HRect(2, 3)) && hash (HRect(2, 3)) <> hash (HRect(3, 2)) then 100 else 0)
+    + (if hash (HCircle 1.5) = hash (HCircle 1.5) && hash HNothing <> hash (HCircle 0.0) then 1000 else 0)
+    + (if hash [ 1; 2; 3 ] = hash [ 1; 2; 3 ] && hash [ 1; 2; 3 ] <> hash [ 3; 2; 1 ] then 10000 else 0)
+    + (if hash [| 1; 2 |] = hash [| 1; 2 |] && hash [| 1; 2 |] <> hash [| 2; 1 |] then 100000 else 0)   // 111111
+
+let testHashOption () : int =
+    (if hash (Some 3) = hash (Some 3) then 1 else 0)
+    + (if hash (None: int option) = hash (None: int option) then 10 else 0)
+    + (if hash (Some "s") = hash (Some "s") then 100 else 0)                                          // 111
+
+let hashOf (x: 'T) : int = hash x
+let testHashGeneric () : int =
+    (if hashOf 7 = 7 then 1 else 0)
+    + (if hashOf "k" = hash "k" then 10 else 0)
+    + (if hashOf (1, 2) = hash (1, 2) then 100 else 0)                                                // 111

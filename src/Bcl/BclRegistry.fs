@@ -66,6 +66,7 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         // ── String ────────────────────────────────────────────────────────
         "$strConcat",         StringHelpers.makeStrConcatHelper
         "$strEq",             StringHelpers.makeStrEqHelper
+        "$strHash",           StringHelpers.makeStrHashHelper
         "$strIndexOf",        StringHelpers.makeStrIndexOfHelper
         "$strLastIndexOf",    StringHelpers.makeStrLastIndexOfHelper
         "$strSubstring",      StringHelpers.makeStrSubstringHelper
