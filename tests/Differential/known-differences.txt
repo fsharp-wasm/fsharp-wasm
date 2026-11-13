@@ -4,3 +4,4 @@ testExternAddNeg   host import (testEnv.wasmAdd): implemented by the wasm host o
 testExternChain    host import (testEnv.wasmAdd/wasmMul): implemented by the wasm host only, `nativeOnly` throws on .NET
 testExternMul      host import (testEnv.wasmMul): implemented by the wasm host only, `nativeOnly` throws on .NET
 prop_rem           Int32.MinValue % -1: .NET raises OverflowException (CPU idiv artefact), wasm i32.rem_s returns the mathematically correct 0. Checking every `%` would cost more than it protects.
+testModuleValueIsShared  module values of the last file of an Exe: .NET initialises them only when main runs (the reference runner calls the function by reflection, so `sharedCounter` is still null: NullReferenceException); wasm initialises them in its start function — the result there (340) is what F# gives when the program runs
