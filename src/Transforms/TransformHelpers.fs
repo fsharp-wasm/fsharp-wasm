@@ -122,6 +122,7 @@ let primitiveToString (ctx: Ctx) (fableType: Fable.AST.Fable.Type) (wv: WExpr) :
     | Fable.AST.Fable.Type.Char, _ -> charToString wv
     | Fable.AST.Fable.Type.Boolean, _ -> WExpr.If(wv, lit "True", lit "False", strRef)
     | _, WType.Ref(idx, _) when idx = StringTypeIdx -> wv
+    | _, WType.Ref(idx, _) when idx = StringBuilderTypeIdx -> WExpr.Call(ctx.UseHelper "$sbToString", [ wv ], strRef)
     | _, WType.I64 -> int64ToString ctx wv (WasmGc.Util.FableQuery.isUnsignedInt fableType)
     | _, WType.F64 -> WExpr.Call(ctx.UseHelper "$floatToStr", [ wv; WExpr.Const(WConst.I32 0) ], strRef)
     | _, WType.F32 -> WExpr.Call(ctx.UseHelper "$floatToStr", [ WExpr.Unary(WUnaryOp.PromoteF32, wv, WType.F64); WExpr.Const(WConst.I32 1) ], strRef)

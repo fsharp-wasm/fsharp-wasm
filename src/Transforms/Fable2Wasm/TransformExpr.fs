@@ -13,6 +13,7 @@ open WasmGc.Runtime.Types
 open WasmGc.Pipeline.Scope
 
 module RT = WasmGc.Runtime.Runtime
+module VT = WasmGc.Runtime.VTable
 module Q  = WasmGc.Util.FableQuery
 
 open WasmGc.Transforms.MathMap
@@ -83,6 +84,38 @@ let jsTypedArrayElemType (name: string) : (WType * WExpr) option =
 /// the stack). Reporting it here, at the source expression, is far more
 /// actionable than the resulting "expected i32 but nothing on stack" error
 /// from wasm-tools three transforms later.
+/// Read a module-level value that lives in a wasm global.  It is stored nullable (the initialiser has not run when the
+/// global is declared); a non-null reference is cast on read.
+let private readGlobal (qn: string) (ty: WType) : WExpr =
+    match ty with
+    | WType.Ref(idx, false) -> WExpr.Cast(WExpr.GlobalGet(qn, WType.Ref(idx, true)), ty)
+    | _ -> WExpr.GlobalGet(qn, ty)
+
+/// A let-bound generic lambda — `let mk id kind f = f (newNode id kind)` has the result of `f` as its type parameter `'a` —
+/// is compiled once, so its closure signature needs concrete types.  They are what its applications in `body` state
+/// (`mk 1 KLabel (fun n -> …)` returns a `Node`): read off those, the lambda is built with them.  A lambda that is not
+/// generic, or whose uses state nothing, is compiled as it is.
+let private lambdaInstantiation (ctx: Ctx) (ident: Ident) (value: Fable.Expr) (body: Fable.Expr) : Ctx =
+    match value with
+    | (Fable.Expr.Lambda _ | Fable.Expr.Delegate _) when not ident.IsMutable && hasGenericParam ident.Type ->
+        let mutable bound : Map<string, Fable.Type> = Map.empty
+        body
+        |> Fable.Transforms.AST.visitFromInsideOut (fun e ->
+            match e with
+            | Fable.Expr.CurriedApply(Fable.Expr.IdentExpr id, args, resultType, _) when id.Name = ident.Name ->
+                let applied = List.foldBack (fun (a: Fable.Expr) acc -> Fable.Type.LambdaType(a.Type, acc)) args resultType
+                bound <- unify ident.Type applied bound
+            // a lambda of several arguments is a delegate: its uses are plain calls
+            | Fable.Expr.Call(Fable.Expr.IdentExpr id, info, resultType, _) when id.Name = ident.Name ->
+                bound <- unify ident.Type (Fable.Type.DelegateType(info.Args |> List.map (fun a -> a.Type), resultType)) bound
+            | _ -> ()
+            e)
+        |> ignore
+        let fresh = bound |> Map.filter (fun name t -> not (ctx.TypeSubst.ContainsKey name) && not (hasGenericParam t))
+        if fresh.IsEmpty then ctx
+        else { ctx with TypeSubst = fresh |> Map.fold (fun m name t -> Map.add name (mapTypeKnown ctx t) m) ctx.TypeSubst }
+    | _ -> ctx
+
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     let result = transformExprCore ctx expr
     match result, expr.Type with
@@ -125,18 +158,14 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     // ── Identifier references ─────────────────────────────
     | IdentExpr ident when ctx.BoxedLocals.ContainsKey ident.Name ->
         let inner = ctx.BoxedLocals[ident.Name]
-        WExpr.StructGet(WExpr.LocalGet(ident.Name, WType.Ref(getOrAddRefCellType ctx inner, false)), 0, inner)
+        cellGet (WExpr.LocalGet(ident.Name, WType.Ref(getOrAddRefCellType ctx inner, false))) inner
 
     | IdentExpr ident ->
         let res = Scope.resolve ctx ctx.CurrentFunc ident.Name
         match res with
         | Scope.Resolution.Local(name, ty)          -> WExpr.LocalGet(name, ty)
         | Scope.Resolution.CapturedVar(name, ty)    -> WExpr.LocalGet(name, ty)
-        | Scope.Resolution.Global(qn, ty)           ->
-            // stored nullable (the initialiser has not run yet at declaration time); a non-null reference is cast on read
-            (match ty with
-             | WType.Ref(idx, false) -> WExpr.Cast(WExpr.GlobalGet(qn, WType.Ref(idx, true)), ty)
-             | _ -> WExpr.GlobalGet(qn, ty))
+        | Scope.Resolution.Global(qn, ty)           -> readGlobal qn ty
         | Scope.Resolution.ModuleValue(qn, retTy)   ->
             // `let f () = …` is registered WITHOUT parameters (unit params are dropped), i.e. exactly
             // like a module value `let x = …`.  A reference whose Fable type is `unit -> R` is a
@@ -178,7 +207,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
 
     // ── Let bindings ──
     | Let(ident, value, body) ->
-        let wValue = transformExpr ctx value
+        let wValue = transformExpr (lambdaInstantiation ctx ident value body) value
         // A non-unit binding whose value produced nothing keeps the local's default and later fails
         // validation as "uninitialized local".  (A plain Nop is already reported by transformExpr.)
         if wValue <> WExpr.Nop && exprWType wValue = WType.Void
@@ -321,6 +350,16 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 WExpr.ArraySet(wArr, wIdx, wVal)
         | _ -> WExpr.Nop // TODO: expr set
 
+    // ── a property of an interface value (`shape.Bounds`): the getter slot of its vtable ──────────────
+    | Fable.Expr.Get(receiver, GetKind.FieldGet fi, typ, _)
+          when (match receiver.Type with
+                | Fable.Type.DeclaredType(e, _) -> (VT.tryFindMemberSlot ctx e.FullName [ "get_" + fi.Name; fi.Name ]).IsSome
+                | _ -> false) ->
+        let ifaceName = match receiver.Type with Fable.Type.DeclaredType(e, _) -> e.FullName | _ -> ""
+        let slot = (VT.tryFindMemberSlot ctx ifaceName [ "get_" + fi.Name; fi.Name ]).Value
+        let vtableTypeIdx, boxTypeIdx, funcTypeIndices, _ = ctx.VTableRegistry.[ifaceName]
+        VT.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices slot (transformExpr ctx receiver) [] (mapTypeKnown ctx typ)
+
     // JS number constants Fable emits for `nan`, `infinity`, `Double.MaxValue`, …
     | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Number" }, GetKind.FieldGet fi, typ, _)
         when (match fi.Name with "NaN" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY" | "MAX_VALUE" | "MIN_VALUE" | "EPSILON" -> true | _ -> false) ->
@@ -396,7 +435,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let wObj = transformExpr ctx expr
         let innerWType = mapTypeKnown ctx typ
         let _refTypeIdx = getOrAddRefCellType ctx innerWType  // ensure registered
-        WExpr.StructGet(wObj, 0, innerWType)
+        cellGet wObj innerWType
 
     // ── Record/struct field access (Phase 3) ────────────
     | Fable.Expr.Get(expr, GetKind.FieldGet fieldInfo, typ, _) ->
@@ -726,14 +765,18 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     // We extract the Compare (or Equals/GetHashCode) member body and translate it.
     // For IComparer, the body is a Delegate — buildClosure handles it and returns
     // a (ref $AnyFn) closure that can be stored as MapHandle/SetHandle.Cmp.
-    | Fable.Expr.ObjectExpr(members, _, _) ->
-        // Prefer "Compare" for IComparer, fall back to first member for other objects
-        let target =
-            members |> List.tryFind (fun m -> m.Name = "Compare")
-            |> Option.orElse (List.tryHead members)
-        match target with
-        | Some m -> transformExpr ctx m.Body
-        | None -> WExpr.Nop
+    | Fable.Expr.ObjectExpr(members, typ, baseCall) ->
+        // an object expression implementing an interface of the vtable system (`{ new IFoo with … }`)
+        match ObjectExprBuilder.tryBuild ctx transformExpr members typ baseCall with
+        | Some boxed -> boxed
+        | None ->
+            // Prefer "Compare" for IComparer, fall back to first member for other objects
+            let target =
+                members |> List.tryFind (fun m -> m.Name = "Compare")
+                |> Option.orElse (List.tryHead members)
+            match target with
+            | Some m -> transformExpr ctx m.Body
+            | None -> WExpr.Nop
 
     // ── Type cast ─────────────────────────────────────────
     | TypeCast(innerExpr, targetTy) ->
@@ -777,8 +820,9 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             // a module VALUE of another file (`let nil = El 0`) is a nullary function here: reading it is a call;
             // only a value of function type (`let f () = …` passed along) is a function reference
             let isFunctionValue = (match typ with Fable.Type.LambdaType _ | Fable.Type.DelegateType _ -> true | _ -> false)
-            match Map.tryFind actualName ctx.KnownFuncs with
-            | Some([], retTy) when not isFunctionValue -> WExpr.Call(actualName, [], retTy)
+            match ctx.MutableGlobals.TryGetValue actualName, Map.tryFind actualName ctx.KnownFuncs with
+            | (true, globalTy), _ -> readGlobal actualName globalTy          // a value that lives in a global
+            | _, Some([], retTy) when not isFunctionValue -> WExpr.Call(actualName, [], retTy)
             | _ -> WExpr.FuncRef actualName
 
     | _ -> 

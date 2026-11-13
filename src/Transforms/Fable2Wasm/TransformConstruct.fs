@@ -276,19 +276,17 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
                 WExpr.Const(WConst.I32 tag)
     // ── Tuples (Phase 5-ish) ────────────────────────────────
     | NewTuple(values, _isStruct) ->
-        // Determine/register the struct type for this tuple shape.
+        // The struct type of the tuple is the one of its DECLARED element types — the same `mapTypeKnown` gives a pattern
+        // or a signature — not of the values in hand: `Some arr` is a non-null array, but an `option<array>` element is
+        // a nullable one, and `("a", None)` and `("b", Some arr)` must be the same tuple.  A declared type that says
+        // nothing (an unresolved generic) yields to the value's own.
         let wValues = values |> List.map (eval ctx)
-        let wTypes = wValues |> List.map exprWType
-        let key = wTypesKey wTypes
-        let typeIdx =
-            match ctx.TupleRegistry.TryGetValue(key) with
-            | true, idx -> idx
-            | false, _ ->
-                let idx = ctx.TypeDefs.Count
-                let fields = wTypes |> List.mapi (fun i ft -> { Name = $"Item{i + 1}"; Type = ft; Mutable = false })
-                ctx.TypeDefs.Add({ Name = $"Tuple_{idx}"; Def = WTypeDef.Struct(fields, None) })
-                ctx.TupleRegistry.[key] <- idx
-                idx
+        let wTypes =
+            List.map2 (fun (v: Fable.Expr) w ->
+                match mapTypeKnown ctx v.Type, exprWType w with
+                | WType.I32, actual when actual <> WType.Void -> actual
+                | declared, _ -> declared) values wValues
+        let typeIdx = getOrAddTupleType ctx wTypes
         WExpr.StructNew(typeIdx, wValues, WType.Ref(typeIdx, false))
     // ── Anonymous records: the tuple struct of the DECLARED field types (a field holding a lambda is typed ──
     // `ref AnyFn`, whatever concrete closure struct the value is) ─────────────────────────────────────────
@@ -310,15 +308,15 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
         | None -> none
     // ── List<T> ─────────────────────────────────────────────
     // ── F# arrays [|...|] and Array.create / Array.zeroCreate ────────────
-    // ResizeArray<T> grows: create a mutable struct { data: $Arr_T; len: i32 } with initial capacity 4.
-    | NewArray(Fable.NewArrayKind.ArrayValues _, elemType, Fable.ArrayKind.ResizeArray) ->
-        let elemT = mapTypeKnown ctx elemType
-        let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemT
-        let zero = makeNumericZero elemT
-        WExpr.StructNew(ravTypeIdx,
-            [WExpr.ArrayNew(arrTypeIdx, i32Const 4, zero, WType.Ref(arrTypeIdx, false))
-             i32Zero],
-            WType.Ref(ravTypeIdx, false))
+    // ResizeArray<T> grows: a mutable struct { data: $Arr_T; len: i32 } (see ResizeArrayOps).
+    | NewArray(Fable.NewArrayKind.ArrayValues exprs, elemType, Fable.ArrayKind.ResizeArray) ->
+        ResizeArrayOps.ofValues ctx elemType (exprs |> List.map (eval ctx))
+    | NewArray(Fable.NewArrayKind.ArrayAlloc _, elemType, Fable.ArrayKind.ResizeArray) ->
+        ResizeArrayOps.emptyOf ctx elemType
+    | NewArray(Fable.NewArrayKind.ArrayFrom srcExpr, elemType, Fable.ArrayKind.ResizeArray) ->
+        match ResizeArrayOps.ofSource eval ctx elemType srcExpr with
+        | Some copied -> copied
+        | None -> eval ctx srcExpr
     | NewArray(Fable.NewArrayKind.ArrayValues exprs, elemType, _) ->
         let elemT = mapTypeKnown ctx elemType
         let arrTypeIdx = getOrAddArrayType ctx elemT

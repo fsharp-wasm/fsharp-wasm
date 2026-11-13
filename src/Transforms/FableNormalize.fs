@@ -331,6 +331,74 @@ module FableNormalize =
         | _ -> visit foreachLoops e
 
     // ─────────────────────────────────────────────────────────────────
+    // Pass 6 — `{ s with X = x }` on a struct record: F# reads the unchanged fields through
+    //     let inputRecord: byref<S, InOut> = s      (an alias of the value, not a cell holding it)
+    // The backend reads a `byref` as the single-field cell of `&v`, so `inputRecord.R` found no such field.  An alias whose
+    // value is no cell itself is the value: the binder takes the value's type (names are unique after pass 1).
+    // ─────────────────────────────────────────────────────────────────
+
+    let private isCellType (t: Type) =
+        match t with
+        | Type.DeclaredType(ent, _) -> WasmGc.Runtime.Types.isRefCellEntity ent.FullName
+        | _ -> false
+
+    let rec private unalias (e: Expr) : Expr =
+        match e with
+        | Let(i, value, body) when not i.IsMutable && isCellType i.Type && not (isCellType value.Type) && value.Type <> Type.Any ->
+            let retype (x: Expr) =
+                match x with
+                | IdentExpr id when id.Name = i.Name -> IdentExpr { id with Type = value.Type }
+                | _ -> x
+            Let({ i with Type = value.Type }, unalias value, unalias (visitFromInsideOut retype body))
+        | _ -> visit unalias e
+
+    // ─────────────────────────────────────────────────────────────────
+    // Pass 7 — a tuple that is only taken apart:
+    //     let matchValue = (d.TryGetValue(k, &outArg), outArg) in … matchValue.Item1 … matchValue.Item2 …
+    // is `match d.TryGetValue k with | true, v -> … | _ -> …`.  Nobody needs the tuple: each element becomes a binding of
+    // its own, and an element that is a variable nobody assigns afterwards is read in place — so `outArg`, which holds
+    // null after a miss, is only read in the arm that has it (a null cannot be stored in a tuple of non-null references,
+    // and the allocation is saved too).
+    // ─────────────────────────────────────────────────────────────────
+
+    let private assignedNames (e: Expr) : Set<string> =
+        let names = HashSet<string>()
+        e
+        |> visitFromInsideOut (fun x ->
+            (match x with
+             | Expr.Set(IdentExpr i, _, _, _, _) -> names.Add i.Name |> ignore
+             | _ -> ())
+            x)
+        |> ignore
+        Set.ofSeq names
+
+    let rec private scalarTuples (e: Expr) : Expr =
+        match e with
+        | Let(tup, Value(NewTuple(elems, _), _), body) when not tup.IsMutable ->
+            let isElementGet (x: Expr) = match x with Get(IdentExpr i, TupleIndex _, _, _) -> i.Name = tup.Name | _ -> false
+            let gets = ref 0
+            body |> visitFromInsideOut (fun x -> (if isElementGet x then gets.Value <- gets.Value + 1); x) |> ignore
+            if countRefs tup.Name body <> gets.Value then visit scalarTuples e   // the tuple itself is used: keep it
+            else
+                let assigned = assignedNames body
+                // (element, the name it is read by, whether it needs a binding of its own)
+                let slots =
+                    elems
+                    |> List.mapi (fun k el ->
+                        match el with
+                        | IdentExpr x when not (assigned.Contains x.Name) -> x, None
+                        | _ ->
+                            let id = { tup with Name = sprintf "%s$%d" tup.Name k; Type = el.Type }
+                            id, Some el)
+                let read (x: Expr) =
+                    match x with
+                    | Get(IdentExpr i, TupleIndex k, _, _) when i.Name = tup.Name && k < slots.Length -> IdentExpr(fst slots.[k])
+                    | _ -> x
+                let body' = body |> visitFromInsideOut read |> scalarTuples
+                List.foldBack (fun (id, bound) acc -> match bound with Some el -> Let(id, scalarTuples el, acc) | None -> acc) slots body'
+        | _ -> visit scalarTuples e
+
+    // ─────────────────────────────────────────────────────────────────
     // Entry points
     // ─────────────────────────────────────────────────────────────────
 
@@ -342,6 +410,7 @@ module FableNormalize =
         |> uniq namer Map.empty
         |> visitFromInsideOut beta
         |> inlinePure
+        |> unalias
 
     /// Apply `f paramNames body` to every function body of a declaration.
     let rec private mapBodies (f: string list -> Expr -> Expr) (decl: Declaration) : Declaration =
@@ -361,7 +430,9 @@ module FableNormalize =
 
     /// Runs AFTER Fable's uncurrying (the calls have their final shape then): single-use stream intermediates move
     /// into the call that consumes them, which is what exposes a pipeline to the fusion.
-    let finishDeclaration (decl: Declaration) : Declaration = mapBodies (fun _ -> inlineStreams >> foreachLoops) decl
+    /// Tuples that are only taken apart go away here too: `d.TryGetValue(k, &v)` becomes the tuple `(found, v)` only in
+    /// Fable's own transforms.
+    let finishDeclaration (decl: Declaration) : Declaration = mapBodies (fun _ -> inlineStreams >> foreachLoops >> scalarTuples) decl
 
     /// Is the mutable local `name` both assigned and used inside a closure within `body`?  Such a variable cannot live in
     /// a wasm local (the closure would capture a copy): F# gives it a shared cell, so does the backend.

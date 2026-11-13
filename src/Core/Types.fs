@@ -414,18 +414,39 @@ let isRefCellEntity (fullName: string) =
     || fullName.StartsWith("Microsoft.FSharp.Core.outref`", System.StringComparison.Ordinal)
     || fullName.StartsWith("Microsoft.FSharp.Core.inref`", System.StringComparison.Ordinal)
 
-/// Get or create the mutable 1-field box struct type for FSharpRef<T>.
+/// Get or create the mutable 1-field box struct type for FSharpRef<T>.  A cell of references stores them nullable: a
+/// cell exists before it is assigned (an `out` argument starts as null), so `T` and `T | null` share one cell type and
+/// a read of a non-nullable `T` is a cast (`cellGet`).
 let getOrAddRefCellType (ctx: Ctx) (innerWType: WType) : int =
-    let key = wTypeKey innerWType
+    let stored = match innerWType with WType.Ref(i, _) -> WType.Ref(i, true) | t -> t
+    let key = wTypeKey stored
     match ctx.RefRegistry.TryGetValue(key) with
     | true, idx -> idx
     | false, _ ->
         let idx = ctx.TypeDefs.Count
         ctx.TypeDefs.Add(
             { Name = $"RefCell_{idx}"
-              Def = WTypeDef.Struct([{ Name = "contents"; Type = innerWType; Mutable = true }], None) })
+              Def = WTypeDef.Struct([{ Name = "contents"; Type = stored; Mutable = true }], None) })
         ctx.RefRegistry.[key] <- idx
         idx
+
+/// The struct type of a tuple whose elements have these WTypes: one type per shape, whoever asks first registers it.
+let getOrAddTupleType (ctx: Ctx) (wTypes: WType list) : int =
+    let key = wTypesKey wTypes
+    match ctx.TupleRegistry.TryGetValue key with
+    | true, idx -> idx
+    | false, _ ->
+        let idx = ctx.TypeDefs.Count
+        let fields = wTypes |> List.mapi (fun i ft -> { Name = $"Item{i + 1}"; Type = ft; Mutable = false })
+        ctx.TypeDefs.Add({ Name = $"Tuple_{idx}"; Def = WTypeDef.Struct(fields, None) })
+        ctx.TupleRegistry.[key] <- idx
+        idx
+
+/// The contents of a ref cell of `inner`.
+let cellGet (cell: WExpr) (inner: WType) : WExpr =
+    match inner with
+    | WType.Ref(i, false) -> WExpr.Cast(WExpr.StructGet(cell, 0, WType.Ref(i, true)), inner)
+    | _ -> WExpr.StructGet(cell, 0, inner)
 
 /// Get or create a mutable GC array type for the given element WType.
 let getOrAddArrayType (ctx: Ctx) (elemType: WType) : int =
@@ -529,7 +550,8 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
         | Some wty -> wty
         | None -> WType.I32  // unresolved — not inside a specialized body
     | Fable.Type.DeclaredType(entRef, genericArgs) when isRefCellEntity entRef.FullName ->
-        let innerT = match genericArgs with | [t] -> mapTypeKnown ctx t | _ -> WType.I32
+        // `FSharpRef<T>`, `inref<T>`, `outref<T>` hold T; `byref<T, kind>` has the access kind as a second argument
+        let innerT = match genericArgs with | t :: _ -> mapTypeKnown ctx t | [] -> WType.I32
         WType.Ref(getOrAddRefCellType ctx innerT, false)
     // KeyValuePair<'K,'V> is a pair, like in Fable (`kv.Key` / `kv.Value` read the items; the constructor makes the tuple)
     | Fable.Type.DeclaredType(entRef, [ k; v ]) when entRef.FullName = "System.Collections.Generic.KeyValuePair`2" ->
@@ -575,20 +597,7 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     // an anonymous record is a tuple of its fields (F# keeps them sorted by name, so the order is canonical)
     | Fable.Type.AnonymousRecordType(_, fieldTypes, isStruct) -> mapTypeKnown ctx (Fable.Type.Tuple(fieldTypes, isStruct))
     | Fable.Type.Tuple(elementTypes, _) ->
-        let wTypes = elementTypes |> List.map (mapTypeKnown ctx)
-        let key = wTypesKey wTypes
-        match ctx.TupleRegistry.TryGetValue(key) with
-        | true, idx -> WType.Ref(idx, false)
-        | false, _ ->
-            let typeIdx = ctx.TypeDefs.Count
-            let fields =
-                wTypes |> List.mapi (fun i ft ->
-                    { Name = $"Item{i + 1}"; Type = ft; Mutable = false })
-            ctx.TypeDefs.Add(
-                { Name = $"Tuple_{typeIdx}"
-                  Def = WTypeDef.Struct(fields, None) })
-            ctx.TupleRegistry.[key] <- typeIdx
-            WType.Ref(typeIdx, false)
+        WType.Ref(getOrAddTupleType ctx (elementTypes |> List.map (mapTypeKnown ctx)), false)
     | Fable.Type.Option(innerType, _) ->
         let innerWType = mapTypeKnown ctx innerType
         match innerWType with

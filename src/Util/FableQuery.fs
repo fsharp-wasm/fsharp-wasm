@@ -35,18 +35,48 @@ let private etaExpand (arity: int) (f: Expr) : (Ident list * Expr) option =
         let rec resultOf (t: Type) n = if n = 0 then t else (match t with LambdaType(_, r) -> resultOf r (n - 1) | DelegateType(_, r) -> r | _ -> t)
         idents, CurriedApply(f, idents |> List.map IdentExpr, resultOf f.Type arity, None))
 
-/// Single-arg lambda or single-element delegate (or a function value, eta-expanded).
-let (|UnaryLambda|_|) = function
-    | Lambda(arg, body, _)
-    | Delegate([arg], body, _, _)                    -> Some(arg, body)
-    | f -> etaExpand 1 f |> Option.map (fun (ids, body) -> ids.[0], body)
+/// A constant, an immutable identifier or a plain field of one: evaluated again inside a lambda it gives the same value at no cost.
+let rec private isAtomicValue (e: Expr) : bool =
+    match e with
+    // a field of an atom that is neither mutable nor computed (`n.Variant` of a record)
+    | Get(target, GetKind.FieldGet fi, _, _) -> not fi.CanHaveSideEffects && isAtomicValue target
+    | Value(ValueKind.NumberConstant _, _) | Value(ValueKind.BoolConstant _, _) | Value(ValueKind.StringConstant _, _)
+    | Value(ValueKind.CharConstant _, _) | Value(ValueKind.UnitConstant, _) -> true
+    | IdentExpr i -> not i.IsMutable
+    | _ -> false
 
-/// Curried 2-arg lambda or 2-element delegate (or a function value, eta-expanded).
-let (|BinaryLambda|_|) = function
+/// The lambda inside the `let`s a partial application leaves around it: `(=) 30` is `let x = 30 in fun y -> x = y`.
+/// Atomic bindings move inside the lambda (they evaluate to the same thing every time); anything else stays a value.
+let rec private underAtomicLets (shape: Expr -> (Ident list * Expr) option) (f: Expr) : (Ident list * Expr) option =
+    match f with
+    | Let(x, value, inner) when isAtomicValue value ->
+        underAtomicLets shape inner |> Option.map (fun (args, body) -> args, Let(x, value, body))
+    | _ -> shape f
+
+let private unaryShape (f: Expr) =
+    match f with
+    | Lambda(arg, body, _)
+    | Delegate([arg], body, _, _) -> Some([ arg ], body)
+    | _ -> None
+
+let private binaryShape (f: Expr) =
+    match f with
     | Lambda(a1, Lambda(a2, body, _), _)
     | Delegate([a1; a2], body, _, _)
-    | Lambda(a1, Delegate([a2], body, _, _), _)      -> Some(a1, a2, body)
-    | f -> etaExpand 2 f |> Option.map (fun (ids, body) -> ids.[0], ids.[1], body)
+    | Lambda(a1, Delegate([a2], body, _, _), _) -> Some([ a1; a2 ], body)
+    | _ -> None
+
+/// Single-arg lambda or single-element delegate (or a function value, eta-expanded).
+let (|UnaryLambda|_|) (f: Expr) =
+    match underAtomicLets unaryShape f with
+    | Some([ arg ], body) -> Some(arg, body)
+    | _ -> etaExpand 1 f |> Option.map (fun (ids, body) -> ids.[0], body)
+
+/// Curried 2-arg lambda or 2-element delegate (or a function value, eta-expanded).
+let (|BinaryLambda|_|) (f: Expr) =
+    match underAtomicLets binaryShape f with
+    | Some([ a1; a2 ], body) -> Some(a1, a2, body)
+    | _ -> etaExpand 2 f |> Option.map (fun (ids, body) -> ids.[0], ids.[1], body)
 
 /// Curried 3-arg lambda or 3-element delegate.
 let (|TernaryLambda|_|) = function

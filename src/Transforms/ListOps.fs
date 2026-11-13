@@ -254,11 +254,7 @@ let tryListTakeSkipSortInline
         let yElemT = mapTypeKnown ctx yElemFT
         let tupleFableT = Fable.Type.Tuple([xElemFT; yElemFT], false)
         let tupleWType  = mapTypeKnown ctx tupleFableT
-        let tupleIdx    =
-            let key = wTypesKey [xElemT; yElemT]
-            match ctx.TupleRegistry.TryGetValue(key) with
-            | true, idx -> idx
-            | _ -> failwith "tuple not registered after mapTypeKnown"
+        let tupleIdx    = getOrAddTupleType ctx [xElemT; yElemT]
         let tupleRefT = WType.Ref(tupleIdx, false)
         match tryListTypeInfoFromElemType ctx tupleFableT with
         | None -> None
@@ -464,6 +460,24 @@ let tryListPrimitiveInline
                 return s.Head ptr.Val
             })
         | _ -> None
+    // List.tryItem n xs: Some the n-th element, None when n is negative or past the end
+    | "tryItem", [nExpr; wList] ->
+        match fableArgs with
+        | [ _; listArg ] ->
+            match listInfo ctx listArg with
+            | Some(elemT, consIdx) ->
+                let s = mkListShape elemT consIdx
+                let optT, some, none = optionRepr ctx elemT
+                Some(wasm {
+                    let! cnt = mut nExpr
+                    let! ptr = mutTy s.BaseTy wList
+                    while! (wasmAnd (gtS cnt.Val (i32Const 0)) (refIsNotNull ptr.Val)) do
+                        do! ptr.Set(s.Tail ptr.Val)
+                        do! cnt.Set(sub cnt.Val (i32Const 1))
+                    return! WExpr.If(wasmAnd (eq cnt.Val (i32Const 0)) (refIsNotNull ptr.Val), some (s.Head ptr.Val), none, optT)
+                })
+            | None -> None
+        | _ -> None
     | (("min" | "max") as sel), (wListArg :: _)
         when (match fableArgs with ha :: _ -> (match ha.Type with | Fable.Type.List _ -> true | _ -> false) | _ -> false) ->
         let listFableArg = List.head fableArgs
@@ -520,6 +534,8 @@ let tryListPrimitiveInline
                     return! arrayToListRev gen s arr (arrayLen arr)
                         (fun a i -> arrayGet a i elemT)
                 })
+        // a `seq<'T>` is a list here: ofSeq of one is that list
+        | Fable.Type.DeclaredType(e, [ _ ]) when selector = "ofSeq" && e.FullName = "System.Collections.Generic.IEnumerable`1" -> Some wArr
         | _ -> None
     | "last", [wList] ->
         let innerFableType =

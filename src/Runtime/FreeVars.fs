@@ -37,8 +37,10 @@ let rec collectFreeVars (bound: Set<string>) (expr: Fable.Expr) : Set<string> =
         // `$"…{x}…"` — the interpolated values are real expressions.
         | Fable.ValueKind.StringTemplate(tag, _, values) -> Set.union (goOpt tag) (goAll values)
         | Fable.ValueKind.BaseValue(Some id, _) -> if Set.contains id.Name bound then Set.empty else Set.singleton id.Name
+        // `this` in a constructor body is the local `$this` (the instance under construction): a closure created there
+        // captures it like any other local; where there is no such local it is not a capture (see isCapturable)
+        | Fable.ValueKind.ThisValue _ -> if Set.contains "$this" bound then Set.empty else Set.singleton "$this"
         | Fable.ValueKind.NewList(None, _)
-        | Fable.ValueKind.ThisValue _
         | Fable.ValueKind.BaseValue(None, _)
         | Fable.ValueKind.TypeInfo _
         | Fable.ValueKind.Null _

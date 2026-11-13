@@ -43,12 +43,64 @@ let private preScanGenerics (ctx: Ctx) (decls: Declaration list) : unit =
     decls |> List.iter scan
 
 
+/// The vtable slots of an interface, in declaration order, derived from its abstract members:
+/// (member name, parameter types without self, result type).  None when the declaration alone does not determine them
+/// (a generic interface or generic members, inherited interfaces, overloaded names): the first implementation registers
+/// the interface instead.
+let private interfaceSlots (ctx: Ctx) (ent: Fable.Entity) : (string * WType list * WType) list option =
+    let members =
+        ent.MembersFunctionsAndValues
+        |> Seq.filter (fun m -> m.IsDispatchSlot && not m.IsProperty)
+        |> List.ofSeq
+    let determined =
+        not members.IsEmpty
+        && Seq.isEmpty ent.DeclaredInterfaces
+        && ent.GenericParameters |> List.forall (fun p -> p.IsMeasure)
+        && members |> List.forall (fun m -> m.GenericParameters.IsEmpty)
+        && (members |> List.map (fun m -> m.CompiledName) |> List.distinct).Length = members.Length
+    if not determined then None
+    else
+        members
+        |> List.map (fun m ->
+            let args =
+                m.CurriedParameterGroups
+                |> List.concat
+                |> List.map (fun p -> mapTypeKnown ctx p.Type)
+                |> List.filter (fun t -> t <> WType.Void)
+            m.CompiledName, args, mapResultTypeKnown ctx m.ReturnParameter.Type)
+        |> Some
+
+/// Wire the interfaces a class, record or union implements to its compiled members (see VT.wireImplementation).
+let private wireInterfaces (ctx: Ctx) (classDecl: Fable.ClassDecl) (typeIdx: int) : unit =
+    let members =
+        classDecl.AttachedMembers
+        |> List.choose (fun m ->
+            match m.ImplementedSignatureRef with
+            | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)) ->
+                // the compiled function was qualified: TypeFullName_MethodName
+                let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
+                ctx.Functions
+                |> Seq.tryFindBack (fun f -> f.Name = qualName)
+                |> Option.map (fun func ->
+                    ifaceEntityRef.FullName, ifaceMemberInfo.CompiledName, qualName, List.map snd func.Params, func.Result)
+            | _ -> None)
+    VT.wireImplementation ctx classDecl.Entity.FullName typeIdx members
+
+/// A module-level value whose initialiser is not a scalar literal: it is computed once and kept, not recomputed (a
+/// literal is as cheap to repeat as to read).
+let private isComputedValue (m: MemberDecl) =
+    match m.Body with
+    | Value((UnitConstant | BoolConstant _ | CharConstant _ | StringConstant _ | NumberConstant _ | Null _), _) -> false
+    | _ -> true
+
 /// Process one Fable declaration into the shared ctx (mutates ctx.TypeDefs/Functions).
 /// Returns the updated immutable record (KnownFuncs accumulates across declarations).
 let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
     match decl with
-    // module-level `let mutable x = init`: a wasm global; `init` runs in the start function
-    | MemberDeclaration memberDecl when memberDecl.Args.IsEmpty && ctx.AssignedIdents.Contains memberDecl.Name ->
+    // module-level `let mutable x = init`, and every module-level value that is more than a literal (`let host = Host()`,
+    // `let table = [| … |]`): a wasm global, and `init` runs once, in the start function — as in F#, where a module value
+    // is evaluated at start-up and shared, not recomputed at every reference
+    | MemberDeclaration memberDecl when memberDecl.Args.IsEmpty && (ctx.AssignedIdents.Contains memberDecl.Name || isComputedValue memberDecl) ->
         let func = transformMemberDecl ctx transformExpr memberDecl |> resolveLocals
         let qualified = ctx.FuncNameAlias |> Map.tryFind func.Name |> Option.defaultValue func.Name
         let initName = qualified + "$init"
@@ -57,7 +109,12 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
         ctx.MutableGlobals.[qualified] <- func.Result
         ctx.GlobalDecls.Add { Name = qualified; Type = stored; Init = WasmGc.Builder.Core.makeNumericZero stored; Mutable = true; Exported = false }
         ctx.InitSteps.Add(WExpr.GlobalSet(qualified, WExpr.Call(initName, [], func.Result)))
-        ctx
+        // known like any function of this file — a reference from another file finds it by (file, name) — but as a value
+        let byPath =
+            if qualified <> func.Name then
+                ctx.KnownFuncsByPath |> Map.add (ctx.CurrentFileStem, func.Name) qualified |> Map.add (ctx.CurrentFileStem, qualified) qualified
+            else ctx.KnownFuncsByPath
+        { ctx with KnownFuncs = Map.add qualified ([], func.Result) ctx.KnownFuncs; KnownFuncsByPath = byPath }
     | MemberDeclaration memberDecl ->
         let func = transformMemberDecl ctx transformExpr memberDecl |> resolveLocals
         let shortName = func.Name
@@ -131,37 +188,7 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                             { func with Name = qualName; Exported = false }
                         else func
                     c.Functions.Add(func); c)
-            // ── Vtable wiring for interface implementations ──────────────
-            // Find all members that implement an interface method.
-            let ifaceImpls =
-                classDecl.AttachedMembers
-                |> List.choose (fun m ->
-                    match m.ImplementedSignatureRef with
-                    | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)) ->
-                        // The compiled function was qualified: TypeFullName_MethodName
-                        let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
-                        match ctx''.Functions |> Seq.tryFindBack (fun f -> f.Name = qualName) with
-                        | Some func ->
-                            Some(ifaceEntityRef.FullName, ifaceMemberInfo.CompiledName,
-                                 qualName, func.Params |> List.map snd, func.Result)
-                        | None -> None
-                    | _ -> None)
-            // Group by interface full name.
-            let byIface = ifaceImpls |> List.groupBy (fun (ifaceName, _, _, _, _) -> ifaceName)
-            for (ifaceName, methods) in byIface do
-                // Collect method signatures for interface registration.
-                // We need the non-self param types: skip the first param (concrete self).
-                let methodSigs =
-                    methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
-                        let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
-                        methodName, nonSelfParams, retType)
-                let vtableTypeIdx, boxTypeIdx = VT.getOrRegisterInterface ctx'' ifaceName methodSigs
-                let _, _, funcTypeIndices, _ = ctx''.VTableRegistry.[ifaceName]
-                let methodImpls =
-                    methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
-                        methodName, compiledFunc, compiledParams, retType)
-                VT.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
-                    ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
+            wireInterfaces ctx'' classDecl typeIdx
             ctx''
         elif ent.IsFSharpUnion then
             let cases = ent.UnionCases
@@ -201,37 +228,16 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                         else func
                     c.Functions.Add(func); c)
                 |> (fun ctx3 ->
-                    // ── Vtable wiring for DU interface implementations ──────────
-                    let ifaceImpls =
-                        classDecl.AttachedMembers
-                        |> List.choose (fun m ->
-                            match m.ImplementedSignatureRef with
-                            | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)) ->
-                                let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
-                                match ctx3.Functions |> Seq.tryFindBack (fun f -> f.Name = qualName) with
-                                | Some func ->
-                                    Some(ifaceEntityRef.FullName, ifaceMemberInfo.CompiledName,
-                                         qualName, func.Params |> List.map snd, func.Result)
-                                | None -> None
-                            | _ -> None)
-                    let byIface = ifaceImpls |> List.groupBy (fun (ifaceName, _, _, _, _) -> ifaceName)
-                    for (ifaceName, methods) in byIface do
-                        let methodSigs =
-                            methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
-                                let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
-                                methodName, nonSelfParams, retType)
-                        let vtableTypeIdx, boxTypeIdx = VT.getOrRegisterInterface ctx3 ifaceName methodSigs
-                        let _, _, funcTypeIndices, _ = ctx3.VTableRegistry.[ifaceName]
-                        let methodImpls =
-                            methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) ->
-                                methodName, compiledFunc, compiledParams, retType)
-                        VT.registerVTableImpl ctx3 classDecl.Entity.FullName baseIdx
-                            ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodImpls
+                    wireInterfaces ctx3 classDecl baseIdx
                     ctx3)
         else
             // Regular class, abstract class, or interface declaration.
             // Interface declarations have no fields or implementations to emit.
-            if ent.IsInterface then ctx
+            if ent.IsInterface then
+                // register the vtable at the declaration: a value of the interface type (a parameter, a field) is the box,
+                // and a call dispatches, wherever it comes in the compile order relative to any implementation
+                interfaceSlots ctx ent |> Option.iter (fun slots -> VT.getOrRegisterInterface ctx classDecl.Entity.FullName slots |> ignore)
+                ctx
             else
                 // ── Resolve parent type for struct subtyping ─────────────────────────────
                 // WasmGC requires ALL fields (including inherited) to be declared in the
@@ -306,38 +312,7 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
                                 { func with Name = qualName; Exported = false }
                             else func
                         c.Functions.Add(func); c)
-                // ── Vtable wiring for interface implementations ──────────────
-                let ifaceImpls =
-                    classDecl.AttachedMembers
-                    |> List.choose (fun m ->
-                        match m.ImplementedSignatureRef with
-                        | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)) ->
-                            let qualName = $"{classDecl.Entity.FullName}_{m.Name}"
-                            match ctx''.Functions |> Seq.tryFindBack (fun f -> f.Name = qualName) with
-                            | Some func ->
-                                Some(ifaceEntityRef.FullName, ifaceMemberInfo.CompiledName,
-                                     qualName, func.Params |> List.map snd, func.Result)
-                            | None -> None
-                        | _ -> None)
-                let byIface = ifaceImpls |> List.groupBy (fun (ifaceName, _, _, _, _) -> ifaceName)
-                for (ifaceName, methods) in byIface do
-                    let methodSigs =
-                        methods |> List.map (fun (_, methodName, _, compiledParams, retType) ->
-                            let nonSelfParams = match compiledParams with _ :: rest -> rest | [] -> []
-                            methodName, nonSelfParams, retType)
-                    let vtableTypeIdx, boxTypeIdx = VT.getOrRegisterInterface ctx'' ifaceName methodSigs
-                    let _, _, funcTypeIndices, methodNames = ctx''.VTableRegistry.[ifaceName]
-                    // the vtable has one slot per member of the interface, in the order of its first implementation:
-                    // an implementation must supply exactly those members (any order)
-                    let byName = methods |> List.map (fun (_, methodName, compiledFunc, compiledParams, retType) -> methodName, (methodName, compiledFunc, compiledParams, retType)) |> Map.ofList
-                    let slots = methodNames |> List.map (fun n -> Map.tryFind n byName)
-                    if methods.Length = methodNames.Length && slots |> List.forall Option.isSome then
-                        VT.registerVTableImpl ctx'' classDecl.Entity.FullName typeIdx
-                            ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices (slots |> List.choose id)
-                    else
-                        WasmGc.Core.Diagnostics.unsupported ctx''.Diagnostics
-                            $"'{classDecl.Entity.FullName}' implements {methods.Length} member(s) of '{ifaceName}', which has {methodNames.Length} slot(s)"
-                            "Virtual dispatch needs every member of an abstract class / interface implemented by every implementor (a default member inherited from the base is not supported yet)."
+                wireInterfaces ctx'' classDecl typeIdx
                 ctx''
 
 
@@ -473,7 +448,7 @@ let buildWModule (ctx: Ctx) : WModule =
 /// Compile one Fable file INTO an existing ctx (multi-file accumulation).
 /// Returns the updated ctx (KnownFuncs may grow; TypeDefs/Functions mutated in-place).
 /// The com argument ensures GetEntity lookups use the current file's type-checker.
-/// isLastFile controls whether functions get module-qualified names (library files = false).
+/// isLastFile controls whether functions keep their names (the entry project's files) or get the file name as prefix (every other file).
 let processFileIntoCtx (ctx: Ctx) (com: ICompilerCore) (file: Fable.File) (isLastFile: bool) : Ctx =
     // Interop.fs is a Fable.Core stub that exists only for FCS type resolution.
     // Skip it entirely — our backend must never emit WasmGC code for it.

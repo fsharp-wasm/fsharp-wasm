@@ -50,10 +50,21 @@ let coerceToSeq (ctx: Ctx) (argType: Fable.Type) (w: WExpr) : WExpr =
     let unsupported what =
         WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics
             $"a {what} where a seq<'T> is expected"
-            "A seq is a list here: lists and arrays convert, other collections (ResizeArray, Set, Map, string) do not yet — use `List.ofSeq` / `Set.toList` first."
+            "A seq is a list here: lists, arrays and ResizeArrays convert, other collections (Set, Map, string) do not yet — use `Set.toList` first."
         w
     match argType with
-    | Fable.Type.Array(_, Fable.ArrayKind.ResizeArray) -> unsupported "ResizeArray"
+    // a ResizeArray as a seq: a snapshot of its first Count elements as a list (the way Stack / Queue / HashSet do)
+    | Fable.Type.Array(elemFableT, Fable.ArrayKind.ResizeArray) ->
+        match tryListTypeInfoFromElemType ctx elemFableT with
+        | Some(elemT, consIdx) ->
+            let s = mkListShape elemT consIdx
+            let arrIdx, _ = getOrAddResizeArrayType ctx elemT
+            wasm {
+                let! rav = w
+                let! data = WExpr.Cast(WExpr.StructGet(rav, 0, WType.Ref(arrIdx, true)), WType.Ref(arrIdx, false))
+                return! arrayToListRev (LabelGen "r2s") s data (WExpr.StructGet(rav, 1, WType.I32)) (fun ar i -> arrayGet ar i elemT)
+            }
+        | None -> w
     | Fable.Type.String -> unsupported "string"
     | Fable.Type.DeclaredType(e, _) when e.FullName.StartsWith "Microsoft.FSharp.Collections.FSharpSet" || e.FullName.StartsWith "Microsoft.FSharp.Collections.FSharpMap" ->
         unsupported "Set or Map"
@@ -87,11 +98,11 @@ let private (|ComparerLambda|_|) (e: Fable.Expr) =
 
 /// How elements of type `t` live in a GC array: reference elements are stored nullable (the array is created
 /// with null) and cast back to non-null on read.
-type private ArrayAccess =
+type ArrayAccess =
     { TypeIdx: int; RefT: WType; Default: WExpr
       Read: WExpr -> WExpr -> WExpr; Write: WExpr -> WExpr -> WExpr -> WExpr }
 
-let private arrayAccess (ctx: Ctx) (t: WType) : ArrayAccess =
+let arrayAccess (ctx: Ctx) (t: WType) : ArrayAccess =
     let stored, zero =
         match t with
         | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
@@ -639,11 +650,7 @@ let tryArrayInline
                 let e2T = mapTypeKnown ctx e2FT
                 let tupleFableT = Fable.Type.Tuple([e1FT; e2FT], false)
                 let tupleWType  = mapTypeKnown ctx tupleFableT
-                let tupleIdx =
-                    let key = wTypesKey [e1T; e2T]
-                    match ctx.TupleRegistry.TryGetValue(key) with
-                    | true, idx -> idx
-                    | _ -> failwith "tuple not registered after mapTypeKnown"
+                let tupleIdx = getOrAddTupleType ctx [e1T; e2T]
                 let tupleRefT   = WType.Ref(tupleIdx, false)
                 let rec makeWZero (wt: WType) : WExpr =
                     match wt with
@@ -696,10 +703,7 @@ let tryArrayInline
                     let arrATupleWT = WType.Ref(aArrIdx, false)
                     let arrBTupleWT = WType.Ref(bArrIdx, false)
                     let _ = mapTypeKnown ctx (Fable.Type.Tuple([Fable.Type.Array(ta, Fable.ArrayKind.MutableArray); Fable.Type.Array(tb, Fable.ArrayKind.MutableArray)], false))
-                    let tupleKey = wTypesKey [arrATupleWT; arrBTupleWT]
-                    match ctx.TupleRegistry.TryGetValue(tupleKey) with
-                    | false, _ -> None
-                    | true, resultTupleIdx ->
+                    let resultTupleIdx = getOrAddTupleType ctx [arrATupleWT; arrBTupleWT]
                     let resultTupleRefT = WType.Ref(resultTupleIdx, false)
                     let pairArrIdx = getOrAddArrayType ctx pairT
                     let pairArrRefT = WType.Ref(pairArrIdx, false)
