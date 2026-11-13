@@ -108,7 +108,6 @@
     <!-- Pipeline -->
     <!-- <Compile Include="Pipeline/MultiProject.fs" /> -->
 
-    <Compile Include="Pipeline/TypeResolver.fs" />
     <Compile Include="Pipeline/ScopeAnalyzer.fs" />
     <Compile Include="Pipeline/Normalizer.fs" />
     <Compile Include="Pipeline/Lower.fs" />

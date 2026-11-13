@@ -2,7 +2,7 @@
 ///
 ///   Phase 0   Input + optional FableAstDump
 ///   Phase 1   ScopeAnalyzer  → ScopeMap per function
-///   Phase 2   TypeResolver   (on-demand via mapTypeKnown, no separate step)
+///   Phase 2   type mapping   (on-demand via mapTypeKnown, no separate step)
 ///   Phase 3   Fable → raw WExpr
 ///   Phase 4   Normalizer     → flat, Nop-free WExpr
 ///   Phase 4b  Lower          → ClosureApply/SwitchInt → Let+CallRef/BrTable (LIR)
@@ -167,8 +167,7 @@ let phase1_ScopeAnalysis
 // No separate orchestration step required — the Ctx.TypeDefs ResizeArray
 // accumulates registrations in place.
 //
-// The TypeResolver module (src/Pipeline/TypeResolver.fs) exposes the
-// type-registration helpers (getOrAddArrayType etc.) for use in Phase 3.
+// The type-registration helpers (getOrAddArrayType etc.) are in Core/Types.fs.
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 3 — Fable → (raw) WExpr Transform
