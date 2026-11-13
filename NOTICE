@@ -1,0 +1,11 @@
+fsharp-wasm
+Copyright 2025-2026 The fsharp-wasm contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).  Versions of this repository before the change of licence were
+published under the MIT License, Copyright (c) 2025-2026 Fable WasmGC Backend Contributors.
+
+The backend is built on two forks that keep their MIT License; they are submodules, not part of this work:
+  vendor/Fable    the Fable front end (Fable.Compiler, Fable.AST, Fable.Transforms) — MIT, Copyright (c) Alfonso Garcia-Caro and contributors
+  vendor/fsharp   the F# compiler (FSharp.Compiler.Service), patched — MIT, Copyright (c) Microsoft Corporation
+The compiler also ships the F# base library, the submodule core (fsharp-wasm-core, Apache-2.0), and uses wasm-tools
+(Bytecode Alliance, Apache-2.0) to validate its output at test time.

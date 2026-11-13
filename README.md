@@ -2,7 +2,7 @@
 
 **Compile F# to WebAssembly GC — natively, without JavaScript.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml/badge.svg)](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![WasmGC](https://img.shields.io/badge/WebAssembly-GC-654FF0)](https://github.com/nickhutchinson/nickhutchinson.github.io/blob/master/nickhutchinson.github.io/nickhutchinson.github.io)
@@ -256,7 +256,7 @@ Sponsorship funds go directly toward:
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2025–2026 Fable WasmGC Backend Contributors
+[Apache License 2.0](LICENSE) — Copyright 2025–2026 The fsharp-wasm contributors; see [NOTICE](NOTICE). The two forks it is built on, Fable and the F# compiler, keep their MIT License.
 
 ## Acknowledgments
 
