@@ -18,7 +18,7 @@
     <RootNamespace>WasmGc</RootNamespace>
     <Authors>fsharp-wasm contributors</Authors>
     <Description>WasmGC backend for the Fable F# compiler.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/fsharp-wasm/fsharp-wasm</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/fsharp-wasm/fsharp-wasm</RepositoryUrl>
