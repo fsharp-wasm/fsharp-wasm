@@ -75,7 +75,7 @@ Each of these was silently wrong or produced an invalid module; none showed in s
 | module value of ANOTHER file read as a value (`let nil = El 0`, then `Element.nil`) | `ref.func` | a call |
 | `List.choose` / `Array.choose` with a chooser returning an option of a reference type | `struct.get 0` on the reference | `unwrapSome` (non-null reference = its own `Some`) |
 | generic instance member called from another file (`builder.For(xs, f)`) | specialised copy called without its receiver | `ThisArg` is the first argument |
-| project outside the repository | `fable-library-wasmgc` not found → core files treated as program files | searched from the CLI too; `FSHARP_WASM_LIBRARY` overrides |
+| project outside the repository | `FSharp.Wasm.Core` not found → core files treated as program files | searched from the CLI too; `FSHARP_WASM_LIBRARY` overrides |
 | every public function of every file was a wasm export, every declared extern an import | a 47 KB module for a counter; a library's functions collide (`BUG-05`) | only the ENTRY project's functions are exports; an extern is imported only if a surviving function calls it (11 KB → 19 KB with all the code that now compiles, vs 47 KB before) |
 | `seq<'T>` parameters (found by the runtime's HTML builder `For`) | the type was `i32`: a function taking `seq` was uncallable | `seq<'T>` maps to the list type; an array passed where the signature (or a cast) says `seq` is copied into a list (`coerceToSeq`) |
 | `[<Import("f", "x.js")>] let f (s: string) (cb: string -> unit) : string = nativeOnly` | strings and closures are GC objects JS cannot touch | host interop ABI, see `docs/host-interop.md`; a closure's table slot is released when the host's JS function is garbage collected (`__cbFree`), so re-registering handlers on every render does not leak |
@@ -89,7 +89,7 @@ Still open from that work:
 | host callbacks | only `int`/`bool`/`float`/`string`/`string array` cross the boundary (no `int64`, records) |
 | `printfn` in the browser | the host reads the string through the `__str_len` / `__str_at` exports (one call per character) |
 
-## Portable collections (`fable-library-wasmgc/System.Collections.Generic.fs`, M2)
+## Portable collections (`FSharp.Wasm.Core/Collections/System.Collections.Generic.fs`, M2)
 
 `Stack<'T>`, `Queue<'T>`, `Dictionary<'K,'V>` and `HashSet<'T>` are plain F# — arrays, counters, `=` and `hash` — that the
 compiler instantiates once per type-argument list, like a generic function. A type defined in source in a `System.*`

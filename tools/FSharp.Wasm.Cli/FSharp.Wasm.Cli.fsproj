@@ -46,10 +46,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The library the compiled programs import (found next to the binary by Program.findFableLibWasmGc). -->
-    <Content Include="../../fable-library-wasmgc/**/*.fs;../../fable-library-wasmgc/**/*.fsproj"
-             Exclude="../../fable-library-wasmgc/**/bin/**;../../fable-library-wasmgc/**/obj/**"
-             Link="fable-library-wasmgc/%(RecursiveDir)%(Filename)%(Extension)"
+    <!-- The library the compiled programs import (found next to the binary by Program.findCoreLibrary). -->
+    <Content Include="../../core/FSharp.Wasm.Core/**/*.fs;../../core/FSharp.Wasm.Core/**/*.fsproj;../../core/FSharp.Wasm.Core/**/*.props"
+             Exclude="../../core/FSharp.Wasm.Core/**/bin/**;../../core/FSharp.Wasm.Core/**/obj/**"
+             Link="core/FSharp.Wasm.Core/%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 

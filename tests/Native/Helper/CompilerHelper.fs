@@ -1,6 +1,6 @@
 /// FCS parse+check helper and MockCompiler for in-memory tests.
 /// MockCompiler implements Fable.Compiler (full interface) but uses
-/// fable-library-wasmgc as LibraryDir — NOT vendor Fable.Core.
+/// FSharp.Wasm.Core as LibraryDir — NOT vendor Fable.Core.
 module TestNative.Helper.CompilerHelper
 
 open System
@@ -59,8 +59,8 @@ type MockCompiler (fcsDeclarations: FSharp.Compiler.Symbols.FSharpImplementation
     // Our own library, not vendor Fable.Core
     let libDir =
         let candidates = [
-            Path.Combine(__SOURCE_DIRECTORY__, "../../../fable-library-wasmgc")
-            Path.Combine(__SOURCE_DIRECTORY__, "../../../../fable-library-wasmgc")
+            Path.Combine(__SOURCE_DIRECTORY__, "../../../core/FSharp.Wasm.Core")
+            Path.Combine(__SOURCE_DIRECTORY__, "../../../../core/FSharp.Wasm.Core")
         ]
         candidates |> List.tryFind Directory.Exists |> Option.defaultValue "."
 

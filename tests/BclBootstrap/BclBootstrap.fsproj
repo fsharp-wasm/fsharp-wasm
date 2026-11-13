@@ -6,17 +6,14 @@
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
     <NoWarn>$(NoWarn);NU1900;NETSDK1188</NoWarn>
-    <!-- a checkout of fsharp-wasm-core: next to this repository, or FSHARP_WASM_CORE_DIR -->
-    <WasmCoreDir>$(FSHARP_WASM_CORE_DIR)</WasmCoreDir>
-    <WasmCoreDir Condition="'$(WasmCoreDir)' == ''">$(MSBuildThisFileDirectory)../../../fsharp-wasm-core</WasmCoreDir>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Fable.Core stubs (Import attribute, nativeOnly) -->
-    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
     <!-- BCL bootstrap: Exception hierarchy + Math -->
-    <Compile Include="$(WasmCoreDir)/FSharp.Wasm.Core/Exception.fs" />
-    <Compile Include="$(WasmCoreDir)/FSharp.Wasm.Core/Math.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Exception.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Math.fs" />
     <!-- Test driver -->
     <Compile Include="BclBootstrapTests.fs" />
   </ItemGroup>

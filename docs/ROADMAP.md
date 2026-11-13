@@ -124,7 +124,7 @@ Eventually, F# standard library modules will be compiled through fsharp-wasm its
 rather than hand-written as inline replacements:
 
 ```
-fable-library-wasmgc/
+core/FSharp.Wasm.Core/        (repository fsharp-wasm-core)
     Option.fs       ← compiled by our own backend
     List.fs
     Array.fs

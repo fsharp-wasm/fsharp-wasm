@@ -1,11 +1,12 @@
 name: Init submodules
 description: >-
-  Initialises the two build-time submodules, vendor/Fable (the Fable fork the backend is built on) and vendor/fsharp
-  (the patched F# compiler).  The sibling repositories (fsharp-wasm-core, -runtime, -graphics, fsharp-glyph-aura,
-  fsharp-wasmecto) are not submodules: they are separate products with their own releases.
+  Initialises the build-time submodules: vendor/Fable (the Fable fork the backend is built on), vendor/fsharp (the patched
+  F# compiler) and core (fsharp-wasm-core, the F# base library the CLI ships beside its binary).  The other sibling
+  repositories (-runtime, -graphics, fsharp-glyph-aura, fsharp-wasmecto) are not submodules: they are separate products
+  with their own releases, and take the compiler — core included — from a release of this repository.
 
 runs:
   using: composite
   steps:
     - shell: bash
-      run: git submodule update --init --depth 1 vendor/Fable vendor/fsharp
+      run: git submodule update --init --depth 1 vendor/Fable vendor/fsharp core

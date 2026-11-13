@@ -89,7 +89,7 @@ dotnet fable hello.fsproj --lang wasmgc
 ### 0. Or just use a release
 
 Every tagged release carries the compiler as a self-contained binary — `fsharp-wasm-<rid>.tar.gz` (Linux, macOS) or `.zip`
-(Windows) — with `fable-library-wasmgc/` next to it, plus the NuGet packages. Unpack it, put a .NET SDK on the `PATH`
+(Windows) — with `core/FSharp.Wasm.Core/` (the F# base library) next to it, plus the NuGet packages. Unpack it, put a .NET SDK on the `PATH`
 (the CLI cracks projects through `dotnet`), and run `fsharp-wasm <project> --outDir <dir>`. Other repositories
 (`fsharp-wasm-runtime`, …) fetch the compiler from here this way; none of them is a submodule of this repository.
 
@@ -98,13 +98,15 @@ Every tagged release carries the compiler as a self-contained binary — `fsharp
 ```bash
 git clone https://github.com/fsharp-wasm/fsharp-wasm.git
 cd fsharp-wasm
-git submodule update --init --depth 1 vendor/Fable vendor/fsharp
+git submodule update --init --depth 1 vendor/Fable vendor/fsharp core
 ```
 
-`vendor/Fable` (the Fable fork the backend is built on) and `vendor/fsharp` (the patched F# compiler) are the only
-submodules: build-time dependencies, not products. The sibling repositories are separate; the two test suites that
-compile their sources (`bclbootstrap` → `fsharp-wasm-core`, `wasmecto` → `fsharp-wasmecto`) look for a checkout next to
-this repository (or `FSHARP_WASM_CORE_DIR` / `FSHARP_WASMECTO_DIR`) and are skipped without one.
+`vendor/Fable` (the Fable fork the backend is built on), `vendor/fsharp` (the patched F# compiler) and `core`
+([fsharp-wasm-core](https://github.com/fsharp-wasm/fsharp-wasm-core), the F# base library the compiler ships beside its
+binary and every program is compiled with) are the only submodules: build-time dependencies, not products. The other
+sibling repositories are separate; the test suite that compiles the sources of `fsharp-wasmecto` looks for a checkout
+next to this repository (or `FSHARP_WASMECTO_DIR`) and is skipped without one. `FSHARP_WASM_CORE_DIR` points the compiler
+at another checkout of fsharp-wasm-core.
 
 ### 2. Build
 
@@ -207,7 +209,7 @@ src/
 ├── Transforms/                   # Fable AST → WasmGC IR translation
 └── Emit/                         # WAT emitter, binary encoder, optimizer
 
-fable-library-wasmgc/             # Minimal F# standard library for WasmGC
+core/                            # submodule: fsharp-wasm-core — FSharp.Wasm.Core, the F# base library
 tests/                            # QuickTest (353) + Showcase (26) suites
 examples/                         # Component model demos
 docs/                             # Documentation

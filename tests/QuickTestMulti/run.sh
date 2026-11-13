@@ -40,9 +40,9 @@ gen_domain_fsproj() {
     <LangVersion>preview</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="$ROOT/fable-library-wasmgc/Core/Interop.fs" />
-    <Compile Include="$ROOT/fable-library-wasmgc/Collections/Map.fs" />
-    <Compile Include="$ROOT/fable-library-wasmgc/Collections/Set.fs" />
+    <Compile Include="$ROOT/core/FSharp.Wasm.Core/Interop.fs" />
+    <Compile Include="$ROOT/core/FSharp.Wasm.Core/Collections/Map.fs" />
+    <Compile Include="$ROOT/core/FSharp.Wasm.Core/Collections/Set.fs" />
     <Compile Include="$SCRIPT_DIR/Preamble.fs" />
     <Compile Include="$SCRIPT_DIR/Tests${d}.fs" />
     <!-- Compile Include="$SCRIPT_DIR/Runner.fs" / -->

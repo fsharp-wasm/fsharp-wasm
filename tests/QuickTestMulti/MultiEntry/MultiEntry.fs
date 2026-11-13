@@ -2,7 +2,7 @@
 /// These functions are exported automatically and can be called from JS/Node.
 module QuickTestWasmGc.MultiEntry
 
-// Fable.Core stubs (Import attribute, nativeOnly) are in fable-library-wasmgc/Interop.fs.
+// Fable.Core stubs (Import attribute, nativeOnly) are in FSharp.Wasm.Core/Interop.fs.
 // No NuGet reference needed — we define what we use ourselves.
 open Fable.Core
 
@@ -1260,8 +1260,8 @@ let testConst2FloatInt () : int =
     if const2 2.5 42 > 2.0 then 1 else 0
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sprint 9: fable-library-wasmgc/Map.fs — F# library compiled by our backend
-// Tests call MapModule directly (src/fable-library-wasmgc/Map.fs).
+// Sprint 9: FSharp.Wasm.Core/Collections/Map.fs — F# library compiled by our backend
+// Tests call MapModule directly (src/FSharp.Wasm.Core/Collections/Map.fs).
 // The library is a REAL F# source file, not compiler-internal WasmIR.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1299,7 +1299,7 @@ let testMapAddReplace () : int =
     MapModule.tryFind 1 m |> Option.defaultValue 0
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sprint 10b: fable-library-wasmgc/Option.fs — BCL migration
+// Sprint 10b: FSharp.Wasm.Core/Option.fs — BCL migration
 // Phase A: call OptionModule.* directly (via KnownFuncsByPath dispatch).
 // The old tryOptionInline handlers remain active for FSharp.Core `Option.*` calls.
 // These tests prove the compiled F# Option.fs functions produce identical results.

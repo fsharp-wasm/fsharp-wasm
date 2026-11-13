@@ -40,7 +40,7 @@ let testMapAddReplace () : int =
     MapModule.tryFind 1 m |> Option.defaultValue 0
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sprint 10b: fable-library-wasmgc/Option.fs — BCL migration
+// Sprint 10b: FSharp.Wasm.Core/Option.fs — BCL migration
 // Phase A: call OptionModule.* directly (via KnownFuncsByPath dispatch).
 // The old tryOptionInline handlers remain active for FSharp.Core `Option.*` calls.
 // These tests prove the compiled F# Option.fs functions produce identical results.

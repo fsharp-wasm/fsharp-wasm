@@ -11,7 +11,7 @@ component-linking/
 │   ├── MathCore.fs
 │   └── run.sh
 ├── App/               ← imports MathCore; builds higher-level functions
-│   ├── App.fsproj     (includes fable-library-wasmgc/Interop.fs)
+│   ├── App.fsproj     (includes core/FSharp.Wasm.Core/Interop.fs)
 │   ├── App.fs
 │   └── run.sh
 ├── test-runner.mjs    ← instantiates both modules, wires imports, checks results

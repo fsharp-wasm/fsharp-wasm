@@ -24,7 +24,7 @@ component-embed/
 │   ├── MathCore.fsproj
 │   └── run.sh
 ├── App/                 ← imports MathCore; adds array/string showcase
-│   ├── App.fs           (includes fable-library-wasmgc/Interop.fs)
+│   ├── App.fs           (includes core/FSharp.Wasm.Core/Interop.fs)
 │   ├── App.fsproj
 │   └── run.sh
 ├── test-runner.mjs      ← wires modules, runs 37+ checks

@@ -10,9 +10,9 @@
     <LangVersion>preview</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../../fable-library-wasmgc/Core/Interop.fs" />
-    <Compile Include="../../../fable-library-wasmgc/Collections/Map.fs" />
-    <Compile Include="../../../fable-library-wasmgc/Collections/Set.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/Map.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/Set.fs" />
     <Compile Include="../Preamble.fs" />
     <Compile Include='../TestsArray.fs' />
     <Compile Include='../TestsBitwise.fs' />

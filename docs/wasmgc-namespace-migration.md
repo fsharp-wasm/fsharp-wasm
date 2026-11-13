@@ -51,4 +51,4 @@ Examples
 
 - Folder layout: consider moving `src/` to `compiler/wasmgc/` and introducing `libs/`, `runtime/`, `graphics/` roots for clarity.
 - Packaging: decide whether `AssemblyName`/`PackageId` for `Fable.WasmGc` should be renamed (e.g., `WasmGc` or `FSharp.Wasm.WasmGc`). Keeping as-is avoids consumer breakage for now.
-- `fable-library-wasmgc`: decide if it becomes `FSharp.Wasm.Bcl` (alternative BCL for WasmGC) or remains a separate WASM-specific library. If it turns into a BCL, we will need to define the minimal `System.*` surface we support.
+- The F# base library (formerly `fable-library-wasmgc`) is now `FSharp.Wasm.Core` in its own repository, fsharp-wasm-core, consumed here as the `core` submodule. Whether it grows into a full alternative BCL (and with which `System.*` surface) is still open.

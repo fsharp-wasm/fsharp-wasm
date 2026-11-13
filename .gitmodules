@@ -6,3 +6,6 @@
 	path = vendor/fsharp
 	url = ../fsharp
 	branch = features/ce-desugar
+[submodule "core"]
+	path = core
+	url = ../fsharp-wasm-core

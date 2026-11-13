@@ -13,7 +13,7 @@
       WasmGC Showcase — real-world F# demonstrating compiler capabilities.
       Compiled by the Fable WasmGC backend to a single .wasm binary.
     -->
-    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
     <Compile Include="Showcase.fs" />
   </ItemGroup>
 

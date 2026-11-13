@@ -11,6 +11,13 @@
     <NoWarn>$(NoWarn);NU1900</NoWarn>
   </PropertyGroup>
 
+  <!-- FSharp.Wasm.Core, the F# base library programs are compiled with: the `core` submodule (repository fsharp-wasm-core).
+       FSHARP_WASM_CORE_DIR points at another checkout of it. -->
+  <PropertyGroup>
+    <FSharpWasmCoreDir Condition="'$(FSharpWasmCoreDir)' == '' and '$(FSHARP_WASM_CORE_DIR)' != ''">$(FSHARP_WASM_CORE_DIR)/FSharp.Wasm.Core</FSharpWasmCoreDir>
+    <FSharpWasmCoreDir Condition="'$(FSharpWasmCoreDir)' == ''">$(MSBuildThisFileDirectory)core/FSharp.Wasm.Core</FSharpWasmCoreDir>
+  </PropertyGroup>
+
   <PropertyGroup>
     <FableCoreOnly>true</FableCoreOnly>
     <DefineConstants>$(DefineConstants);FABLE_CORE_ONLY</DefineConstants>

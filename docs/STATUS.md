@@ -149,7 +149,7 @@
 | Typed exception throws      | Medium    | Basic try/with works; typed `exn` not fully integrated |
 | Async / JSPI                | Medium    | Needs JSPI (Node.js 22+, Chrome 123+)                  |
 | SRTPs / generic comparison  | Medium    | Needed for generic Map/Set                             |
-| Full `fable-library-wasmgc` | Long-term | Compile F# BCL through own backend                     |
+| Full `FSharp.Wasm.Core` | Long-term | Compile F# BCL through own backend                     |
 
 ## Source File Sizes
 

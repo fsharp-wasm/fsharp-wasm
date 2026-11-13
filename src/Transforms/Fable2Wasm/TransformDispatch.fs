@@ -274,13 +274,12 @@ let private stringifyItems (ctx: Ctx) (itemsType: Fable.Type) (items: WExpr) : W
     | _ -> items
 
 /// Does an import path point into the core library?  The path is relative to the importing file ("./Set.fs" inside the
-/// library, "../fable-library-wasmgc/Set.fs" from the program), so it is resolved first.
+/// library, "../core/FSharp.Wasm.Core/Collections/Set.fs" from the program), so it is resolved first.
 let private isCoreLibraryPath (ctx: Ctx) (path: string) : bool =
     let resolved =
         try System.IO.Path.GetFullPath(System.IO.Path.Combine(System.IO.Path.GetDirectoryName ctx.Compiler.CurrentFile, path))
         with _ -> path
-    let lower = resolved.ToLowerInvariant()
-    lower.Contains "fable-library" || lower.Contains "fable_modules"
+    isCoreLibraryFile ctx.Compiler resolved
 
 /// Behandelt String, Math und Import Calls
 let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: ImportInfo) (info: CallInfo) (typ: Type) (wArgs: WExpr list) : WExpr =
@@ -731,7 +730,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         | Some specialised -> specialised
         | None ->
         // Use the import path to find the module-qualified function name.
-        // importInfo.Path = e.g. "../fable-library-wasmgc/Map.fs" → stem = "Map"
+        // importInfo.Path = e.g. "../core/FSharp.Wasm.Core/Collections/Map.fs" → stem = "Map"
         let stem = System.IO.Path.GetFileNameWithoutExtension(importInfo.Path)
         let actualName =
             match Map.tryFind (stem, selector) ctx.KnownFuncsByPath with
