@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CORE="${FSHARP_WASM_CORE_DIR:-$ROOT/core}"
 if [ ! -f "$CORE/FSharp.Wasm.Core/Exception.fs" ]; then
-  echo "SKIP: fsharp-wasm-core has no Exception.fs yet (init the core submodule, or set FSHARP_WASM_CORE_DIR to a checkout that has it)"
+  echo "SKIP: no Exception.fs in the core library (init the core submodule, or set FSHARP_WASM_CORE_DIR to a checkout of fsharp-wasm-core)"
   exit 77
 fi
 export FSHARP_WASM_CORE_DIR="$CORE"

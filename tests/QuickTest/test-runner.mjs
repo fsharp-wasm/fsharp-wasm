@@ -867,6 +867,7 @@ check("let-bound generic lambda", 1030, exp.testLocalGenericLambda());
 check("StringBuilder.Append(char / int) and ToString", 4 * 100 + 55, exp.testStringBuilderCharAndInt());
 check("out argument of a reference type", 35, exp.testOutArgReference());
 check("module-level value is evaluated once and shared", 340, exp.testModuleValueIsShared());
+check("Stack(seq), TryPop and TryPeek", 320, exp.testStackTryPopAndSeqCtor());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

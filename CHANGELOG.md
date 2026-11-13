@@ -20,8 +20,12 @@ All notable changes to the compiler are documented here (newest first). The sibl
   library directory, is still read).
 
 ### Changed
+- **Licence: Apache-2.0** (it was MIT) — `LICENSE`, `NOTICE` (which names the two forks that keep MIT, `vendor/Fable` and `vendor/fsharp`) and the
+  package metadata. Versions before this change were published under the MIT License.
 - **The F# base library moved to its own repository**, [fsharp-wasm-core](https://github.com/fsharp-wasm/fsharp-wasm-core)
-  (`FSharp.Wasm.Core`, Apache-2.0), and is the `core` submodule here; `fable-library-wasmgc/` is gone. One compile list
+  (`FSharp.Wasm.Core`, Apache-2.0), merged with the System.* library that repository already had (the compiler's `Dictionary` and
+  `Stack` are the ones kept), and is the `core` submodule here; `fable-library-wasmgc/` is gone. `bclbootstrap` runs now: the
+  submodule has the `Exception.fs` and `Math.fs` it compiles. One compile list
   (`FSharp.Wasm.Core.props`) replaces two; one `Interop.fs` replaces three. The compiler recognises library files by the
   library directory it was given, not by a name in the path.
 - Functions of every file that is not the entry project's own are prefixed with the file's name (two modules each with a
