@@ -100,7 +100,7 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) (unsigned: b
                 (i32Const 1)
                 (wasmIf (ltS tmp (i32Const 0)) (i32Const (-1)) (i32Const 0))
         }
-    // Transcendentals: software implementations in fable-library-wasmgc/Math/MathHelpers.fs.
+    // Transcendentals: software implementations in FSharp.Wasm.Core/Math/MathHelpers.fs (repository fsharp-wasm-core).
     // Emitted as plain calls; if MathHelpers.fs is not part of the compiled project the module
     // fails WAT/WASM validation (unknown function) instead of silently computing wrong values.
     | ("exp" | "asin" | "acos" | "atan" | "atan2" | "sinh" | "cosh" | "tanh"), _, WType.F64 ->

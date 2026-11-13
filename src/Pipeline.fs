@@ -136,7 +136,7 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
         let currentFile = com.CurrentFile
         let isLibraryFile =
             Fable.Naming.isInFableModules currentFile
-            || currentFile.Contains("fable-library-wasmgc")
+            || WasmGc.Runtime.Types.isCoreLibraryFile com currentFile
             || System.IO.Path.GetFileName(currentFile) = "Interop.fs"
         // Only the entry project's own files export their functions; a referenced project (a runtime library) does not.
         let isEntryFile =

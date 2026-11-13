@@ -13,7 +13,7 @@
       then builds higher-level wrappers on top.
       This is the second half of the component-linking example.
     -->
-    <Compile Include="../../../fable-library-wasmgc/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
     <Compile Include="App.fs" />
   </ItemGroup>
 

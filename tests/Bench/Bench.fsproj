@@ -10,7 +10,7 @@
     <TieredPGO>true</TieredPGO>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
     <Compile Include="Bench.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

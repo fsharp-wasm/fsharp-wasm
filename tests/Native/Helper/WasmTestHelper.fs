@@ -78,15 +78,15 @@ let mockEntity (fullName: string) =
 
 // ─────────────────────────────────────────────────────────────────
 // NullCompiler — minimal Fable.Compiler stub
-// Uses fable-library-wasmgc, NOT vendor Fable.Core
+// Uses FSharp.Wasm.Core, NOT vendor Fable.Core
 // ─────────────────────────────────────────────────────────────────
 
 type NullCompiler() =
 
-    // LibraryDir → our fable-library-wasmgc, NOT vendor Fable.Core
+    // LibraryDir → our FSharp.Wasm.Core, NOT vendor Fable.Core
     let libDir =
-        [ Path.Combine(__SOURCE_DIRECTORY__, "../../../fable-library-wasmgc")
-          Path.Combine(__SOURCE_DIRECTORY__, "../../../../fable-library-wasmgc") ]
+        [ Path.Combine(__SOURCE_DIRECTORY__, "../../../core/FSharp.Wasm.Core")
+          Path.Combine(__SOURCE_DIRECTORY__, "../../../../core/FSharp.Wasm.Core") ]
         |> List.tryFind Directory.Exists
         |> Option.defaultValue "."
 

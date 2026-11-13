@@ -92,7 +92,7 @@ type CompileResult = Result<CompilationStages, string>
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Stage 2-3: Mock Fable.Compiler for in-memory compilation
-// Uses fable-library-wasmgc (not vendor Fable.Core).
+// Uses FSharp.Wasm.Core (not vendor Fable.Core).
 // ──────────────────────────────────────────────────────────────────────────────
 
 // TODO: Another Mock.Compiler ??? really? 
@@ -102,8 +102,8 @@ type private MockCompiler(fcsDecls: FSharp.Compiler.Symbols.FSharpImplementation
 
     let libDir =
         let candidates = [
-            Path.Combine(__SOURCE_DIRECTORY__, "../../../fable-library-wasmgc")
-            Path.Combine(__SOURCE_DIRECTORY__, "../../../../fable-library-wasmgc")
+            Path.Combine(__SOURCE_DIRECTORY__, "../../../core/FSharp.Wasm.Core")
+            Path.Combine(__SOURCE_DIRECTORY__, "../../../../core/FSharp.Wasm.Core")
         ]
         candidates |> List.tryFind Directory.Exists |> Option.defaultValue "."
 

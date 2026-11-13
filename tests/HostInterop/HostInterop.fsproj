@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <!-- Fable.Core stubs: [<Import>] and nativeOnly -->
-    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
     <Compile Include="HostInterop.fs" />
   </ItemGroup>
 

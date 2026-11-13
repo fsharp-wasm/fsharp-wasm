@@ -2,7 +2,7 @@
 ///
 /// Thin wrapper: cracks the project, runs Fable type-check + our WasmGC backend.
 /// No watch mode, no source maps, no run-process — just compile to .wasm / .wat.
-/// Sets FableLibraryPath to fable-library-wasmgc — NOT vendor Fable.Core.
+/// Sets the library path to FSharp.Wasm.Core (repository fsharp-wasm-core) — NOT vendor Fable.Core.
 ///
 /// Usage:  fsharp-wasm [<path/to/project.fsproj>] [--outDir <dir>] [--verbose] [--silent]
 module FSharp.Wasm.Cli
@@ -59,18 +59,24 @@ let private resolveFsproj projArg =
         | _       -> Error $"Multiple .fsproj in: {path} — specify one"
     else Error $"Path not found: {path}"
 
-/// Locate fable-library-wasmgc: `FSHARP_WASM_LIBRARY`, else upwards from the project directory (a project inside this
-/// repository), else upwards from the CLI itself (a project anywhere else — a runtime library, an app of its own).
-let private findFableLibWasmGc (projDir: string) =
+/// Locate the core library, the directory `FSharp.Wasm.Core`: `FSHARP_WASM_CORE_DIR` (a checkout of fsharp-wasm-core),
+/// else `core/FSharp.Wasm.Core` or `fsharp-wasm-core/FSharp.Wasm.Core` found upwards from the project directory (a project
+/// inside this repository, or next to a checkout), else upwards from the CLI itself (a project anywhere else — a runtime
+/// library, an app of its own — with the library shipped beside the binary).  `FSHARP_WASM_LIBRARY` (the library directory
+/// itself) is the older name of the setting and still read.
+let private findCoreLibrary (projDir: string) =
+    let candidates = [ Path.Combine("core", "FSharp.Wasm.Core"); Path.Combine("fsharp-wasm-core", "FSharp.Wasm.Core") ]
     let rec tryUp dir depth =
         if depth > 8 || String.IsNullOrEmpty dir then None
         else
-            let candidate = Path.Combine(dir, "fable-library-wasmgc")
-            if Directory.Exists candidate then Some candidate
-            else tryUp (Path.GetDirectoryName dir) (depth + 1)
-    match Environment.GetEnvironmentVariable "FSHARP_WASM_LIBRARY" with
-    | null | "" -> tryUp projDir 0 |> Option.orElse (tryUp (AppContext.BaseDirectory.TrimEnd Path.DirectorySeparatorChar) 0)
-    | dir -> Some dir
+            match candidates |> List.map (fun c -> Path.Combine(dir, c)) |> List.tryFind Directory.Exists with
+            | Some found -> Some found
+            | None -> tryUp (Path.GetDirectoryName dir) (depth + 1)
+    let fromEnv name = match Environment.GetEnvironmentVariable name with null | "" -> None | v -> Some v
+    fromEnv "FSHARP_WASM_CORE_DIR" |> Option.map (fun d -> Path.Combine(d, "FSharp.Wasm.Core"))
+    |> Option.orElse (fromEnv "FSHARP_WASM_LIBRARY")
+    |> Option.orElse (tryUp projDir 0)
+    |> Option.orElse (tryUp (AppContext.BaseDirectory.TrimEnd Path.DirectorySeparatorChar) 0)
 
 [<EntryPoint>]
 let main argv =
@@ -96,11 +102,11 @@ let main argv =
     let outDir    = args.OutDir |> Option.map Path.GetFullPath
                     |> Option.defaultWith (fun () -> Path.Combine(projDir, "output"))
 
-    // Use our own fable-library-wasmgc, NOT vendor Fable.Core
-    let fableLib  = findFableLibWasmGc projDir
+    // Use our own core library, NOT vendor Fable.Core
+    let coreLib   = findCoreLibrary projDir
 
-    if fableLib.IsNone && not args.Silent then
-        eprintfn "Warning: fable-library-wasmgc not found — LibraryDir will default to '.'"
+    if coreLib.IsNone && not args.Silent then
+        eprintfn "Warning: FSharp.Wasm.Core not found (set FSHARP_WASM_CORE_DIR, or init the `core` submodule) — LibraryDir will default to '.'"
 
     let cliArgs : CliArgs =
         { ProjectFile        = Fable.Path.normalizeFullPath fsproj
@@ -110,7 +116,7 @@ let main argv =
           Precompile         = false
           PrecompiledLib     = None
           PrintAst           = false
-          FableLibraryPath   = fableLib   // ← our library, not Fable.Core
+          FableLibraryPath   = coreLib    // ← our library, not Fable.Core
           Configuration      = "Release"
           NoRestore          = false
           NoCache            = args.NoCache

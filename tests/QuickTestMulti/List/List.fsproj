@@ -11,7 +11,7 @@
     <AssemblyName>QuickTest.List</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
     <Compile Include="../Preamble.fs" />
     <Compile Include="../TestsList.fs" />
   </ItemGroup>

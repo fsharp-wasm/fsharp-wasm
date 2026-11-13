@@ -23,7 +23,7 @@ jobs:
         with:
           submodules: false
 
-      - name: Init submodules (vendor/Fable, vendor/fsharp)
+      - name: Init submodules (vendor/Fable, vendor/fsharp, core)
         uses: ./.github/actions/init-submodules
 
       - name: Setup .NET

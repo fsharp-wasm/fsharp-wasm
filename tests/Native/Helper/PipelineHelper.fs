@@ -69,7 +69,7 @@ let private runFable (source: string) (extraIncludes: string list) : string * st
 <TargetFramework>net10.0</TargetFramework>
 </PropertyGroup>
 <ItemGroup>
-<Compile Include="{Path.Combine(sourceDir, "../../fable-library-wasmgc/Core/Interop.fs")}" />
+<Compile Include="{Path.Combine(sourceDir, "../../core/FSharp.Wasm.Core/Interop.fs")}" />
 {extraCompiles}
 <Compile Include="{srcFile}" />
 </ItemGroup>

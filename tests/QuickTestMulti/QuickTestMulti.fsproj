@@ -20,9 +20,9 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- BCL source — compiled by our WasmGC backend -->
-    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
-    <Compile Include="../../fable-library-wasmgc/Collections/Map.fs" />
-    <Compile Include="../../fable-library-wasmgc/Collections/Set.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/Map.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/Set.fs" />
     <!-- Shared types, opens, helpers -->
     <Compile Include="Preamble.fs" />
     <!-- Domain test modules (17 suites, 498 tests total) -->

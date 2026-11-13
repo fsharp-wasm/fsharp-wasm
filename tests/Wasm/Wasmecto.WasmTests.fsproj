@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <!-- Minimal Fable.Core stubs for WasmGC compilation -->
-    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
 
     <!-- Use Wasmecto framework sources directly (avoid project-level transitive deps) -->
     <Compile Include="../../../fsharp-wasmecto/src/Types.fs" />

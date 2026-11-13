@@ -390,6 +390,19 @@ let mapResultType (t: Fable.Type) : WType =
     | Fable.Type.Unit -> WType.Void
     | _ -> mapType t
 
+/// Is `path` a source file of the core library (FSharp.Wasm.Core, the directory the compiler was given as its library) or of
+/// a package that was fetched for the program (`fable_modules`)?  Such files are compiled like the program's but are not
+/// its exports, and the program's own functions must not capture their names.
+/// (`LibraryDir` is relative to the directory of the file being compiled, hence the `CurrentFile`.)
+let isCoreLibraryFile (com: ICompilerCore) (path: string) : bool =
+    let full (p: string) = (try System.IO.Path.GetFullPath p with _ -> p).Replace('\\', '/')
+    let libraryDir =
+        if System.String.IsNullOrEmpty com.LibraryDir || com.LibraryDir = "." then ""
+        else full (System.IO.Path.Combine(System.IO.Path.GetDirectoryName com.CurrentFile, com.LibraryDir))
+    let file = full path
+    file.Contains("fable_modules", System.StringComparison.OrdinalIgnoreCase)
+    || (libraryDir <> "" && file.StartsWith(libraryDir.TrimEnd('/') + "/", System.StringComparison.OrdinalIgnoreCase))
+
 /// Full type name for FSharpRef (used to detect ref cell types)
 let [<Literal>] FSharpRefFullName = "Microsoft.FSharp.Core.FSharpRef`1"
 

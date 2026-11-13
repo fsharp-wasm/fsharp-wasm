@@ -6,10 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Dependencies from fable-library-wasmgc -->
-    <Compile Include="../../fable-library-wasmgc/Interop.fs" />
-    <Compile Include="../../fable-library-wasmgc/Map.fs" />
-    <Compile Include="../../fable-library-wasmgc/Set.fs" />
+    <!-- Dependencies from FSharp.Wasm.Core -->
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/Map.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/Set.fs" />
     
     <!-- Preamble: shared helpers -->
     <Compile Include="../Preamble.fs" />

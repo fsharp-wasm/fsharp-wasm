@@ -17,10 +17,10 @@
       Option/Result/Math: inline replacements in WasmGcReplacements.fs (no source needed).
     -->
     <!-- Minimal Fable.Core stubs (Import attribute, nativeOnly) — no NuGet needed. -->
-    <Compile Include="../../fable-library-wasmgc/Core/Interop.fs" />
-    <Compile Include="../../fable-library-wasmgc/Collections/Map.fs" />
-    <Compile Include="../../fable-library-wasmgc/Collections/Set.fs" />
-    <Compile Include="../../fable-library-wasmgc/System.Collections.Generic.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/Map.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/Set.fs" />
+    <Compile Include="$(FSharpWasmCoreDir)/Collections/System.Collections.Generic.fs" />
     <Compile Include="QuickTestWasmGc.fs" />
   </ItemGroup>
 

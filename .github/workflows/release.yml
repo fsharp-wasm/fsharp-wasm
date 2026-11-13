@@ -1,6 +1,6 @@
 name: Release
 
-# Tag vX.Y.Z[-suffix] publishes a release: the compiler CLI as self-contained binaries (with fable-library-wasmgc next to
+# Tag vX.Y.Z[-suffix] publishes a release: the compiler CLI as self-contained binaries (with FSharp.Wasm.Core, the core submodule, next to
 # them — the other repositories fetch the compiler from here instead of embedding it as a submodule) and the NuGet packages.
 # "Run workflow" (workflow_dispatch) runs the same build without publishing anything and keeps the archives as an artifact.
 on:
@@ -25,7 +25,7 @@ jobs:
         with:
           submodules: false
 
-      - name: Init submodules (vendor/Fable, vendor/fsharp)
+      - name: Init submodules (vendor/Fable, vendor/fsharp, core)
         uses: ./.github/actions/init-submodules
 
       - name: Setup .NET
@@ -74,7 +74,7 @@ jobs:
           dotnet pack src/WasmGc.fsproj -c Release -p:Version=${{ steps.version.outputs.value }} -o publish/nuget
           dotnet pack tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj -c Release -p:Version=${{ steps.version.outputs.value }} -o publish/nuget
 
-      - name: Self-contained CLI binaries (with fable-library-wasmgc beside them)
+      - name: Self-contained CLI binaries (with FSharp.Wasm.Core beside them)
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: |

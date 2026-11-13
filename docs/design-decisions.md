@@ -54,7 +54,7 @@ as inline WasmGC IR in `WasmGcReplacements.fs`.
 - Simpler build — no separate library compilation step
 - Faster iteration — BCL functions can be tuned without managing a separate project
 
-**Future:** A proper compiled F# standard library (`fable-library-wasmgc/`) will eventually
+**Future:** A proper compiled F# standard library (`FSharp.Wasm.Core`, repository fsharp-wasm-core) will eventually
 replace inline replacements for complex modules (Map, Set, Seq). Plan documented in ROADMAP.
 
 **The Sprint 8 lesson:** Sprint 8 attempted to build a hardcoded BST as compiler-internal

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Compile fsharp-wasm-core/Exception.fs through our WasmGC backend and run tests.
+# Compile core/FSharp.Wasm.Core/Exception.fs (fsharp-wasm-core) through our WasmGC backend and run tests.
 
 set -x 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-CORE="${FSHARP_WASM_CORE_DIR:-$ROOT/../fsharp-wasm-core}"
+CORE="${FSHARP_WASM_CORE_DIR:-$ROOT/core}"
 if [ ! -f "$CORE/FSharp.Wasm.Core/Exception.fs" ]; then
-  echo "SKIP: no fsharp-wasm-core checkout (clone https://github.com/fsharp-wasm/fsharp-wasm-core next to this repository, or set FSHARP_WASM_CORE_DIR)"
+  echo "SKIP: fsharp-wasm-core has no Exception.fs yet (init the core submodule, or set FSHARP_WASM_CORE_DIR to a checkout that has it)"
   exit 77
 fi
 export FSHARP_WASM_CORE_DIR="$CORE"
