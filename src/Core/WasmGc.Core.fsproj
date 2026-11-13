@@ -23,8 +23,6 @@
     <Compile Include="Traverse.fs" />
     <Compile Include="UniqueNames.fs" />
     <Compile Include="Diagnostics.fs" />
-    <!-- TODO: Interop.fs should go to one of our BCLs -->
-    <!-- <Compile Include="Interop.fs" /> -->
 
     <!-- TODO: -->
     <!-- Types.fs is NOT here — it lives in Fable.WasmGc.fsproj (Fable-dependent) -->

@@ -27,6 +27,8 @@ All notable changes to the compiler are documented here (newest first). The sibl
 - Functions of every file that is not the entry project's own are prefixed with the file's name (two modules each with a
   `bounds` no longer collide).
 - A tuple is typed by the *declared* types of its elements: `("a", None)` and `("b", Some arr)` are one tuple type.
+- Dead duplicates removed: `src/Pipeline/TypeResolver.fs` (a second type mapper with its own `getOrAddRefCellType` and friends that nothing
+  called) and `src/Core/Interop.fs` (a third copy of the Fable.Core stubs, already commented out of its project).
 - String equality is null-aware (a `string option` is a nullable string); one `getOrAddTupleType` replaces five registrations.
 
 ### Fixed
