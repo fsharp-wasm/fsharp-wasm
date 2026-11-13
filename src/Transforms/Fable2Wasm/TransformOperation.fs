@@ -54,9 +54,8 @@ let transformOperation
             let strRef = WType.Ref(StringTypeIdx, false)
             match op with
             | BinaryPlus -> WExpr.Call(ctx.UseHelper("$strConcat"), [wLeft; wRight], strRef)
-            | BinaryEqual -> WExpr.Call(ctx.UseHelper("$strEq"), [wLeft; wRight], WType.I32)
-            | BinaryUnequal ->
-                WExpr.Unary(WUnaryOp.Eqz, WExpr.Call(ctx.UseHelper("$strEq"), [wLeft; wRight], WType.I32), WType.I32)
+            | BinaryEqual -> strEquals ctx wLeft wRight
+            | BinaryUnequal -> WExpr.Unary(WUnaryOp.Eqz, strEquals ctx wLeft wRight, WType.I32)
             // ordinal ordering via $strCompare (<0 / 0 / >0)
             | BinaryLess | BinaryLessOrEqual | BinaryGreater | BinaryGreaterOrEqual ->
                 let cmp = WExpr.Call(ctx.UseHelper("$strCompare"), [wLeft; wRight], WType.I32)
@@ -99,7 +98,7 @@ let transformOperation
         // `=` in generic code (`items.[i] = item` with 'T = string): the operands' Fable type is the parameter, the
         // evaluated value says what it became in this instantiation
         | BinaryEqual | BinaryUnequal when (match exprWType wLeft with WType.Ref(i, _) -> i = StringTypeIdx | _ -> false) ->
-            let eq = WExpr.Call(ctx.UseHelper("$strEq"), [wLeft; wRight], WType.I32)
+            let eq = strEquals ctx wLeft wRight
             if op = BinaryUnequal then WExpr.Unary(WUnaryOp.Eqz, eq, WType.I32) else eq
         | BinaryEqual | BinaryUnequal when structural ->
             let eq = structuralEquals ctx wLeft wRight

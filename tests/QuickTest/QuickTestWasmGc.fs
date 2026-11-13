@@ -2,7 +2,7 @@
 /// These functions are exported automatically and can be called from JS/Node.
 module QuickTest.WasmGc
 
-// Fable.Core stubs (Import attribute, nativeOnly) are in fable-library-wasmgc/Interop.fs.
+// Fable.Core stubs (Import attribute, nativeOnly) are in FSharp.Wasm.Core/Interop.fs.
 // No NuGet reference needed — we define what we use ourselves.
 open Fable.Core
 // open WasmGc.Core
@@ -1261,8 +1261,8 @@ let testConst2FloatInt () : int =
     if const2 2.5 42 > 2.0 then 1 else 0
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sprint 9: fable-library-wasmgc/Map.fs — F# library compiled by our backend
-// Tests call MapModule directly (src/fable-library-wasmgc/Map.fs).
+// Sprint 9: FSharp.Wasm.Core/Collections/Map.fs — F# library compiled by our backend
+// Tests call MapModule directly (src/FSharp.Wasm.Core/Collections/Map.fs).
 // The library is a REAL F# source file, not compiler-internal WasmIR.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1300,7 +1300,7 @@ let testMapAddReplace () : int =
     MapModule.tryFind 1 m |> Option.defaultValue 0
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sprint 10b: fable-library-wasmgc/Option.fs — BCL migration
+// Sprint 10b: FSharp.Wasm.Core/Option.fs — BCL migration
 // Phase A: call OptionModule.* directly (via KnownFuncsByPath dispatch).
 // The old tryOptionInline handlers remain active for FSharp.Core `Option.*` calls.
 // These tests prove the compiled F# Option.fs functions produce identical results.
@@ -1775,6 +1775,69 @@ let testClassRectArea () : int =
 let testMixedShapes () : int =
     let shapes : IShape list = [ ICircle 3 :> IShape; ClassRect(2, 6) :> IShape ]
     shapes |> List.sumBy (fun s -> s.Area())  // 9 + 12 = 21
+
+// ── Interface used before any implementation exists, tupled members, any implementation order ──
+
+type IMeasure =
+    abstract Size: text: string * scale: float * pad: int -> int
+    abstract Label: unit -> string
+
+/// The call sites precede every implementation in the compile order, as a library function taking a host-supplied service.
+let measureVia (m: IMeasure) (s: string) : int = m.Size(s, 2.0, 1) + (m.Label()).Length
+
+/// Members implemented in the opposite order of the declaration (the vtable slots are filled by name).
+type WideMeasure(k: int) =
+    interface IMeasure with
+        member _.Label() = "wide"
+        member _.Size(text, scale, pad) = int (float text.Length * scale) * k + pad
+
+type NarrowMeasure =
+    { Unit: int }
+    interface IMeasure with
+        member _.Label() = "narrow!"
+        member this.Size(text, _scale, pad) = text.Length * this.Unit + pad
+
+/// class, reversed order: Size("abcd", 2.0, 1) = int(4 * 2.0) * 3 + 1 = 25, plus "wide".Length = 4
+let testInterfaceBeforeImplClass () : int = measureVia (WideMeasure(3) :> IMeasure) "abcd"
+
+/// record, reversed order: 4 * 5 + 1 = 21, plus "narrow!".Length = 7
+let testInterfaceBeforeImplRecord () : int = measureVia ({ Unit = 5 } :> IMeasure) "abcd"
+
+// ── Object expressions implementing an interface ─────────────────────────
+
+/// Captures `scale`; the members take their own (tupled) parameters.
+let objExprMeasure (scale: int) : IMeasure =
+    { new IMeasure with
+        member _.Label() = "obj"
+        member _.Size(text, factor, pad) = int (float text.Length * factor) * scale + pad }
+
+type ISink =
+    abstract Push: int -> unit
+    abstract Total: unit -> int
+
+/// Size("abcd", 2.0, 1) = int(4 * 2.0) * 3 + 1 = 25, plus "obj".Length = 3
+let testObjectExprCapture () : int = measureVia (objExprMeasure 3) "abcd"
+
+/// Two instances of one expression keep their own captures: 2 * 100 + 20 = 220
+let testObjectExprTwoInstances () : int =
+    let a = objExprMeasure 1
+    let b = objExprMeasure 10
+    a.Size("ab", 1.0, 0) * 100 + b.Size("ab", 1.0, 0)
+
+/// A captured ref cell is shared state between the members: 5 + 7 = 12
+let testObjectExprSharedState () : int =
+    let total = ref 0
+    let sink =
+        { new ISink with
+            member _.Push(x) = total.Value <- total.Value + x
+            member _.Total() = total.Value }
+    sink.Push 5
+    sink.Push 7
+    sink.Total()
+
+/// An object expression and a class implementing the same interface in one list: 2 * 2 + 2 * 1 = 6
+let testObjectExprNextToClass () : int =
+    [ objExprMeasure 2; WideMeasure(1) :> IMeasure ] |> List.sumBy (fun m -> m.Size("ab", 1.0, 0))
 
 // ── List.sortWith ─────────────────────────────────────────────────────────
 
@@ -3158,3 +3221,267 @@ let testDictOfLists () : int =
     d.["a"] <- ResizeArray<int>()
     d.["a"].Add 5; d.["a"].Add 6
     d.["a"].Count * 10 + d.["a"].[1]                          // 26
+
+
+// ── ResizeArray: construction, ToArray, Sort, Reverse, Insert, RemoveAt, Remove, IndexOf, Contains, Clear, AddRange ──
+
+/// ResizeArray(seq) copies the elements: Count 4, then 4 * 10 + [3] = 48
+let testResizeArrayFromList () : int =
+    let r = ResizeArray<int>([ 5; 6; 7; 8 ])
+    r.Count * 10 + r.[3] - 0                                  // 48
+
+/// ResizeArray(capacity) is empty
+let testResizeArrayCapacityCtor () : int =
+    let r = ResizeArray<int>(64)
+    r.Add 3
+    r.Count * 10 + r.[0]                                      // 13
+
+/// Sort() orders the first Count elements; ToArray() copies exactly Count of them
+let testResizeArraySortToArray () : int =
+    let r = ResizeArray<float32>()
+    r.Add 3.0f; r.Add 1.0f; r.Add 2.0f
+    r.Sort()
+    let a = r.ToArray()
+    a.Length * 1000 + int a.[0] * 100 + int a.[1] * 10 + int a.[2]     // 3123
+
+/// Sort(Comparison) with a reversed comparison
+let testResizeArraySortComparison () : int =
+    let r = ResizeArray<int>([ 4; 9; 1; 7 ])
+    r.Sort(fun a b -> compare b a)
+    r.[0] * 1000 + r.[1] * 100 + r.[2] * 10 + r.[3]           // 9741
+
+let testResizeArrayInsertReverse () : int =
+    let r = ResizeArray<int>()
+    r.Add 1; r.Add 3
+    r.Insert(1, 2)
+    r.Reverse()
+    r.[0] * 100 + r.[1] * 10 + r.[2]                          // 321
+
+/// RemoveAt(1): [5;6;7;8] -> [5;7;8]
+let testResizeArrayRemoveAt () : int =
+    let r = ResizeArray<int>([ 5; 6; 7; 8 ])
+    r.RemoveAt 1
+    r.Count * 100 + r.[0] * 10 + r.[1]                        // 357
+
+/// Remove(8) is true and leaves [5;6;7]; Remove(42) is false; IndexOf / Contains
+let testResizeArrayRemoveIndexOfContains () : int =
+    let r = ResizeArray<int>([ 5; 6; 7; 8 ])
+    let removed = r.Remove 8
+    let missing = r.Remove 42
+    (if removed && not missing then 1000 else 0) + r.Count * 100 + r.IndexOf 7 * 10 + (if r.Contains 6 then 1 else 0)   // 1000 + 300 + 20 + 1
+
+let testResizeArrayClearAddRange () : int =
+    let r = ResizeArray<int>()
+    r.Add 1; r.Add 2
+    r.Clear()
+    r.AddRange [ 7; 8; 9 ]
+    r.AddRange [| 10; 11 |]
+    r.Count * 100 + r.[0] + r.[4]                             // 500 + 7 + 11
+
+/// grows beyond the first capacity through Insert and AddRange
+let testResizeArrayGrows () : int =
+    let r = ResizeArray<int>()
+    r.AddRange [ 1 .. 10 ]
+    r.Insert(0, 0)
+    for i in 11 .. 20 do r.Add i
+    r.Count * 1000 + r.[0] * 100 + r.[20] + r.[10]            // 21000 + 0 + 20 + 10
+
+// ── A local closure shadows a library function of the same name ──────────────────────────
+
+/// `add` is also a function of the Map / Set library: the local one is called
+let testLocalClosureNamedLikeLibraryFunction () : int =
+    let d = System.Collections.Generic.Dictionary<int, int>()
+    let add k v = if not (d.ContainsKey k) then d.[k] <- v
+    add 1 5; add 1 6; add 2 7
+    d.[1] + d.[2] + d.Count                                   // 14
+
+// ── Collections with a capacity argument ─────────────────────────────────────────────────
+
+let testCapacityConstructors () : int =
+    let q = System.Collections.Generic.Queue<int>(16)
+    q.Enqueue 3
+    let s = System.Collections.Generic.Stack<int>(16)
+    s.Push 4
+    let d = System.Collections.Generic.Dictionary<int, int>(16)
+    d.[1] <- 5
+    let h = System.Collections.Generic.HashSet<int>(16)
+    h.Add 6 |> ignore
+    q.Dequeue() * 1000 + s.Pop() * 100 + d.[1] * 10 + h.Count    // 3451
+
+
+// ── List.indexed / findIndex with a partial application / tryItem / ofSeq of a collection / StringBuilder.Clear ──
+
+/// 0*10 + 1*20 + 2*30 = 80
+let testListIndexed () : int = [ 10; 20; 30 ] |> List.indexed |> List.sumBy (fun (i, x) -> i * x)
+
+/// the index of the first match through a partially applied operator: ((=) 30) is `let x = 30 in fun y -> x = y`
+let testListFindIndexPartial () : int = List.findIndex ((=) 30) [ 10; 20; 30 ]
+
+/// a named function as the predicate: eta-expanded
+let private isBig (x: int) = x > 15
+let testListFindIndexNamed () : int = List.findIndex isBig [ 10; 20; 30 ]
+
+/// tryItem: inside, past the end, negative
+let testListTryItem () : int =
+    let xs = [ 10; 20; 30 ]
+    let inside = match List.tryItem 1 xs with Some x -> x | None -> -1
+    let past = match List.tryItem 3 xs with Some x -> x | None -> -1
+    let neg = match List.tryItem -1 xs with Some x -> x | None -> -1
+    inside * 100 + (past + 1) * 10 + (neg + 1)               // 2000 + 0 + 0
+
+/// the keys of a Dictionary as a list
+let testListOfSeqDictKeys () : int =
+    let d = System.Collections.Generic.Dictionary<int, int>()
+    d.[7] <- 1
+    d.[8] <- 2
+    let keys = List.ofSeq d.Keys
+    keys.Length * 10 + List.sum keys                          // 20 + 15
+
+let testStringBuilderClear () : int =
+    let sb = System.Text.StringBuilder()
+    sb.Append("abc") |> ignore
+    sb.Clear() |> ignore
+    sb.Append("xy") |> ignore
+    sb.Length * 10 + sb.ToString().Length                     // 22
+
+
+// ── array comprehension with a `match` that yields in one arm, a ResizeArray as a seq, a partial application of a field ──
+
+type CompChange =
+    | CompNone
+    | CompSome of int
+
+/// the `()` arm of a match inside a comprehension; 2 results, the first index is 2: 2 * 10 + 2
+let testComprehensionMatchYieldTuple () : int =
+    let pa = [| 1; 2; 3; 4 |]
+    let deltas =
+        [| for i = 0 to pa.Length - 1 do
+               let d = if pa.[i] > 2 then CompSome pa.[i] else CompNone
+               match d with
+               | CompNone -> ()
+               | _ -> yield i, d |]
+    deltas.Length * 10 + fst deltas.[0]
+
+/// Seq functions over a ResizeArray: (2, 4, 6) filtered to > 2, summed: 10
+let testSeqOverResizeArray () : int =
+    let r = ResizeArray<int>()
+    r.Add 1; r.Add 2; r.Add 3
+    r |> Seq.map (fun x -> x * 2) |> Seq.filter (fun x -> x > 2) |> List.ofSeq |> List.sum
+
+type FieldHolder = { Wanted: int }
+
+/// `let x = n.Wanted in fun y -> x = y`: a record field is an atom, so the partial application is a lambda
+let testFindIndexPartialOfField () : int =
+    let n = { Wanted = 30 }
+    List.findIndex ((=) n.Wanted) [ 10; 20; 30 ]
+
+// ── struct-record copy through an inline builder, `or` patterns binding references, interface properties, string options ──
+
+[<Struct>]
+type BuiltState =
+    { X: float32; Y: float32; W: float32; H: float32
+      R: float32
+      Opt: int voption
+      Alpha: float32 }
+
+type StateBuilder() =
+    member inline _.Yield(()) : BuiltState = { X = 0.0f; Y = 0.0f; W = 0.0f; H = 0.0f; R = 2.0f; Opt = ValueSome 7; Alpha = 1.0f }
+    member _.Run(s: BuiltState) : int =
+        int s.X + int s.Y * 10 + int s.W * 100 + int s.H * 1000 + int s.R * 10000 + ValueOption.defaultValue 0 s.Opt * 100000
+    [<CustomOperation("at")>]
+    member inline _.At(s: BuiltState, x: float32, y: float32) = { s with X = x; Y = y }
+    [<CustomOperation("size")>]
+    member inline _.Size(s: BuiltState, w: int, h: int) = { s with W = float32 w; H = float32 h }
+
+/// `{ s with … }` reads the unchanged fields through `let inputRecord: byref<S> = s`: the fields keep their values
+let testStructRecordCopyThroughBuilder () : int =
+    StateBuilder() { at 1.0f 2.0f
+                     size 3 4 }
+
+type OrTree =
+    | OrLeaf
+    | OrNode of int * OrTree
+    | OrWrap of string * OrTree
+    | OrBox of OrTree
+
+let rec orDepth (t: OrTree) : int =
+    match t with
+    | OrLeaf -> 0
+    | OrNode(_, c) | OrWrap(_, c) | OrBox c -> 1 + orDepth c
+
+/// the shared target of an `or` pattern binds a reference that is set in several branches and read after them: 4
+let testOrPatternBindsReference () : int =
+    orDepth (OrNode(1, OrWrap("a", OrBox(OrNode(2, OrLeaf)))))
+
+type IHasSize =
+    abstract Size: int
+    abstract Label: string
+
+type SizeImpl(n: int) =
+    interface IHasSize with
+        member _.Size = n
+        member _.Label = "abc"
+
+/// a property of an interface value goes through the vtable: 7 * 10 + 3
+let testInterfaceProperty () : int =
+    let h: IHasSize = SizeImpl(7) :> IHasSize
+    h.Size * 10 + h.Label.Length
+
+/// a `string option` is a nullable string: `=` is null-aware and compares by content
+let testStringOptionEquality () : int =
+    let a: string option = Some "ab"
+    let b: string option = None
+    let id = String.concat "" [ "a"; "b" ]
+    (if a = Some id then 1 else 0) + (if b = Some id then 10 else 0) + (if b = None then 100 else 0) + (if Some "x" <> Some "y" then 1000 else 0)
+
+// ── a let-bound generic lambda is built at the instantiation its uses state ──
+
+type GenKind = GenA | GenB
+type GenNode = { Id: int; Kind: GenKind; X: float32; Text: string }
+
+let genNewNode (id: int) (kind: GenKind) (x: float32) = { Id = id; Kind = kind; X = x; Text = "" }
+
+/// `mk` is generic in the result of `f`; every use says `GenNode`: (100+7+48) + (200+7+88) + (300+0+280)
+let testLocalGenericLambda () : int =
+    let mk id kind x f = f (genNewNode id kind x)
+    let nodes =
+        [ mk 1 GenA 48.0f (fun n -> { n with Text = "Sign in" })
+          mk 2 GenB 88.0f (fun n -> { n with Text = "Welcome" })
+          mk 3 GenA 1.0f (fun n -> { n with X = 280.0f }) ]
+    nodes |> List.sumBy (fun n -> n.Id * 100 + n.Text.Length + int n.X)
+
+/// Append(char) / Append(int) and ToString of a StringBuilder: "ab" + "7" + "x" = 4 chars
+let testStringBuilderCharAndInt () : int =
+    let sb = System.Text.StringBuilder()
+    sb.Append('a').Append('b') |> ignore
+    sb.Append(7) |> ignore
+    sb.Append("x") |> ignore
+    let s = sb.ToString()
+    s.Length * 100 + int s.[2]
+
+/// `TryGetValue` of a reference type: the `out` cell starts null (a miss leaves it so) and holds the value after a hit
+let testOutArgReference () : int =
+    let d = System.Collections.Generic.Dictionary<int, int[]>()
+    d.[1] <- [| 10; 20; 30 |]
+    let hit = match d.TryGetValue 1 with | true, v -> v.[2] | _ -> 0
+    let miss = match d.TryGetValue 2 with | true, _ -> 1000 | _ -> 5
+    hit + miss
+
+// ── a module-level value is evaluated once and shared ──
+
+type SharedCounter() =
+    let mutable n = 0
+    member _.Next() : int =
+        n <- n + 1
+        n
+
+let sharedCounter = SharedCounter()
+let sharedTable = [| 1; 2; 3 |]
+
+/// `sharedCounter` is one object for every reference (3 calls → 3), and `sharedTable` one array (a write is seen by the next read)
+let testModuleValueIsShared () : int =
+    sharedCounter.Next() |> ignore
+    sharedCounter.Next() |> ignore
+    let third = sharedCounter.Next()
+    sharedTable.[0] <- 40
+    third * 100 + sharedTable.[0]

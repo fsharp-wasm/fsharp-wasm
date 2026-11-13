@@ -313,8 +313,9 @@ let phase6_Validate (opts: PipelineOptions) (wmod: WModule) =
 let phase7_Optimize (opts: PipelineOptions) (wmod: WModule) =
     timed opts "Phase7" (fun () ->
         let opt = Opt.optimizeModule wmod
-        // Re-resolve locals: join-point inlining may have introduced new Lets
-        { opt with Functions = List.map L.resolveLocals opt.Functions })
+        // Re-resolve locals: join-point inlining may have introduced new Lets.  Only now is it known which join
+        // points survive, so their (nullable) parameters are read through casts here.
+        { opt with Functions = opt.Functions |> List.map (L.castJoinParams >> L.resolveLocals) })
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 8 — Emission (WAT + binary)

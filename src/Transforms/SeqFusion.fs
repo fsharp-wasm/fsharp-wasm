@@ -121,6 +121,11 @@ let rec private fuse (transform: TransformFn) (ctx: Ctx) (yieldTo: Yield) (e: Fa
         let wp = transform (bound x) pred
         let xT = mapTypeKnown ctx x.Type
         fuse transform ctx (fun elem -> WExpr.Let(x.Name, elem, wasmWhen wp (yieldTo (WExpr.LocalGet(x.Name, xT))))) src
+    // `a; b; seqExpr`: the statements run, then the sequence is walked (the `()` arm of a `match` inside a comprehension)
+    | Sequential exprs when not exprs.IsEmpty ->
+        let init, last = List.splitAt (exprs.Length - 1) exprs
+        fuse transform ctx yieldTo last.Head
+        |> Option.map (fun walked -> WExpr.Sequence((init |> List.map (transform ctx)) @ [ walked ]))
     | IfThenElse(guard, thenE, elseE, _) ->
         fuse transform ctx yieldTo thenE
         |> Option.bind (fun wt ->
@@ -135,6 +140,20 @@ let rec private fuse (transform: TransformFn) (ctx: Ctx) (yieldTo: Yield) (e: Fa
             tryListTypeInfo ctx src
             |> Option.map (fun (elemWT, consIdx) ->
                 listIter (LabelGen "fz") (mkListShape elemWT consIdx) (transform ctx src) yieldTo)
+        // a ResizeArray: the first Count elements of its data array (the length is read once, before the walk)
+        | Type.Array(t, ArrayKind.ResizeArray) ->
+            let elemWT = mapTypeKnown ctx t
+            let arrIdx, _ = getOrAddResizeArrayType ctx elemWT
+            let a = mkArrayShape elemWT arrIdx
+            Some(wasm {
+                let! rav = transform ctx src
+                let! arr = WExpr.Cast(WExpr.StructGet(rav, 0, WType.Ref(arrIdx, true)), WType.Ref(arrIdx, false))
+                let! n = WExpr.StructGet(rav, 1, WType.I32)
+                let! i = mut (i32Const 0)
+                while! (ltS i.Val n) do
+                    do! yieldTo (a.Get(arr, i.Val))
+                    do! i.Set(add i.Val (i32Const 1))
+            })
         | Type.Array(t, _) ->
             let elemWT = mapTypeKnown ctx t
             let a = mkArrayShape elemWT (getOrAddArrayType ctx elemWT)

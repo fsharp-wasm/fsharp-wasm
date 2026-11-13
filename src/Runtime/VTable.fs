@@ -134,6 +134,46 @@ let registerVTableImpl
     ctx.VTableGlobals.Add(vtableGlobal)
     ctx.VTableImplRegistry.[key] <- vtableGlobalName
 
+/// Wire a concrete type to the interfaces it implements: register each interface (a no-op when its declaration
+/// already did) and give the type a vtable whose slots are filled by member name, in whatever order the type
+/// implements them.  `members` are (interface, member name, compiled function, compiled parameters with the concrete
+/// self first, result type).  A type that does not implement exactly the members of an interface, or whose compiled
+/// signature differs from the slot's, is reported as unsupported instead of producing an invalid module.
+let wireImplementation
+        (ctx: Ctx)
+        (implTypeName: string)
+        (concreteTypeIdx: int)
+        (members: (string * string * string * WType list * WType) list) : unit =
+    let nonSelf (ps: WType list) = match ps with _ :: rest -> rest | [] -> []
+    for (ifaceName, methods) in members |> List.groupBy (fun (iface, _, _, _, _) -> iface) do
+        let methodSigs = methods |> List.map (fun (_, name, _, ps, ret) -> name, nonSelf ps, ret)
+        let vtableTypeIdx, boxTypeIdx = getOrRegisterInterface ctx ifaceName methodSigs
+        let _, _, funcTypeIndices, methodNames = ctx.VTableRegistry.[ifaceName]
+        let byName = methods |> List.map (fun (_, name, func, ps, ret) -> name, (name, func, ps, ret)) |> Map.ofList
+        let slots = methodNames |> List.map (fun n -> Map.tryFind n byName)
+        if methods.Length <> methodNames.Length || not (slots |> List.forall Option.isSome) then
+            WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics
+                $"'{implTypeName}' implements {methods.Length} member(s) of '{ifaceName}', which has {methodNames.Length} slot(s)"
+                "Virtual dispatch needs every member of an abstract class / interface implemented by every implementor (a default member inherited from the base is not supported yet)."
+        else
+            let impls = slots |> List.choose id
+            // a slot is (eqref, args) -> result: an implementation compiled to another signature cannot sit in it
+            let mismatch =
+                List.zip funcTypeIndices impls
+                |> List.tryFind (fun (slotType, (_, _, ps, ret)) -> ctx.GetOrAddFuncType(WType.EqRef :: nonSelf ps, ret) <> slotType)
+            match mismatch with
+            | None -> registerVTableImpl ctx implTypeName concreteTypeIdx ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices impls
+            | Some(_, (name, _, _, _)) ->
+                WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics
+                    $"'{implTypeName}.{name}' is compiled to a different signature than the slot '{name}' of '{ifaceName}'"
+                    "Every implementation of an interface member must take and return the same types as the interface declares."
+
+/// The vtable slot of the interface `ifaceName` that one of `names` selects (a property `Bounds` is the slot `get_Bounds`).
+let tryFindMemberSlot (ctx: Ctx) (ifaceName: string) (names: string list) : int option =
+    match ctx.VTableRegistry.TryGetValue ifaceName with
+    | true, (_, _, _, methodNames) -> names |> List.tryPick (fun n -> List.tryFindIndex ((=) n) methodNames)
+    | _ -> None
+
 // ─────────────────────────────────────────────────────────────────
 // Boxing: (obj :> IFoo)
 // ─────────────────────────────────────────────────────────────────

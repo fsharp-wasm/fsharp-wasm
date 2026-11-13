@@ -12,14 +12,29 @@ open WasmGc.Runtime.Locals
 // Structural equality — Sprint 6
 // ─────────────────────────────────────────────────────────────────
 
+/// `a = b` for two strings (result: i32), by content.  A `string option` is a nullable reference, so an operand may be
+/// null: null = null, and null differs from every string.  (`$strEq` itself takes non-null strings.)
+let strEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
+    let strEq x y = WExpr.Call(ctx.UseHelper "$strEq", [x; y], WType.I32)
+    match exprWType a, exprWType b with
+    | WType.Ref(_, false), WType.Ref(_, false) -> strEq a b
+    | ta, tb ->
+        let nonNull = WType.Ref(StringTypeIdx, false)
+        let la, lb = WExpr.LocalGet("$seq_a", ta), WExpr.LocalGet("$seq_b", tb)
+        WExpr.Let("$seq_a", a, WExpr.Let("$seq_b", b,
+            wasmIf (and_ (WExpr.RefIsNull la) (WExpr.RefIsNull lb))
+                (i32Const 1)
+                (wasmIf (or_ (WExpr.RefIsNull la) (WExpr.RefIsNull lb))
+                    (i32Const 0)
+                    (strEq (WExpr.Cast(la, nonNull)) (WExpr.Cast(lb, nonNull))))))
+
 /// Return a WExpr (result: i32) that compares two WExprs of the given WType.
 /// Uses registered equality functions for nested struct/DU types.
 let rec compareByWType (ctx: Ctx) (ty: WType) (a: WExpr) (b: WExpr) : WExpr =
     match ty with
     | WType.I32 | WType.I64 | WType.F32 | WType.F64 ->
         WExpr.Compare(WCompareOp.Eq, a, b)
-    | WType.Ref(idx, false) when idx = StringTypeIdx ->
-        WExpr.Call("$strEq", [a; b], WType.I32)
+    | WType.Ref(idx, _) when idx = StringTypeIdx -> strEquals ctx a b
     | WType.Ref(idx, false) ->
         // Non-nullable ref: look up or generate structural equality (records, unions, tuples, arrays)
         match getOrAddStructuralEquals ctx idx with
@@ -437,7 +452,7 @@ let structuralEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
             | true, funcName -> WExpr.Call(funcName, [ a; b ], WType.I32)
             | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
     // strings compare by content (generic code reaches `=` with a string only once instantiated)
-    | WType.Ref(idx, _) when idx = StringTypeIdx -> WExpr.Call(ctx.UseHelper "$strEq", [ a; b ], WType.I32)
+    | WType.Ref(idx, _) when idx = StringTypeIdx -> strEquals ctx a b
     | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
 
 // ─────────────────────────────────────────────────────────────────

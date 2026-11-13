@@ -128,9 +128,9 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             FSharp2Fable.Compiler.transformFile com
             |> WasmXform.transformFileForWasm com
 
-        // Library files (from fable-library-wasmgc/ or fable_modules/) are
-        // isLastFile=false — their functions get prefixed names and are not exported.
-        // App files are isLastFile=true — functions get their original names and are exported.
+        // Only the entry project's own files keep their functions' names (they are the module's exports).  Every other
+        // file — FSharp.Wasm.Core, fable_modules, and the files of a project the program references — has its
+        // functions prefixed with the file's name, so that `bounds` of one module and `bounds` of another do not collide.
         // We detect "is library" by path rather than by source-file order, so the pipeline
         // is robust regardless of which file gets compiled first in ThreadPool.
         let currentFile = com.CurrentFile
@@ -184,7 +184,7 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                 files
                 |> List.fold
                     (fun (ctx: T.Ctx) p ->
-                        Lowering.processFileIntoCtx { ctx with ExportFunctions = p.IsEntry } p.Com p.File (not p.IsLibrary))
+                        Lowering.processFileIntoCtx { ctx with ExportFunctions = p.IsEntry } p.Com p.File p.IsEntry)
                     (T.Ctx.Create(files.Head.Com, stringMode))
 
             let wasmModule =

@@ -125,6 +125,7 @@
     <Compile Include="Transforms/SeqFusion.fs" />
     <Compile Include="Transforms/ListOps.fs" />
     <Compile Include="Transforms/ArrayReplacements.fs" />
+    <Compile Include="Transforms/ResizeArrayOps.fs" />
     <Compile Include="Transforms/FSharpCoreReplacements.fs" />
     <Compile Include="Transforms/TransformHelpers.fs" />
     <Compile Include="Transforms/BigIntMap.fs" />
@@ -132,6 +133,7 @@
     <!-- New modularized Fable2Wasm components -->
     <Compile Include="Transforms/Fable2Wasm/TransformConstruct.fs" />
     <Compile Include="Transforms/ClosureBuilder.fs" />
+    <Compile Include="Transforms/ObjectExprBuilder.fs" />
     <Compile Include="Transforms/HostInterop.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformClosure.fs" />
     <Compile Include="Transforms/Fable2Wasm/TransformDispatch.fs" />

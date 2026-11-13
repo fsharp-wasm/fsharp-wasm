@@ -118,6 +118,27 @@ let tryListMapInline
         | None -> None
     | _ -> None
 
+/// List.indexed xs = List.mapi (fun i x -> (i, x)) xs
+let tryListIndexedInline
+        (transform: TransformFn)
+        (ctx: Ctx)
+        (selector: string)
+        (fableArgs: Fable.Expr list)
+        (resultFableType: Fable.Type) : WExpr option =
+    match selector, fableArgs with
+    | "indexed", [ listArg ] ->
+        match listArg.Type with
+        | Fable.Type.List elemT ->
+            let ident name t : Fable.Ident =
+                { Name = name; Type = t; IsMutable = false; IsThisArgument = false
+                  IsCompilerGenerated = true; IsInlineIfLambda = false; Range = None }
+            let index = ident "index$" (Fable.Type.Number(NumberKind.Int32, NumberInfo.Empty))
+            let elem = ident "elem$" elemT
+            let pair = Fable.Expr.Value(Fable.ValueKind.NewTuple([ Fable.Expr.IdentExpr index; Fable.Expr.IdentExpr elem ], false), None)
+            tryListMapInline transform ctx "mapIndexed" [ Fable.Expr.Delegate([ index; elem ], pair, None, []); listArg ] resultFableType
+        | _ -> None
+    | _ -> None
+
 // ─────────────────────────────────────────────────────────────────
 // filter / choose
 // ─────────────────────────────────────────────────────────────────

@@ -55,6 +55,14 @@ let findAllReferencedLocals (expr: WExpr) : (string * WType) list =
     go expr
     List.ofSeq acc
 
+// A local of non-nullable reference type counts as initialised only inside the block that sets it.  The parameters of
+// a join point are set where a `JoinApply` sits (in whichever nested block of `cont`) and read in `body`, after
+// those blocks have ended — so they are declared nullable, and `castJoinParams` reads them through a cast.
+let private nullableRef (t: WType) =
+    match t with
+    | WType.Ref(i, false) -> WType.Ref(i, true)
+    | t -> t
+
 /// Collect all Let/LetMut/JoinPoint-parameter bindings (the WASM locals declaration list).
 /// `paramNames` are excluded because they are already function parameters.
 let collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType) list =
@@ -63,7 +71,7 @@ let collectLocals (paramNames: Set<string>) (expr: WExpr) : (string * WType) lis
     let rec go e =
         match e with
         | WExpr.Let(n, v, b) | WExpr.LetMut(n, v, b) -> add n (bindingType n v b)
-        | WExpr.JoinPoint(_, ps, _, _, _) -> ps |> List.iter (fun (n, t) -> add n t)
+        | WExpr.JoinPoint(_, ps, _, _, _) -> ps |> List.iter (fun (n, t) -> add n (nullableRef t))
         | _ -> ()
         children e |> List.iter go
     go expr
@@ -91,6 +99,27 @@ let unboundReferences (func: WFuncDecl) : (string * WType) list =
     findAllReferencedLocals func.Body
     |> List.filter (fun (n, t) -> t <> WType.Void && not (Set.contains n bound) && not (isInternal n))
     |> List.distinctBy fst
+
+/// Read the parameters of the join points that survive to emission (the unused and the inlined ones are plain `Let`s)
+/// through a cast to their non-nullable type; see `nullableRef`.  Idempotent: the rewritten read is nullable-typed.
+/// (Names are unique per function after Phase 4c.)
+let castJoinParams (func: WFuncDecl) : WFuncDecl =
+    let isApplyOf label e = match e with WExpr.JoinApply(l, _, _) -> l = label | _ -> false
+    let nonNullParams =
+        func.Body
+        |> fold (fun acc e ->
+            match e with
+            | WExpr.JoinPoint(label, ps, _, cont, _) when exists (isApplyOf label) cont ->
+                ps |> List.fold (fun a (n, t) -> match t with WType.Ref(_, false) -> Set.add n a | _ -> a) acc
+            | _ -> acc) Set.empty
+    if Set.isEmpty nonNullParams then func
+    else
+        let read e =
+            match e with
+            | WExpr.LocalGet(n, (WType.Ref(i, false) as t)) when Set.contains n nonNullParams ->
+                Some(WExpr.Cast(WExpr.LocalGet(n, WType.Ref(i, true)), t))
+            | _ -> None
+        { func with Body = rewrite read func.Body }
 
 // ─────────────────────────────────────────────────────────────────
 // resolveLocals / makeFunc

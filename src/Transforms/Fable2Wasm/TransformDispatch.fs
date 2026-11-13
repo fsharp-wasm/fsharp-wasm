@@ -65,7 +65,7 @@ let buildClassCtor
 
 /// Bind the type parameters of `declared` against the types `actual` of a call site (`'T` against `string`, …).
 /// Structural; a shape that does not match binds nothing.  The first binding of a name wins.
-let rec private unify (declared: Type) (actual: Type) (acc: Map<string, Type>) : Map<string, Type> =
+let rec unify (declared: Type) (actual: Type) (acc: Map<string, Type>) : Map<string, Type> =
     match declared, actual with
     | Type.GenericParam(name, _, _), _ -> if Map.containsKey name acc then acc else Map.add name actual acc
     | Type.List d, Type.List a -> unify d a acc
@@ -79,7 +79,7 @@ let rec private unify (declared: Type) (actual: Type) (acc: Map<string, Type>) :
         List.fold2 (fun m d a -> unify d a m) acc dargs aargs
     | _ -> acc
 
-let rec private hasGenericParam (t: Type) =
+let rec hasGenericParam (t: Type) =
     match t with
     | Type.GenericParam _ -> true
     | Type.List e | Type.Option(e, _) | Type.Array(e, _) -> hasGenericParam e
@@ -303,12 +303,14 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
                     Some(WExpr.Call(ctx.UseHelper "$strRepeat", [ str; count ], WType.Ref(StringTypeIdx, false)))
                 | _ -> None
             fun () -> tryBigIntInline ctx importStem sel wArgs (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) || WasmGc.Util.FableQuery.isUnsignedInt typ)
+            fun () -> ResizeArrayOps.tryImport   eval ctx importStem sel info.Args typ
             fun () -> tryMapInline               ctx importStem sel wArgs
             fun () -> trySetInline               ctx importStem sel wArgs
             // ── List combinators ────────────────────────────────────────────────────
             fun () -> tryListFoldInline           eval ctx sel info.Args
             fun () -> tryListFoldBackInline       eval ctx sel info.Args typ
             fun () -> tryListMapInline            eval ctx sel info.Args typ
+            fun () -> tryListIndexedInline        eval ctx sel info.Args typ
             fun () -> tryListCollectInline        eval ctx sel info.Args typ
             fun () -> tryListChooseInline         eval ctx sel info.Args typ
             fun () -> tryListInitReplicateInline  eval ctx sel info.Args typ
@@ -422,9 +424,22 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         // new StringBuilder() / new StringBuilder(capacity)
         let cap = match wArgs with | [c] -> c | _ -> i32Const 16
         WExpr.Call(ctx.UseHelper("$sbCreate"), [cap], WType.Ref(StringBuilderTypeIdx, false))
-    | sel, sb :: str :: _, _ when sel.StartsWith("StringBuilder__Append_") ->
-        // sb.Append(str) — returns sb (unit in F# use, but typed as ref $StringBuilder)
-        WExpr.Call(ctx.UseHelper("$sbAppend"), [sb; str], WType.Ref(StringBuilderTypeIdx, false))
+    | sel, sb :: value :: _, _ when sel.StartsWith("StringBuilder__Append_") ->
+        // sb.Append(x) — returns sb (unit in F# use, but typed as ref $StringBuilder).  Everything is appended as a
+        // string: a char is a one-character string, an integer its decimal text.
+        let strT = WType.Ref(StringTypeIdx, false)
+        let append (s: WExpr) = WExpr.Call(ctx.UseHelper("$sbAppend"), [sb; s], WType.Ref(StringBuilderTypeIdx, false))
+        match info.Args |> List.tryLast |> Option.map (fun a -> a.Type) with
+        | Some Fable.Type.Char -> append (WExpr.ArrayNew(StringTypeIdx, i32Const 1, value, strT))
+        | Some(Fable.Type.Number _) when exprWType value = WType.I32 -> append (WExpr.Call(ctx.UseHelper("$intToStr"), [value], strT))
+        | _ -> append value
+    | "StringBuilder__Clear", [sb], _ ->
+        // sb.Clear() — length back to 0, returns sb
+        wasm {
+            let! b = sb
+            do! WExpr.StructSet(b, 1, i32Const 0)
+            return b
+        }
     | "StringBuilder__get_Length", [sb], _ ->
         // sb.Length → struct.get field 1 (length)
         WExpr.StructGet(sb, 1, WType.I32)
@@ -722,7 +737,10 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         // a generic function of ANOTHER file (`onClick<'msg>` called from the app): the call site knows the type
         // arguments, so it gets its own specialised copy instead of the unresolved (i32-typed) original
         // (library functions are resolved by module-qualified name below; their short names are not unique)
-        let isLibraryFunc = Map.containsKey (System.IO.Path.GetFileNameWithoutExtension importInfo.Path, selector) ctx.KnownFuncsByPath
+        // (a function of a file of a referenced PROJECT is also known by its file's name, but is specialised like any other)
+        let isLibraryFunc =
+            isCoreLibraryPath ctx importInfo.Path
+            && Map.containsKey (System.IO.Path.GetFileNameWithoutExtension importInfo.Path, selector) ctx.KnownFuncsByPath
         // a member or constructor of a generic CLASS (`Queue$1__Enqueue_…`, `Queue$1_$ctor`) is instantiated even when it
         // lives in the core library: its name is the class's, there is no plain-name collision to fear
         let isClassMember = selector.Contains "$"
@@ -800,6 +818,32 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
 // Call translation
 // ─────────────────────────────────────────────────────────────────
 
+/// What a callee is, in a line: `member 'ContainsKey' of Dictionary` rather than the AST dumped with %A (which the
+/// diagnostic cuts off before the member's name).
+let private describeCallee (callee: Expr) : string =
+    let typeName (t: Fable.Type) =
+        match t with
+        | Fable.Type.DeclaredType(e, _) -> e.FullName
+        | Fable.Type.Array(elem, kind) -> sprintf "%A array of %A" kind elem
+        | Fable.Type.List _ -> "list"
+        | Fable.Type.Option _ -> "option"
+        | Fable.Type.String -> "string"
+        | Fable.Type.Tuple _ -> "tuple"
+        | Fable.Type.LambdaType _ | Fable.Type.DelegateType _ -> "function"
+        | other -> (sprintf "%A" other).Replace("\n", " ").Replace("  ", " ")
+    match callee with
+    | Fable.Expr.Get(target, Fable.GetKind.FieldGet fi, _, _) -> sprintf "member '%s' of %s" fi.Name (typeName target.Type)
+    | Fable.Expr.Get(target, Fable.GetKind.ExprGet _, _, _) -> sprintf "indexed value of %s" (typeName target.Type)
+    | Fable.Expr.Get(target, kind, _, _) -> sprintf "%A of %s" kind (typeName target.Type)
+    | Fable.Expr.IdentExpr i -> sprintf "value '%s' of %s" i.Name (typeName i.Type)
+    | other -> (sprintf "%A" other).Replace("\n", " ").Replace("  ", " ")
+
+/// A member call on an array receiver: a ResizeArray's members first (ToArray, Sort, Insert, RemoveAt, …), then the
+/// native array methods.
+let private tryArrayMember (eval: Ctx -> Expr -> WExpr) (ctx: Ctx) (name: string) (receiver: Expr) (args: Expr list) (typ: Type) : WExpr option =
+    ResizeArrayOps.tryInstance eval ctx name receiver args
+    |> Option.orElseWith (fun () -> tryArrayInstanceCall eval ctx name receiver args typ)
+
 /// Call through a computed callee — a record/class field holding a closure, the result of another
 /// call, … Function-typed callees are applied as closures (same path as a closure-typed local);
 /// anything else is a compiler gap: it is reported (WGC009) instead of emitting an ill-typed `call_ref`.
@@ -822,7 +866,7 @@ let private indirectCall
     if isClosure then
         ClosureBuilder.applyClosure ctx callee.Type wCallee (info.Args |> List.map (fun a -> a.Type)) wArgs ty
     else
-        WasmGc.Core.Diagnostics.unhandledCallee ctx.Diagnostics (sprintf "%A" callee) ctx.CurrentFunc callee.Range
+        WasmGc.Core.Diagnostics.unhandledCallee ctx.Diagnostics (describeCallee callee) ctx.CurrentFunc callee.Range
         WExpr.Nop
 
 /// Main-Dispatcher for all C
@@ -875,27 +919,26 @@ let private transformCallCore
         | IdentExpr { Name = "String" } when (match wArgs with [ _ ] -> true | _ -> false) ->
             primitiveToString ctx info.Args.Head.Type wArgs.Head
         | IdentExpr ident ->
-            // Sprint 5: try demand-driven generic specialization first.
-            // match trySpecializeCall ctx eval ident.Name info typ with
+            // A local variable typed as a closure (ref $AnyFn) is a higher-order call: ClosureApply, not a direct Call.
+            // It comes first: a local `add` or `append` shadows a module function of the same name, and the generic
+            // function registry is keyed by the short name, so specialization would otherwise take the local's call.
+            match Map.tryFind ident.Name ctx.Locals with
+            | Some(WType.Ref(idx, _)) when idx = AnyFnTypeIdx ->
+                // Self-parameter convention (Sprint 25b): prepend ref $AnyFn as first param.
+                let wClosure = WExpr.LocalGet(ident.Name, WType.Ref(AnyFnTypeIdx, false))
+                // Func type from the callee's declared type (see ClosureBuilder.applyClosure);
+                // the ClosureBase is created on demand so closureTypeIdx is never 0.
+                ClosureBuilder.applyClosure ctx ident.Type wClosure (info.Args |> List.map (fun a -> a.Type)) wArgs ty
+            | _ ->
+            // Sprint 5: demand-driven generic specialization.
             match trySpecializeCall ctx eval ident.Name info typ with
             | Some specialized -> specialized
             | None ->
-                // Check if the identifier is a local variable typed as a closure (ref $AnyFn).
-                // If so, this is a higher-order call — emit ClosureApply instead of a direct Call.
+                // Direct function call (non-generic or unregistered generic).  An instance member called on an
+                // expression (`Counter(5).Next()`) carries its receiver in `ThisArg`; the function takes it first.
                 let actualName = ctx.FuncNameAlias |> Map.tryFind ident.Name |> Option.defaultValue ident.Name
-                match Map.tryFind ident.Name ctx.Locals with
-                | Some(WType.Ref(idx, _)) when idx = AnyFnTypeIdx ->
-                    // This is a closure parameter — dispatch via ClosureApply.
-                    // Self-parameter convention (Sprint 25b): prepend ref $AnyFn as first param.
-                    let wClosure = WExpr.LocalGet(ident.Name, WType.Ref(AnyFnTypeIdx, false))
-                    // Func type from the callee's declared type (see ClosureBuilder.applyClosure);
-                    // the ClosureBase is created on demand so closureTypeIdx is never 0.
-                    ClosureBuilder.applyClosure ctx ident.Type wClosure (info.Args |> List.map (fun a -> a.Type)) wArgs ty
-                | _ ->
-                    // Direct function call (non-generic or unregistered generic).  An instance member called on an
-                    // expression (`Counter(5).Next()`) carries its receiver in `ThisArg`; the function takes it first.
-                    let receiver = match info.ThisArg with Some t -> [ eval ctx t ] | None -> []
-                    WExpr.Call(actualName, receiver @ wArgs, ty)
+                let receiver = match info.ThisArg with Some t -> [ eval ctx t ] | None -> []
+                WExpr.Call(actualName, receiver @ wArgs, ty)
 
         | Import(importInfo, _, _) ->
             // For string instance methods (IndexOf, Substring, etc.), Fable puts the
@@ -1132,17 +1175,17 @@ let private transformCallCore
                         VT.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices methodIdx wReceiver wArgs ty
                     | None ->
                         // Method not in vtable — fall through to array instance/indirect
-                        match tryArrayInstanceCall eval ctx fi.Name arrExpr info.Args typ with
+                        match tryArrayMember eval ctx fi.Name arrExpr info.Args typ with
                         | Some result -> result
                         | None ->
                             indirectCall ctx eval callee info wArgs ty
                 | None ->
-                    match tryArrayInstanceCall eval ctx fi.Name arrExpr info.Args typ with
+                    match tryArrayMember eval ctx fi.Name arrExpr info.Args typ with
                     | Some result -> result
                     | None ->
                         indirectCall ctx eval callee info wArgs ty
             | _ ->
-                match tryArrayInstanceCall eval ctx fi.Name arrExpr info.Args typ with
+                match tryArrayMember eval ctx fi.Name arrExpr info.Args typ with
                 | Some result -> result
                 | None ->
                     indirectCall ctx eval callee info wArgs ty

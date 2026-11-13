@@ -407,7 +407,7 @@ check("const2IntFloat: const2<int,float> 7 3.14 = 7", 7, exp.testConst2IntFloat(
 check("const2IntInt: const2<int,int> 99 0 = 99", 99, exp.testConst2IntInt());
 check("const2FloatInt: const2<float,int> 2.5 42 > 2.0 → 1", 1, exp.testConst2FloatInt(),);
 
-// ─── Sprint 9: fable-library-wasmgc/Map.fs — first F# library compiled by backend ──
+// ─── Sprint 9: FSharp.Wasm.Core/Collections/Map.fs — first F# library compiled by backend ──
 check("mapAddFind: MapModule.add 1 100 → tryFind 1 = 100", 100, exp.testMapAddFind(),);
 check("mapFindMissing: tryFind 99 on {1→100} = 0 (default)", 0, exp.testMapFindMissing(),);
 check("mapCount: {1→100, 2→200} count = 2", 2, exp.testMapCount());
@@ -415,7 +415,7 @@ check("mapContainsKey: containsKey 42 on {42→999} = 1", 1, exp.testMapContains
 check("mapContainsKeyMissing: containsKey 7 on {42→999} = 0", 0, exp.testMapContainsKeyMissing(),);
 check("mapAddReplace: add 1 555 over {1→100} → tryFind 1 = 555", 555, exp.testMapAddReplace(),);
 
-// ─── Sprint 10b: fable-library-wasmgc/Option.fs — BCL migration (Phase A) ────
+// ─── Sprint 10b: FSharp.Wasm.Core/Option.fs — BCL migration (Phase A) ────
 check("optionModuleIsSome: OptionModule.isSome (Some 5) = 1", 1, exp.testOptionModuleIsSome(),);
 check("optionModuleIsSomeNone: OptionModule.isSome None = 0", 0, exp.testOptionModuleIsSomeNone(),);
 check("optionModuleIsNone: OptionModule.isNone None = 1", 1, exp.testOptionModuleIsNone(),);
@@ -425,7 +425,7 @@ check("optionModuleDefaultValueSome: defaultValue 42 (Some 99) = 99", 99, exp.te
 check("optionModuleCountNone: count None = 0", 0, exp.testOptionModuleCountNone(),);
 check("optionModuleCountSome: count (Some 5) = 1", 1, exp.testOptionModuleCountSome(),);
 
-// ─── Sprint 10b: fable-library-wasmgc/Result.fs — BCL migration (Phase A) ────
+// ─── Sprint 10b: FSharp.Wasm.Core/Result.fs — BCL migration (Phase A) ────
 check("resultModuleIsOk: ResultModule.isOk (Ok 5) = 1", 1, exp.testResultModuleIsOk(),);
 check("resultModuleIsOkFalse: ResultModule.isOk (Error 0) = 0", 0, exp.testResultModuleIsOkFalse(),);
 check("resultModuleIsError: ResultModule.isError (Error 0) = 1", 1, exp.testResultModuleIsError(),);
@@ -530,6 +530,12 @@ check("Circle(2).Area() + Rect(3,4).Area() = 16", 16, exp.testDuInterfacePoly())
 console.log("\n─── Regular class implementing interface ─────────\n");
 check("ClassCircle(5).Area() = 25",              25, exp.testClassCircleArea());
 check("ClassRect(3,7).Area() = 21",              21, exp.testClassRectArea());
+check("interface used before any implementation, class, members in reverse order", 29, exp.testInterfaceBeforeImplClass());
+check("interface used before any implementation, record, members in reverse order", 28, exp.testInterfaceBeforeImplRecord());
+check("object expression implementing an interface, with a capture", 28, exp.testObjectExprCapture());
+check("object expression, two instances keep their captures", 220, exp.testObjectExprTwoInstances());
+check("object expression, members share a captured ref cell", 12, exp.testObjectExprSharedState());
+check("object expression next to a class implementing the same interface", 6, exp.testObjectExprNextToClass());
 check("ICircle(3) + ClassRect(2,6) = 21",        21, exp.testMixedShapes());
 
 console.log("\n─── List.sortWith ────────────────────────────────\n");
@@ -833,6 +839,34 @@ check("Queue<int> → 122",                                      122, exp.testQu
 check("Queue wraps and grows → 638",                           638, exp.testQueueWrapAndGrow());
 check("Queue of records → 72",                                 72, exp.testQueueOfRecords());
 check("record with list field → 5",                           5, exp.testRecordListField());
+check("ResizeArray(seq) copies the elements", 48, exp.testResizeArrayFromList());
+check("ResizeArray(capacity) is empty", 13, exp.testResizeArrayCapacityCtor());
+check("ResizeArray Sort + ToArray", 3123, exp.testResizeArraySortToArray());
+check("ResizeArray Sort(Comparison)", 9741, exp.testResizeArraySortComparison());
+check("ResizeArray Insert + Reverse", 321, exp.testResizeArrayInsertReverse());
+check("ResizeArray RemoveAt", 357, exp.testResizeArrayRemoveAt());
+check("ResizeArray Remove / IndexOf / Contains", 1321, exp.testResizeArrayRemoveIndexOfContains());
+check("ResizeArray Clear + AddRange (list, array)", 518, exp.testResizeArrayClearAddRange());
+check("ResizeArray grows through Insert and AddRange", 21030, exp.testResizeArrayGrows());
+check("local closure named like a library function", 14, exp.testLocalClosureNamedLikeLibraryFunction());
+check("collections with a capacity argument", 3451, exp.testCapacityConstructors());
+check("List.indexed", 80, exp.testListIndexed());
+check("List.findIndex with a partial application", 2, exp.testListFindIndexPartial());
+check("List.findIndex with a named function", 1, exp.testListFindIndexNamed());
+check("List.tryItem inside / past the end / negative", 2000, exp.testListTryItem());
+check("List.ofSeq of Dictionary.Keys", 35, exp.testListOfSeqDictKeys());
+check("StringBuilder.Clear", 22, exp.testStringBuilderClear());
+check("array comprehension: match with a () arm yielding a tuple", 22, exp.testComprehensionMatchYieldTuple());
+check("Seq functions over a ResizeArray", 10, exp.testSeqOverResizeArray());
+check("findIndex with a partial application of a record field", 2, exp.testFindIndexPartialOfField());
+check("struct record copy through an inline builder", 724321, exp.testStructRecordCopyThroughBuilder());
+check("or pattern binding a reference", 4, exp.testOrPatternBindsReference());
+check("property of an interface value", 73, exp.testInterfaceProperty());
+check("string option equality", 1101, exp.testStringOptionEquality());
+check("let-bound generic lambda", 1030, exp.testLocalGenericLambda());
+check("StringBuilder.Append(char / int) and ToString", 4 * 100 + 55, exp.testStringBuilderCharAndInt());
+check("out argument of a reference type", 35, exp.testOutArgReference());
+check("module-level value is evaluated once and shared", 340, exp.testModuleValueIsShared());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
