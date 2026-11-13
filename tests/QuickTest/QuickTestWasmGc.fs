@@ -3485,3 +3485,16 @@ let testModuleValueIsShared () : int =
     let third = sharedCounter.Next()
     sharedTable.[0] <- 40
     third * 100 + sharedTable.[0]
+
+/// `Stack(seq)` pushes in order (1 at the bottom), `TryPop` / `TryPeek` do not throw: 3 * 100 + 2 * 10 + 0 (empty: false) + 0 left
+let testStackTryPopAndSeqCtor () : int =
+    let s = System.Collections.Generic.Stack<int>([ 1; 2; 3 ])
+    let mutable top = 0
+    let ok = s.TryPop(&top)
+    let mutable next = 0
+    let okPeek = s.TryPeek(&next)
+    s.Pop() |> ignore
+    s.Pop() |> ignore
+    let mutable none = 0
+    let okEmpty = s.TryPop(&none)
+    (if ok then top * 100 else 0) + (if okPeek then next * 10 else 0) + (if okEmpty then 1000 else 0) + s.Count
