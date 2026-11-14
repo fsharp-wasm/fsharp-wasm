@@ -4,8 +4,8 @@
 > It is intentionally free of fixed dates — this is an open-source project and timing
 > depends on contributors, sponsors, and community priorities.
 >
-> **Current state:** Sprint 19e complete — 377/377 tests passing, Math.Exp/Log software implementations,
-> `WExpr.RefTest` AST node for future `ref.test` optimization, all BCL P1 items complete.
+> **Current state:** see [STATUS.md](STATUS.md) for the dated test results and the known gaps (recorded 2026-11-14: 656 QuickTests and 11 more suites,
+> a differential run against .NET of 183 012 calls with no disagreement). The sprint history below is kept as history.
 
 ---
 
