@@ -3545,3 +3545,42 @@ let testListSortByManyElements () : int =
     let sorted = List.sortBy (fun v -> v % 1000) xs
     let ok = sorted |> List.pairwise |> List.forall (fun (a, b) -> a % 1000 <= b % 1000)
     (if ok then 1000000 else 0) + List.length sorted * 100 + List.sum sorted % 100
+
+// ── inlining of small functions: the arguments are evaluated once and in order, the callee's names cannot capture the caller's ──
+
+let private inlSq (n: int) : int = n * n
+let private inlAddTwice (n: int) (m: int) : int = n + n + m
+let private inlPick (c: bool) (a: int) (b: int) : int = if c then a else b
+let private inlClamp (v: int) (lo: int) (hi: int) : int = if v < lo then lo elif v > hi then hi else v
+let private inlChain (n: int) : int = inlSq (inlClamp n 0 10) + 1
+let private inlMutating (x: int) : int =
+    let mutable acc = x
+    acc <- acc * 2
+    acc <- acc + 1
+    acc
+let private inlFirst (a: int[]) (i: int) : int = a.[i] + a.Length
+
+let testInlineEvalOnce () : int =
+    let calls = ref 0
+    let next () = calls.Value <- calls.Value + 1; calls.Value * 10
+    let r = inlAddTwice (next ()) (next ())          // n = 10 is used twice by the callee but evaluated once: 10 + 10 + 20
+    r * 100 + calls.Value                            // 4002
+
+let testInlineNameCapture () : int =
+    let n = 5
+    let m = 7
+    inlAddTwice m n + n                              // the callee's n and m are the caller's m and n: 7 + 7 + 5, then + 5
+
+let testInlineChain () : int = inlChain 15 + inlChain -3 + inlChain 4      // 101 + 1 + 17
+
+let testInlineStrictArguments () : int =
+    let calls = ref 0
+    let tick () = calls.Value <- calls.Value + 1; 1
+    let r = inlPick true (tick ()) (tick ())         // both arguments are evaluated, in order, whichever the callee takes
+    r * 10 + calls.Value                             // 12
+
+let testInlineLocalMutation () : int = inlMutating 3 + inlMutating 10      // 7 + 21
+
+let testInlineArrayArguments () : int =
+    let a = [| 1; 2; 3 |]
+    inlFirst a 2 + inlFirst a 0                      // (3 + 3) + (1 + 3)

@@ -5,6 +5,12 @@ All notable changes to the compiler are documented here (newest first). The sibl
 ## [Unreleased]
 
 ### Added
+- **Inlining of small functions, opt-in** (`WASMGC_INLINE=1`). A call of a small (≤ 30 nodes), non-recursive function whose body has
+  no loop, block, join point, return, tail call, closure or exception becomes its body: a `let` per parameter (arguments evaluated
+  once, in order) and the callee's locals renamed per expansion. Off by default, because it does not pay where the engine inlines
+  itself (V8 and JavaScriptCore: no difference within the noise) and costs code (scene gallery +16 %, widget editor +4.7 %); it is
+  there for engines or flags that do not inline (V8 with `--no-wasm-inlining`: spectral norm 47 → 29 ms). QuickTest has six tests of its
+  semantics and runs a second time with the pass on in CI.
 - **Strings across the host boundary without the JS String Builtins** (`WASMGC_STRING_ABI=exports`). The module imports no
   `wasm:js-string`; a string crosses as an opaque reference and the host reads and builds strings through the exports
   `__str_len` / `__str_at` / `__str_new` / `__str_set`. Platforms that precompile a module without builtins (Cloudflare
@@ -24,6 +30,9 @@ All notable changes to the compiler are documented here (newest first). The sibl
   library directory, is still read).
 
 ### Fixed
+- `List.sortBy` / `sortByDescending` were an insertion sort (O(n²): 80 000 elements took 2 s) and compared keys numerically only, so a string
+  key did not compile. They are a stable merge sort over a key array now, ordered by the comparer Fable passes (numbers, strings, structural
+  keys), like `Array.sortBy`; reference elements work. `Array.sort`, `sortWith`, `List.sort` and `sortWith` were already merge sorts.
 - `for c in s` and `s.ToCharArray()` over a string gave an array of one-character *strings* where `char` is an `i32` (the
   module did not validate); they give a `char` array now (`$strToChars`).
 - A string literal pattern, `match s with "" -> … | v -> …`, no longer emits a null compare against the non-null `$strEq`
