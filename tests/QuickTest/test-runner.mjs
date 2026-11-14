@@ -874,6 +874,12 @@ check("List.sortBy: string keys, record elements, stable", 2431, exp.testListSor
 check("List.sortByDescending is stable", 42513, exp.testListSortByDescendingStable());
 check("List.sortBy: tuple keys", 40290721, exp.testListSortByTupleKey());
 check("List.sortBy: 3000 elements", 1300016, exp.testListSortByManyElements());
+check("inlining: an argument used twice is evaluated once", 4002, exp.testInlineEvalOnce());
+check("inlining: the callee's names do not capture the caller's", 24, exp.testInlineNameCapture());
+check("inlining: a chain of small functions", 119, exp.testInlineChain());
+check("inlining: arguments are strict, in order", 12, exp.testInlineStrictArguments());
+check("inlining: a callee that mutates a local", 28, exp.testInlineLocalMutation());
+check("inlining: array arguments", 10, exp.testInlineArrayArguments());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

@@ -73,6 +73,14 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: bash tests/QuickTest/run.sh
 
+      # The inlining pass of the optimizer is opt-in (WASMGC_INLINE=1): the same suite with it on, so that it does not rot
+      - name: QuickTest with the inlining pass
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          WASMGC_INLINE: "1"
+        run: bash tests/QuickTest/run.sh
+
       - name: Showcase
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:

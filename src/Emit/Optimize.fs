@@ -1,6 +1,9 @@
 /// WasmGC Optimization Passes — Phase 7 — applied to WasmIR before emission.
 ///
-/// Pass pipeline (applied in order, all pure WExpr → WExpr):
+/// Module pass first (needs the call graph):
+///   0. inlineSmallFunctions — opt-in (WASMGC_INLINE=1): a call of a small, non-recursive function becomes its body (`let` per parameter)
+///
+/// Pass pipeline per function (applied in order, all pure WExpr → WExpr):
 ///   1. inlineJoins        — beta-reduce join points (fixed-point, no mutation)
 ///   2. foldConstants      — arithmetic/comparison/branch on literals + identities
 ///   3. strengthReduce     — algebraic strength reduction (mul→shl, div→shr, etc.)
@@ -38,6 +41,89 @@ module private InlineCfg =
     let isSmall (expr: WExpr) =
         // WExprQuery.count walks the tree; early exit isn't available, but limit is tiny.
         count (fun _ -> true) expr <= SmallBodyLimit
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pass 0 — Inlining of small functions (module level)
+// ─────────────────────────────────────────────────────────────────────────────
+// The engine inlines when it optimises (V8's TurboFan decides by the module it has: the same function ran in 60 ms in one module
+// and in 36 ms in another), and its baseline tier inlines nothing.  Doing it here makes the code the same everywhere.
+//
+// A callee qualifies when its body is a plain expression (no loop, block, join point, return, tail call, closure or exception: nothing
+// that is local to its own frame), has at most `MaxNodes` nodes, does not assign to a parameter and is not part of a call cycle.
+// `Call(f, args)` becomes `let p1' = a1 in let p2' = a2 in body'`, every local of the callee renamed with a suffix that is unique to
+// this expansion: the arguments are still evaluated once and left to right, and nothing of the caller can be captured.
+// Two rounds, so that a chain of small helpers collapses; the constant folding and the let-alias removal that follow clean up the lets.
+// Opt-in: WASMGC_INLINE=1 switches the pass on (see `enabled` for why it is not the default).
+
+module private InlineFns =
+    [<Literal>]
+    let MaxNodes = 30
+
+    /// Off unless WASMGC_INLINE=1: measured (docs/benchmarks.md of fsharp-wasm-runtime), it makes no difference where the engine inlines itself
+    /// (V8 and JavaScriptCore: the geometric mean of the benchmark stays within 1-2 %, the noise), costs code (the scene gallery grows by 16 %, the
+    /// widget editor by 4.7 %), and only pays where the engine does not inline: with V8's inliner off the spectral norm needs 29 ms instead of 47.
+    let enabled = System.Environment.GetEnvironmentVariable "WASMGC_INLINE" = "1"
+
+    /// Nodes a callee may consist of; anything else (loops, blocks, join points, returns, tail calls, closures, try, switch) keeps its call.
+    let rec private plain (e: WExpr) =
+        match e with
+        | WExpr.Const _ | WExpr.LocalGet _ | WExpr.GlobalGet _ | WExpr.Nop -> true
+        | WExpr.Let _ | WExpr.LetMut _ | WExpr.Assign _ | WExpr.GlobalSet _
+        | WExpr.Call _ | WExpr.StructNew _ | WExpr.StructGet _ | WExpr.StructSet _
+        | WExpr.ArrayNew _ | WExpr.ArrayNewFixed _ | WExpr.ArrayGet _ | WExpr.ArraySet _ | WExpr.ArrayLen _
+        | WExpr.If _ | WExpr.Sequence _ | WExpr.Cast _ | WExpr.RefIsNull _ | WExpr.RefTest _ | WExpr.TagOf _
+        | WExpr.Unary _ | WExpr.Binary _ | WExpr.Compare _ -> List.forall plain (children e)
+        | _ -> false
+
+    let private calleesOf (body: WExpr) : string list =
+        collect (function WExpr.Call _ | WExpr.TailCall _ -> true | _ -> false) body
+        |> List.map (function WExpr.Call(n, _, _) | WExpr.TailCall(n, _, _) -> n | _ -> "")
+        |> List.distinct
+
+    /// The functions that can reach themselves through direct calls.
+    let private recursive (funcs: WFuncDecl list) : Set<string> =
+        let graph = funcs |> List.map (fun f -> f.Name, calleesOf f.Body) |> dict
+        let reaches (start: string) =
+            let seen = System.Collections.Generic.HashSet<string>()
+            let rec go name =
+                match graph.TryGetValue name with
+                | true, next -> next |> List.exists (fun n -> n = start || (seen.Add n && go n))
+                | _ -> false
+            go start
+        funcs |> List.filter (fun f -> reaches f.Name) |> List.map (fun f -> f.Name) |> Set.ofList
+
+    let private qualifies (cycle: Set<string>) (f: WFuncDecl) =
+        not (cycle.Contains f.Name)
+        && plain f.Body
+        && count (fun _ -> true) f.Body <= MaxNodes
+        && not (exists (function WExpr.Assign(n, _) -> f.Params |> List.exists (fun (p, _) -> p = n) | _ -> false) f.Body)
+
+    let private rename (suffix: string) (names: Set<string>) (body: WExpr) : WExpr =
+        rewrite (function
+            | WExpr.LocalGet(n, t) when names.Contains n -> Some(WExpr.LocalGet(n + suffix, t))
+            | WExpr.Assign(n, v) when names.Contains n -> Some(WExpr.Assign(n + suffix, v))
+            | WExpr.Let(n, v, b) when names.Contains n -> Some(WExpr.Let(n + suffix, v, b))
+            | WExpr.LetMut(n, v, b) when names.Contains n -> Some(WExpr.LetMut(n + suffix, v, b))
+            | _ -> None) body
+
+    let private expand (callees: System.Collections.Generic.IDictionary<string, WFuncDecl>) (counter: int ref) (body: WExpr) : WExpr =
+        rewrite (function
+            | WExpr.Call(name, args, _) when callees.ContainsKey name && callees.[name].Params.Length = args.Length ->
+                let c = callees.[name]
+                counter.Value <- counter.Value + 1
+                let suffix = sprintf "$i%d" counter.Value
+                let bound = Set.ofList ((c.Params |> List.map fst) @ (allLetBindings c.Body |> List.map fst))
+                Some(List.foldBack2 (fun (p, _) arg acc -> WExpr.Let(p + suffix, arg, acc)) c.Params args (rename suffix bound c.Body))
+            | _ -> None) body
+
+    let inlineSmallFunctions (funcs: WFuncDecl list) : WFuncDecl list =
+        let counter = ref 0
+        let cycle = recursive funcs
+        let round (fs: WFuncDecl list) =
+            let callees = fs |> List.filter (qualifies cycle) |> List.map (fun f -> f.Name, f) |> dict
+            if callees.Count = 0 then fs
+            else fs |> List.map (fun f -> { f with Body = expand callees counter f.Body })
+        funcs |> round |> round
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Purity oracle
@@ -318,8 +404,9 @@ let optimizeFuncBody (body: WExpr) : WExpr =
 
 /// Apply all passes to every function in a WModule.
 let optimizeModule (wmod: WModule) : WModule =
+    let functions = if InlineFns.enabled then InlineFns.inlineSmallFunctions wmod.Functions else wmod.Functions
     { wmod with
         Functions =
-            wmod.Functions
+            functions
             |> List.map (fun f -> { f with Body = optimizeFuncBody f.Body }) }
 
