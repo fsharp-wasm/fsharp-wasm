@@ -50,7 +50,7 @@ type ModuleInterface = {
 /// Uses structural form; does NOT embed local type indices (those change).
 let rec private tyKey = function
     | WType.I32 -> "i32" | WType.I64 -> "i64"
-    | WType.F32 -> "f32" | WType.F64 -> "f64" | WType.I16 -> "i16"
+    | WType.F32 -> "f32" | WType.F64 -> "f64" | WType.I16 -> "i16" | WType.I8 -> "i8"
     | WType.Void -> "void" | WType.AnyRef -> "any" | WType.EqRef -> "eq"
     | WType.Externref -> "ext" | WType.ExternNonNull -> "extnn" | WType.I31ref -> "i31"
     | WType.Ref(idx, false) -> $"ref{idx}"  // index-based — good enough for same-module use

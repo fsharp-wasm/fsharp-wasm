@@ -3584,3 +3584,84 @@ let testInlineLocalMutation () : int = inlMutating 3 + inlMutating 10      // 7 
 let testInlineArrayArguments () : int =
     let a = [| 1; 2; 3 |]
     inlFirst a 2 + inlFirst a 0                      // (3 + 3) + (1 + 3)
+
+// ── byte[] and bool[]: the same results as .NET, whether the elements are stored in 32 or in 8 bits ──
+
+let testByteArrayRoundTrip () : int =
+    let a = Array.zeroCreate<byte> 4
+    a.[0] <- 255uy; a.[1] <- 128uy; a.[2] <- 1uy; a.[3] <- byte 300     // 300 wraps to 44
+    int a.[0] + int a.[1] * 10 + int a.[2] * 1000 + int a.[3] * 100000
+
+let testByteArrayArithmetic () : int =
+    let a = [| 250uy; 3uy; 200uy; 7uy |]
+    let b = Array.map (fun x -> x + 10uy) a                             // wraps: 4 13 210 17
+    let c = Array.append a b |> Array.rev
+    let d = Array.sub c 2 4
+    Array.sumBy int d * 1000 + Array.length c
+
+let testByteArrayBlitCopy () : int =
+    let src = Array.init 8 (fun i -> byte (i * 40))                      // 0 40 80 120 160 200 240 24
+    let dst = Array.zeroCreate<byte> 8
+    Array.blit src 2 dst 1 5
+    let copy = Array.copy dst
+    copy.[0] <- 99uy
+    Array.sumBy int copy + int dst.[0]
+
+let testByteArraySort () : int =
+    let s = [| 200uy; 5uy; 255uy; 0uy; 17uy |] |> Array.sort
+    int s.[0] + int s.[1] * 10 + int s.[2] * 100 + int s.[3] * 1000 + int s.[4] * 10000
+
+let testByteArrayFilterFold () : int =
+    let a = Array.init 20 (fun i -> byte (i * 13))
+    let big = a |> Array.filter (fun x -> x > 100uy)
+    (big |> Array.fold (fun acc x -> acc + int x) 0) + big.Length
+
+let testBoolArray () : int =
+    let a = Array.create 10 false
+    for i in 0 .. 4 do a.[i * 2] <- true
+    let n = a |> Array.filter id |> Array.length
+    let m = a |> Array.map not |> Array.filter id |> Array.length
+    (if a.[4] then 100 else 0) + (if a.[5] then 10 else 0) + n * 1000 + m * 10000
+
+let testBoolArrayLiteral () : int =
+    let a = [| true; false; true; true |]
+    let r = Array.rev a
+    (if r.[0] then 1 else 0) + (if r.[1] then 10 else 0) + (if r.[2] then 100 else 0) + (if Array.forall id a then 1000 else 0) + (if Array.exists id a then 10000 else 0)
+
+let testByteArrayForIn () : int =
+    let a = [| 1uy; 2uy; 255uy |]
+    let mutable s = 0
+    for x in a do s <- s * 3 + int x
+    s
+
+let testByteArrayToList () : int =
+    let l = [ 7uy; 250uy; 3uy ]
+    let a = List.toArray l
+    let back = Array.toList a |> List.map int
+    List.sum back * 10 + a.Length
+
+let testByteArraySortBy () : int =
+    let a = [| 30uy; 255uy; 4uy; 128uy |] |> Array.sortBy (fun x -> 255uy - x)
+    int a.[0] + int a.[1] * 1000 + int a.[3] * 1000000
+
+let testByteResizeArray () : int =
+    let r = System.Collections.Generic.List<byte>()
+    for i in 0 .. 9 do r.Add(byte (i * 30))                  // the last ones wrap: 270 -> 14
+    r.Add 255uy
+    let a = r.ToArray()
+    a.Length * 1000 + (a |> Array.sumBy int) + int r.[10]
+
+let testBoolResizeArray () : int =
+    let r = System.Collections.Generic.List<bool>()
+    for i in 0 .. 7 do r.Add(i % 3 = 0)
+    let a = r.ToArray()
+    (a |> Array.filter id |> Array.length) * 100 + a.Length * 10 + (if r.[6] then 1 else 0)
+
+let testByteAppendInit () : int =
+    let a = Array.append (Array.append [| 1uy |] [| 2uy; 255uy |]) (Array.init 3 (fun i -> byte (i + 250)))
+    Array.sumBy int a * 10 + a.Length
+
+let testByteOfSeq () : int =
+    let a = Seq.toArray (seq { for i in 0 .. 5 -> byte (i * 60) })
+    let b = Array.ofList [ 9uy; 250uy ]
+    Array.sumBy int a + Array.sumBy int b * 1000

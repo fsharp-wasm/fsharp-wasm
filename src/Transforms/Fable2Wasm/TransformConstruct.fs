@@ -319,12 +319,12 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
         | None -> eval ctx srcExpr
     | NewArray(Fable.NewArrayKind.ArrayValues exprs, elemType, _) ->
         let elemT = mapTypeKnown ctx elemType
-        let arrTypeIdx = getOrAddArrayType ctx elemT
+        let arrTypeIdx = getOrAddArrayTypeFor ctx elemType elemT
         let wVals = exprs |> List.map (eval ctx)
         WExpr.ArrayNewFixed(arrTypeIdx, wVals, WType.Ref(arrTypeIdx, false))
     | NewArray(Fable.NewArrayKind.ArrayAlloc sizeExpr, elemType, _) ->
         let elemT = mapTypeKnown ctx elemType
-        let arrTypeIdx = getOrAddArrayType ctx elemT
+        let arrTypeIdx = getOrAddArrayTypeFor ctx elemType elemT
         let wSize = eval ctx sizeExpr
         let zero =
             match elemT with

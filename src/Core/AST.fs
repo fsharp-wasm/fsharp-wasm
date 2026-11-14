@@ -23,6 +23,9 @@ type WType =
     /// Packed 16-bit integer — only valid as a WTypeDef.Array element type (i16 strings).
     /// Automatically uses array.get_s on read-back.
     | I16
+    /// Packed 8-bit integer — only valid as a WTypeDef.Array element type (bool[] and byte[] under WASMGC_PACKED_BYTES=1).
+    /// Reads back unsigned (array.get_u): 0..255.
+    | I8
     | Ref of typeIdx: int * nullable: bool
     | Func of args: WType list * results: WType list
     | Struct of fields: WField list
@@ -66,6 +69,7 @@ module WTypeKeys =
         | WType.F32 -> "f32"
         | WType.F64 -> "f64"
         | WType.I16 -> "i16"
+        | WType.I8 -> "i8"
         | WType.Void -> "void"
         | WType.Externref -> "extern"
         | WType.ExternNonNull -> "externnn"

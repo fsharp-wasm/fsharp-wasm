@@ -5,6 +5,12 @@ All notable changes to the compiler are documented here (newest first). The sibl
 ## [Unreleased]
 
 ### Added
+- **`bool[]`, `byte[]` and their ResizeArrays are stored in 8 bits** (`(array (mut i8))`, read with `array.get_u`) instead of 32: a quarter of the memory,
+  and the benchmark's sieve — a `bool[]` written with a stride — runs in 44 ms instead of 69 (1.08× JavaScript instead of 0.63×). `getOrAddArrayTypeFor` /
+  `getOrAddResizeArrayTypeFor` decide, from the F# element type, which array type a value has; the arrays a library routine makes for itself stay 32-bit.
+  `WASMGC_PACKED_BYTES=0` switches it off. Checked: QuickTest 656 of 656 in both layouts (fourteen new tests of byte and bool arrays), the other suites, the
+  backend's Ghost Todo module on all eight platforms of its matrix, the widget editor and the scene gallery in Chromium. `sbyte[]` stays 32-bit (it would
+  need `array.get_s` and has no user in sight).
 - **Inlining of small functions, opt-in** (`WASMGC_INLINE=1`). A call of a small (≤ 30 nodes), non-recursive function whose body has
   no loop, block, join point, return, tail call, closure or exception becomes its body: a `let` per parameter (arguments evaluated
   once, in order) and the callee's locals renamed per expansion. Off by default, because it does not pay where the engine inlines
@@ -30,6 +36,8 @@ All notable changes to the compiler are documented here (newest first). The sibl
   library directory, is still read).
 
 ### Fixed
+- **`Array.blit` and `System.Array.Copy` did nothing.** Fable asks for the library routines `copyTo` / `copyToArray`; they were an unhandled import call —
+  compiled to nothing, with only a warning (WGC002). They are `array.copy` now (overlapping ranges move correctly; out of range traps where .NET throws).
 - `List.sortBy` / `sortByDescending` were an insertion sort (O(n²): 80 000 elements took 2 s) and compared keys numerically only, so a string
   key did not compile. They are a stable merge sort over a key array now, ordered by the comparer Fable passes (numbers, strings, structural
   keys), like `Array.sortBy`; reference elements work. `Array.sort`, `sortWith`, `List.sort` and `sortWith` were already merge sorts.

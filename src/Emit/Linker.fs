@@ -36,7 +36,7 @@ let rec private typeDefKey (typeKey: int -> string) (def: WTypeDef) : string =
         let rec wt = function
             | WType.I32 -> "i32" | WType.I64 -> "i64"
             | WType.F32 -> "f32" | WType.F64 -> "f64"
-            | WType.I16 -> "i16" | WType.Void -> "void"
+            | WType.I16 -> "i16" | WType.I8 -> "i8" | WType.Void -> "void"
             | WType.Externref -> "ext" | WType.ExternNonNull -> "extnn" | WType.I31ref -> "i31"
             | WType.EqRef -> "eq"   | WType.AnyRef -> "any"
             | WType.Ref(idx, false) -> $"ref({typeKey idx})"

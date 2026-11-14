@@ -474,6 +474,18 @@ let getOrAddArrayType (ctx: Ctx) (elemType: WType) : int =
         ctx.ArrayRegistry.[key] <- idx
         idx
 
+/// `bool[]`, `byte[]` and their ResizeArrays are arrays of 8-bit elements (`(array (mut i8))`, read with array.get_u) instead of 32-bit ones:
+/// a quarter of the memory, and the sieve of the benchmark (a `bool[]` written with a stride) runs in 44 ms instead of 69.  WASMGC_PACKED_BYTES=0
+/// switches it off (every element of such an array then takes four bytes, as before).
+let packedBytes = System.Environment.GetEnvironmentVariable "WASMGC_PACKED_BYTES" <> "0"
+
+/// The GC array type of the elements of the Fable type `elementType` (`elemT`: what it maps to).  The one place that knows which
+/// elements are stored packed: every array of such elements has to come from here, or two arrays of one F# type differ in the module.
+let getOrAddArrayTypeFor (ctx: Ctx) (elementType: Fable.Type) (elemT: WType) : int =
+    match elementType with
+    | Fable.Type.Boolean | Fable.Type.Number(NumberKind.UInt8, _) when packedBytes -> getOrAddArrayType ctx WType.I8
+    | _ -> getOrAddArrayType ctx elemT
+
 /// Resolve a generic DU instance key to its registered GC type index.
 /// Key format: "FullName<wTypeKey1,wTypeKey2,...>" — built in mapTypeKnown for generic args.
 let getOrAddOptionType (ctx: Ctx) (elemT: WType) =
@@ -502,12 +514,14 @@ let optionRepr (ctx: Ctx) (elemT: WType) : WType * (WExpr -> WExpr) * WExpr =
 /// Register (if needed) a $ResizeArray_T struct:
 ///   struct { data: (mut ref? $Arr_T); len: (mut i32) }
 /// Returns (arrTypeIdx, ravTypeIdx).
-let getOrAddResizeArrayType (ctx: Ctx) (elemT: WType) : int * int =
-    let key = wTypeKey elemT
+let getOrAddResizeArrayTypeFor (ctx: Ctx) (elementType: Fable.Type) (elemT: WType) : int * int =
+    // a ResizeArray of packed elements has its own data array type, so it has its own struct: the key says so
+    let packed = (getOrAddArrayTypeFor ctx elementType elemT) <> (getOrAddArrayType ctx elemT)
+    let key = wTypeKey elemT + (if packed then "+packed" else "")
     match ctx.ResizeArrayRegistry.TryGetValue(key) with
     | true, pair -> pair
     | false, _ ->
-        let arrTypeIdx = getOrAddArrayType ctx elemT
+        let arrTypeIdx = getOrAddArrayTypeFor ctx elementType elemT
         let ravTypeIdx = ctx.TypeDefs.Count
         ctx.TypeDefs.Add({ Name = $"$ResizeArray_{ravTypeIdx}"
                            Def = WTypeDef.Struct([
@@ -516,6 +530,9 @@ let getOrAddResizeArrayType (ctx: Ctx) (elemT: WType) : int * int =
                            ], None) })
         ctx.ResizeArrayRegistry.[key] <- (arrTypeIdx, ravTypeIdx)
         (arrTypeIdx, ravTypeIdx)
+
+/// The ResizeArray type for elements that are never packed (a temporary of a library routine, where no F# type is at hand).
+let getOrAddResizeArrayType (ctx: Ctx) (elemT: WType) : int * int = getOrAddResizeArrayTypeFor ctx Fable.Type.Any elemT
 
 // ─────────────────────────────────────────────────────────────────
 // Closure ABI — single source of truth
@@ -650,11 +667,11 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     | Fable.Type.Array(elementType, Fable.ArrayKind.ResizeArray) ->
         // ResizeArray<T> is backed by a growable struct { data; len }.
         let elemT = mapTypeKnown ctx elementType
-        let (_, ravTypeIdx) = getOrAddResizeArrayType ctx elemT
+        let (_, ravTypeIdx) = getOrAddResizeArrayTypeFor ctx elementType elemT
         WType.Ref(ravTypeIdx, false)
     | Fable.Type.Array(elementType, _) ->
         let elemT = mapTypeKnown ctx elementType
-        WType.Ref(getOrAddArrayType ctx elemT, false)
+        WType.Ref(getOrAddArrayTypeFor ctx elementType elemT, false)
     | _ -> mapType t
 
 

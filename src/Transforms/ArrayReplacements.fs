@@ -58,7 +58,7 @@ let coerceToSeq (ctx: Ctx) (argType: Fable.Type) (w: WExpr) : WExpr =
         match tryListTypeInfoFromElemType ctx elemFableT with
         | Some(elemT, consIdx) ->
             let s = mkListShape elemT consIdx
-            let arrIdx, _ = getOrAddResizeArrayType ctx elemT
+            let arrIdx, _ = getOrAddResizeArrayTypeFor ctx elemFableT elemT
             wasm {
                 let! rav = w
                 let! data = WExpr.Cast(WExpr.StructGet(rav, 0, WType.Ref(arrIdx, true)), WType.Ref(arrIdx, false))
@@ -107,7 +107,7 @@ let tryArrayInline
         match arrElemT resultFableType, wArgs with
         | Some elemFableT, [wSize; wInit] ->
             let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
             Some(arrayNew arrTypeIdx wSize wInit (WType.Ref(arrTypeIdx, false)))
         | _ -> None
     // Array.zeroCreate n
@@ -115,7 +115,7 @@ let tryArrayInline
         match arrElemT resultFableType, wArgs with
         | Some elemFableT, [wSize] ->
             let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
             Some(arrayNew arrTypeIdx wSize (makeNumericZero elemT) (WType.Ref(arrTypeIdx, false)))
         | _ -> None
     // Array.length
@@ -139,7 +139,7 @@ let tryArrayInline
             let wArrFinal =
                 match arrFableArg.Type with
                 | ResizeArrayOf _ ->
-                    let (arrTypeIdx, _) = getOrAddResizeArrayType ctx elemT
+                    let (arrTypeIdx, _) = getOrAddResizeArrayTypeFor ctx elemFableT elemT
                     let arrRefT = WType.Ref(arrTypeIdx, true)
                     cast (structGet wArr 0 arrRefT) (WType.Ref(arrTypeIdx, false))
                 | _ -> wArr
@@ -156,7 +156,7 @@ let tryArrayInline
                 | [wArr; wIdx; wVal] ->
                     match arrArg.Type with
                     | ResizeArrayOf _ ->
-                        let (arrTypeIdx, _) = getOrAddResizeArrayType ctx elemT
+                        let (arrTypeIdx, _) = getOrAddResizeArrayTypeFor ctx elemFableT elemT
                         let arrRefT = WType.Ref(arrTypeIdx, true)
                         Some(arraySet (cast (structGet wArr 0 arrRefT) (WType.Ref(arrTypeIdx, false))) wIdx wVal)
                     | _ ->
@@ -179,7 +179,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let arrRef = WType.Ref(arrTypeIdx, false)
                 let wSrc = List.head wArgs
                 let gen = LabelGen("acpy")
@@ -192,11 +192,28 @@ let tryArrayInline
             | None -> None
         | _ -> None
     // Array.fill
+    // Array.blit source sourceIndex target targetIndex count and System.Array.Copy(source, sourceIndex, target, targetIndex, count) arrive as
+    // copyTo / copyToArray with those arguments (Copy(source, target, count): without the indices).  array.copy moves overlapping ranges
+    // correctly and traps out of range, where Array.Copy throws.  Both were an unhandled import call — compiled to nothing, with a warning.
+    | "copyTo" | "copyToArray" ->
+        let copy src srcIdx dst dstIdx n =
+            wasm {
+                let! s = src
+                let! si = srcIdx
+                let! d = dst
+                let! di = dstIdx
+                let! count = n
+                do! WExpr.ArrayCopy(d, di, s, si, count)
+            }
+        match wArgs with
+        | [ wSrc; wSrcIdx; wDst; wDstIdx; wCount ] -> Some(copy wSrc wSrcIdx wDst wDstIdx wCount)
+        | [ wSrc; wDst; wCount ] -> Some(copy wSrc (i32Const 0) wDst (i32Const 0) wCount)
+        | _ -> None
     | "fill" ->
         match arrElemT resultFableType with
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
             let arrRefT = WType.Ref(arrTypeIdx, false)
             // `Array.zeroCreate<'T> n` fills with `null` (`Unchecked.defaultof`) whatever 'T is: for a number that is zero
             let fillValue (v: WExpr) =
@@ -229,7 +246,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let a = mkArrayShape elemT arrTypeIdx
                 let gen = LabelGen("aiter")
                 let wArr = transform ctx arrArg
@@ -248,7 +265,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let a = mkArrayShape elemT arrTypeIdx
                 let gen = LabelGen("aiteri")
                 let wArr = transform ctx arrArg
@@ -268,10 +285,10 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let resultFableT = match resultFableType with | ArrayOf t -> t | _ -> elemFableT
                 let resultElemT = mapTypeKnown ctx resultFableT
-                let resultArrIdx = getOrAddArrayType ctx resultElemT
+                let resultArrIdx = getOrAddArrayTypeFor ctx resultFableT resultElemT
                 let a = mkArrayShape elemT arrTypeIdx
                 let ra = mkArrayShape resultElemT resultArrIdx
                 let gen = LabelGen("amap")
@@ -291,10 +308,10 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let resultFableT = match resultFableType with | ArrayOf t -> t | _ -> elemFableT
                 let resultElemT = mapTypeKnown ctx resultFableT
-                let resultArrIdx = getOrAddArrayType ctx resultElemT
+                let resultArrIdx = getOrAddArrayTypeFor ctx resultFableT resultElemT
                 let a = mkArrayShape elemT arrTypeIdx
                 let ra = mkArrayShape resultElemT resultArrIdx
                 let gen = LabelGen("amapi")
@@ -314,7 +331,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let a = mkArrayShape elemT arrTypeIdx
                 let gen = LabelGen("afold")
                 let wArr = List.last wArgs
@@ -337,7 +354,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let outOfRange n len = wasmOr (ltS n (i32Const 0)) (gtS n len)
                 Some(wasm {
                     // skip: a count <= 0 keeps the whole array
@@ -364,7 +381,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+                let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
                 let wPred = transform (ctx.WithLocal(farg.Name, elemT)) fbody
                 let found elem = WExpr.Let(farg.Name, elem, wPred)
                 if selector = "find" then
@@ -380,7 +397,7 @@ let tryArrayInline
             match arrElemT (List.last fableArgs).Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+                let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
                 let optT, some, none = optionRepr ctx elemT
                 let wSrc = List.last wArgs
                 Some(wasm {
@@ -398,7 +415,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+                let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
                 let accT = mapTypeKnown ctx initArg.Type
                 let wBody = transform (ctx.WithLocal(farg.Name, elemT).WithLocal(sacc.Name, accT)) fbody
                 Some(wasm {
@@ -419,7 +436,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 Some(wasm {
                     let! src = wSrc
                     let! start = wStart
@@ -443,7 +460,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let a = mkArrayShape elemT arrTypeIdx
                 let gen = LabelGen("aexi")
                 let wArr = transform ctx arrArg
@@ -466,7 +483,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let a = mkArrayShape elemT arrTypeIdx
                 let gen = LabelGen("afilt")
                 let wArr = transform ctx arrArg
@@ -485,7 +502,7 @@ let tryArrayInline
             let wLen = transform ctx lenArg
             let resultFableT = match resultFableType with | ArrayOf t -> t | _ -> Fable.Type.Any
             let resultElemT = mapTypeKnown ctx resultFableT
-            let resultArrIdx = getOrAddArrayType ctx resultElemT
+            let resultArrIdx = getOrAddArrayTypeFor ctx resultFableT resultElemT
             let resultArrRefT = WType.Ref(resultArrIdx, false)
             let gen = LabelGen("ainit")
             let ctx' = ctx.WithLocal(farg.Name, WType.I32)
@@ -505,7 +522,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let gen        = LabelGen("ared")
                 let wArr       = transform ctx arrArg
                 let ctx'       = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
@@ -533,7 +550,7 @@ let tryArrayInline
         match arrArg |> Option.bind (fun arr -> arrElemT arr.Type |> Option.map (fun t -> arr, t)) with
         | Some(arr, elemFableT) ->
             let elemT = mapTypeKnown ctx elemFableT
-            let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+            let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
             // the sum has the type of the projection (`sumBy float` over ints), else of the elements
             let sumT = match proj with Some(_, body) -> mapTypeKnown ctx body.Type | None -> elemT
             let term =
@@ -561,7 +578,7 @@ let tryArrayInline
             let elemT = mapTypeKnown ctx elemFableT
             let keyFT = match proj with Some(_, body) -> body.Type | None -> elemFableT
             let keyT = mapTypeKnown ctx keyFT
-            let a = mkArrayShape elemT (getOrAddArrayType ctx elemT)
+            let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
             let key =
                 match proj with
                 | Some(x, body) ->
@@ -600,7 +617,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let arrRefT    = WType.Ref(arrTypeIdx, false)
                 let wArr       = transform ctx arrArg
                 let gen        = LabelGen("arv")
@@ -644,8 +661,8 @@ let tryArrayInline
                 let wArr1 = transform ctx arr1Arg
                 let wArr2 = transform ctx arr2Arg
                 let gen = LabelGen("azip")
-                let a1ArrIdx = getOrAddArrayType ctx e1T
-                let a2ArrIdx = getOrAddArrayType ctx e2T
+                let a1ArrIdx = getOrAddArrayTypeFor ctx e1FT e1T
+                let a2ArrIdx = getOrAddArrayTypeFor ctx e2FT e2T
                 Some(wasm {
                     let! a1 = wArr1
                     let! a2 = wArr2
@@ -670,8 +687,8 @@ let tryArrayInline
                 let pairT   = mapTypeKnown ctx (Fable.Type.Tuple([ta; tb], false))
                 match pairT with
                 | WType.Ref(pairIdx, _) ->
-                    let aArrIdx = getOrAddArrayType ctx aT
-                    let bArrIdx = getOrAddArrayType ctx bT
+                    let aArrIdx = getOrAddArrayTypeFor ctx ta aT
+                    let bArrIdx = getOrAddArrayTypeFor ctx tb bT
                     let aArrRefT = WType.Ref(aArrIdx, false)
                     let bArrRefT = WType.Ref(bArrIdx, false)
                     let arrATupleWT = WType.Ref(aArrIdx, false)
@@ -708,10 +725,10 @@ let tryArrayInline
                 let e2T = mapTypeKnown ctx e2FT
                 let resultFT = fbody.Type
                 let resultET = mapTypeKnown ctx resultFT
-                let resArrIdx  = getOrAddArrayType ctx resultET
+                let resArrIdx  = getOrAddArrayTypeFor ctx resultFT resultET
                 let resArrRefT = WType.Ref(resArrIdx, false)
-                let arr1ArrIdx = getOrAddArrayType ctx e1T
-                let arr2ArrIdx = getOrAddArrayType ctx e2T
+                let arr1ArrIdx = getOrAddArrayTypeFor ctx e1FT e1T
+                let arr2ArrIdx = getOrAddArrayTypeFor ctx e2FT e2T
                 let wArr1 = transform ctx arr1Arg
                 let wArr2 = transform ctx arr2Arg
                 let wBody = transform ctx fbody
@@ -761,7 +778,7 @@ let tryArrayInline
             | _ -> arrayGet arrExpr idxExpr elemT
         let writeElem arrExpr idxExpr valExpr =
             arraySet arrExpr idxExpr valExpr
-        let arrTypeIdx = getOrAddArrayType ctx arrElemT
+        let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT arrElemT
         let arrRefT    = WType.Ref(arrTypeIdx, false)
         let wArr       = transform ctx arrArg
         let ctx'       = ctx.WithLocal(farg1.Name, elemT)
@@ -797,7 +814,7 @@ let tryArrayInline
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
                 let keyT = match proj with Some(_, body) -> mapTypeKnown ctx body.Type | None -> elemT
-                let elem, key = arrayAccess ctx elemT, arrayAccess ctx keyT
+                let elem, key = arrayAccessFor ctx elemFableT elemT, arrayAccess ctx keyT      // the keys are a temporary: they need not be packed
                 let wCmp = transform (ctx.WithLocal(ca.Name, keyT).WithLocal(cb.Name, keyT)) cbody
                 let ordered ka kb = WExpr.Let(ca.Name, ka, WExpr.Let(cb.Name, kb, wCmp))
                 let cmp = if descending then (fun a b -> ordered b a) else ordered
@@ -835,7 +852,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let a          = mkArrayShape elemT arrTypeIdx
                 let gen        = LabelGen("afidx")
                 let wArr       = transform ctx arrArg
@@ -869,7 +886,7 @@ let tryArrayInline
             match arrElemT arrArg.Type with
             | Some elemFableT ->
                 let elemT      = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let a          = mkArrayShape elemT arrTypeIdx
                 let gen        = LabelGen("acont")
                 let wArr       = transform ctx arrArg
@@ -891,8 +908,8 @@ let tryArrayInline
                 let accumFableT = initArg.Type
                 let elemT    = mapTypeKnown ctx elemFableT
                 let accT     = mapTypeKnown ctx accumFableT
-                let arrTypeIdx  = getOrAddArrayType ctx elemT
-                let accArrIdx = getOrAddArrayType ctx accT
+                let arrTypeIdx  = getOrAddArrayTypeFor ctx elemFableT elemT
+                let accArrIdx = getOrAddArrayTypeFor ctx accumFableT accT
                 let srcA      = mkArrayShape elemT arrTypeIdx
                 let srcRefT  = WType.Ref(arrTypeIdx, false)
                 let accArrRefT = WType.Ref(accArrIdx, false)
@@ -944,7 +961,7 @@ let tryArrayInline
             match arrElemT arrArg1.Type with
             | Some elemFableT ->
                 let elemT = mapTypeKnown ctx elemFableT
-                let arrTypeIdx = getOrAddArrayType ctx elemT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
                 let arrRefT = WType.Ref(arrTypeIdx, false)
                 let wArr1 = transform ctx arrArg1
                 let wArr2 = transform ctx fableArgs.[1]
@@ -974,8 +991,8 @@ let tryArrayInline
                     | _ -> Fable.Type.Any
                 let inElemT    = mapTypeKnown ctx inElemFableT
                 let outElemT   = mapTypeKnown ctx outElemFableT
-                let inArrIdx   = getOrAddArrayType ctx inElemT
-                let outArrIdx  = getOrAddArrayType ctx outElemT
+                let inArrIdx   = getOrAddArrayTypeFor ctx inElemFableT inElemT
+                let outArrIdx  = getOrAddArrayTypeFor ctx outElemFableT outElemT
                 let inArrRefT  = WType.Ref(inArrIdx, false)
                 let outArrRefT = WType.Ref(outArrIdx, false)
                 let wArr       = transform ctx arrArg
@@ -1038,8 +1055,8 @@ let tryArrayInline
                     | _ -> Fable.Type.Any
                 let inElemT    = mapTypeKnown ctx inElemFableT
                 let outElemT   = mapTypeKnown ctx outElemFableT
-                let inArrIdx   = getOrAddArrayType ctx inElemT
-                let outArrIdx  = getOrAddArrayType ctx outElemT
+                let inArrIdx   = getOrAddArrayTypeFor ctx inElemFableT inElemT
+                let outArrIdx  = getOrAddArrayTypeFor ctx outElemFableT outElemT
                 let inArrRefT  = WType.Ref(inArrIdx, false)
                 let outArrRefT = WType.Ref(outArrIdx, false)
                 let wArr       = transform ctx arrArg
@@ -1096,7 +1113,7 @@ let tryArrayInstanceCall
         match arrElemT arrExpr.Type with
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
             let a = mkArrayShape elemT arrTypeIdx
             let gen = LabelGen("ifilt")
             let wArr = transform ctx arrExpr
@@ -1109,7 +1126,7 @@ let tryArrayInstanceCall
         match arrElemT arrExpr.Type with
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
             let a = mkArrayShape elemT arrTypeIdx
             let gen = LabelGen("isome")
             let wArr = transform ctx arrExpr
@@ -1122,7 +1139,7 @@ let tryArrayInstanceCall
         match arrElemT arrExpr.Type with
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
             let a = mkArrayShape elemT arrTypeIdx
             let gen = LabelGen("ievery")
             let wArr = transform ctx arrExpr
@@ -1135,7 +1152,7 @@ let tryArrayInstanceCall
         match arrElemT arrExpr.Type with
         | Some elemFableT ->
             let elemT = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
             let a = mkArrayShape elemT arrTypeIdx
             let gen = LabelGen("iforeach")
             let wArr = transform ctx arrExpr
@@ -1149,7 +1166,7 @@ let tryArrayInstanceCall
         match arrElemT arrExpr.Type with
         | Some elemFableT ->
             let elemT      = mapTypeKnown ctx elemFableT
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
             let gen        = LabelGen("ired")
             let wArr       = transform ctx arrExpr
             let ctx'       = ctx.WithLocal(farg1.Name, elemT).WithLocal(farg2.Name, elemT)
