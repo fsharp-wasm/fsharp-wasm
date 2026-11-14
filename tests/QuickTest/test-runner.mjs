@@ -870,6 +870,10 @@ check("module-level value is evaluated once and shared", 340, exp.testModuleValu
 check("Stack(seq), TryPop and TryPeek", 320, exp.testStackTryPopAndSeqCtor());
 check("for-in over a string and ToCharArray give characters", 563, exp.testForInStringAndToCharArray());
 check("a string literal pattern, the empty string included", 115, exp.testStringLiteralPattern());
+check("List.sortBy: string keys, record elements, stable", 2431, exp.testListSortByStringKey());
+check("List.sortByDescending is stable", 42513, exp.testListSortByDescendingStable());
+check("List.sortBy: tuple keys", 40290721, exp.testListSortByTupleKey());
+check("List.sortBy: 3000 elements", 1300016, exp.testListSortByManyElements());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

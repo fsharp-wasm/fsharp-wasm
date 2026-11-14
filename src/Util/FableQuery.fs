@@ -78,6 +78,14 @@ let (|BinaryLambda|_|) (f: Expr) =
     | Some([ a1; a2 ], body) -> Some(a1, a2, body)
     | _ -> etaExpand 2 f |> Option.map (fun (ids, body) -> ids.[0], ids.[1], body)
 
+/// `Compare` of a Fable comparer argument (`ObjectExpr { Compare = fun x y -> … }`), or a bare two-argument lambda.
+let (|ComparerLambda|_|) (e: Expr) =
+    match e with
+    | ObjectExpr(members, _, _) ->
+        members |> List.tryPick (fun m -> match m.Name, m.Body with "Compare", BinaryLambda(a, b, body) -> Some(a, b, body) | _ -> None)
+    | BinaryLambda(a, b, body) -> Some(a, b, body)
+    | _ -> None
+
 /// Curried 3-arg lambda or 3-element delegate.
 let (|TernaryLambda|_|) = function
     | Lambda(a1, Lambda(a2, Lambda(a3, body, _), _), _)

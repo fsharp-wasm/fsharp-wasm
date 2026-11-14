@@ -71,9 +71,11 @@ let tryListTakeSkipSortInline
             }
             Some(listRevInPlace gen s revCollect)
         | None -> None
-    // ── List.sortBy / List.sortByDescending ────────────────────────r
-    // DSL: UnaryLambda replaces Lambda|Delegate([farg]) verbose pattern
-    | ("sortBy" | "sortByDescending"), UnaryLambda(farg, fbody) :: listArg :: _ ->
+    // ── List.sortBy / List.sortByDescending ────────────────────────
+    // A stable merge sort of the elements by a key array, as Array.sortBy does: the ordering is the comparer Fable passes
+    // (numbers, strings, structural), applied to the key (the projection, evaluated once per element); Descending swaps
+    // its operands.  Without a comparer argument, the numeric order.  Reference elements and keys live nullable in the arrays.
+    | ("sortBy" | "sortByDescending"), UnaryLambda(farg, fbody) :: listArg :: rest ->
         let descending = selector = "sortByDescending"
         match listInfo ctx listArg with
         | None -> None
@@ -81,53 +83,35 @@ let tryListTakeSkipSortInline
         let s          = mkListShape elemT consIdx
         let gen        = LabelGen "lsby"
         let keyT       = mapTypeKnown ctx fbody.Type
-        let arrTypeIdx = getOrAddArrayType ctx elemT
-        let keyArrIdx  = getOrAddArrayType ctx keyT
-        let arrRefT    = WType.Ref(arrTypeIdx, false)
-        let keyArrRefT = WType.Ref(keyArrIdx, false)
+        let elem, key  = arrayAccess ctx elemT, arrayAccess ctx keyT
         let wKey       = transform (ctx.WithLocal(farg.Name, elemT)) fbody
-        let cmpOp      = if descending then WCompareOp.GtS else WCompareOp.LtS
+        // `a` goes after `b`: the comparer's result is > 0
+        let after : WExpr -> WExpr -> WExpr =
+            match rest with
+            | ComparerLambda(ca, cb, cbody) :: _ ->
+                let wCmp = transform (ctx.WithLocal(ca.Name, keyT).WithLocal(cb.Name, keyT)) cbody
+                fun a b -> WExpr.Let(ca.Name, a, WExpr.Let(cb.Name, b, wCmp))
+            | _ -> fun a b -> WExpr.Compare(WCompareOp.GtS, a, b)
+        let cmp = if descending then (fun a b -> after b a) else after
         Some(wasm {
             let! lst    = transform ctx listArg
             let! len    = listLength gen s lst
-            let! arr    = arrayNew arrTypeIdx len (makeNumericZero elemT) arrRefT
-            let! keyArr = arrayNew keyArrIdx  len (makeNumericZero keyT)  keyArrRefT
-            // Fill arrays
+            let! arr    = arrayNew elem.TypeIdx len elem.Default elem.RefT
+            let! keyArr = arrayNew key.TypeIdx  len key.Default  key.RefT
             let fillPhase =
                 listFold gen s lst (i32Const 0) WType.I32
-                    (fun idx elem ->
+                    (fun idx e ->
                         wasm {
-                            let! fe = elem
+                            let! fe = e
                             let! fk = WExpr.Let(farg.Name, fe, wKey)
-                            do! arraySet arr    idx fe
-                            do! arraySet keyArr idx fk
+                            do! elem.Write arr idx fe
+                            do! key.Write keyArr idx fk
                             return! add idx (i32Const 1)
                         })
-            // Insertion sort on key array
-            let sortPhase = wasm {
-                let! si = mut (i32Const 1)
-                while! (ltS si.Val len) do
-                    let! se = arrayGet arr si.Val elemT
-                    let! sk = arrayGet keyArr si.Val keyT
-                    let! sj = mut (sub si.Val (i32Const 1))
-                    let jCond =
-                        wasmAnd (geS sj.Val (i32Const 0))
-                            (WExpr.Compare(
-                                (if descending then WCompareOp.LtS else WCompareOp.GtS),
-                                arrayGet keyArr sj.Val keyT, sk))
-                    while! jCond do
-                        do! arraySet arr (add sj.Val (i32Const 1)) (arrayGet arr sj.Val elemT)
-                        do! arraySet keyArr (add sj.Val (i32Const 1)) (arrayGet keyArr sj.Val keyT)
-                        do! sj.Set(sub sj.Val (i32Const 1))
-                    do! arraySet arr (add sj.Val (i32Const 1)) se
-                    do! arraySet keyArr (add sj.Val (i32Const 1)) sk
-                    do! si.Set(add si.Val (i32Const 1))
-            }
-            // Rebuild list from array (reverse order)
-            let rebuildPhase = arrayToListRev gen s arr len (fun a i -> arrayGet a i elemT)
             do! fillPhase
-            do! sortPhase
-            return! rebuildPhase
+            do! mergeSortKeyed arr len elemT elem.Read elem.Write (Some(keyArr, keyT, key.Read, key.Write)) cmp
+            // Rebuild the list from the array (back to front)
+            return! arrayToListRev gen s arr len (fun a i -> elem.Read a i)
         })
     // ── List.sort / List.sortDescending ────────────────────────────
     | ("sort" | "sortDescending"), (listArg :: _) ->
