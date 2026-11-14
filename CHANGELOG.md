@@ -5,6 +5,10 @@ All notable changes to the compiler are documented here (newest first). The sibl
 ## [Unreleased]
 
 ### Added
+- **Strings across the host boundary without the JS String Builtins** (`WASMGC_STRING_ABI=exports`). The module imports no
+  `wasm:js-string`; a string crosses as an opaque reference and the host reads and builds strings through the exports
+  `__str_len` / `__str_at` / `__str_new` / `__str_set`. Platforms that precompile a module without builtins (Cloudflare
+  Workers, Vercel Edge) can run it now. `tests/StringAbi`, `docs/host-interop.md`. The default (builtins) is unchanged.
 - **Interfaces by name.** A vtable is registered where the interface is declared, its slots are found by member name, an
   interface *property* is read through its getter slot, and object expressions (`{ new I with … }`, with captured
   variables) are built as a closure environment plus vtable.
@@ -18,6 +22,12 @@ All notable changes to the compiler are documented here (newest first). The sibl
   the arm that has it (it is null after a miss, and a tuple of non-null references cannot hold that).
 - `FSHARP_WASM_CORE_DIR` — a checkout of fsharp-wasm-core for the compiler to use (`FSHARP_WASM_LIBRARY`, the old name of the
   library directory, is still read).
+
+### Fixed
+- `for c in s` and `s.ToCharArray()` over a string gave an array of one-character *strings* where `char` is an `i32` (the
+  module did not validate); they give a `char` array now (`$strToChars`).
+- A string literal pattern, `match s with "" -> … | v -> …`, no longer emits a null compare against the non-null `$strEq`
+  (the module did not validate): a null literal in a string comparison is a null check.
 
 ### Changed
 - **Licence: Apache-2.0** (it was MIT) — `LICENSE`, `NOTICE` (which names the two forks that keep MIT, `vendor/Fable` and `vendor/fsharp`) and the

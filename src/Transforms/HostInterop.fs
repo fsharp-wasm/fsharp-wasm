@@ -63,10 +63,14 @@ let private jsString (ctx: Ctx) (name: string) (parms: WType list) (result: WTyp
 // Strings
 // ─────────────────────────────────────────────────────────────────
 
-/// string → externref (a JS string).
+/// string → externref: a JS string (Builtins), or the module's own string made opaque (Exports: the host reads it through
+/// `__str_len` / `__str_at`).
 let strToHost (ctx: Ctx) (s: WExpr) : WExpr =
     let name = "$host_strToHost"
     define ctx name [ "$s", strTy ] WType.Externref (fun () ->
+      match ctx.StringAbi with
+      | Exports -> WExpr.Cast(local "$s" strTy, WType.Externref)
+      | Builtins ->
         let arr = getOrAddArrayType ctx WType.I16
         let fromChars = jsString ctx "fromCharCodeArray" [ WType.Ref(arr, true); WType.I32; WType.I32 ] WType.ExternNonNull
         let n, tmp = local "$n" WType.I32, local "$tmp" (WType.Ref(arr, false))
@@ -78,10 +82,16 @@ let strToHost (ctx: Ctx) (s: WExpr) : WExpr =
                     WExpr.Call(fromChars, [ tmp; i32 0; n ], WType.Externref) ])))
     WExpr.Call(name, [ s ], WType.Externref)
 
-/// externref (a JS string) → string.
+/// externref → string: a JS string (Builtins), or a string the host built with `__str_new` / `__str_set` (Exports).
 let strFromHost (ctx: Ctx) (x: WExpr) : WExpr =
     let name = "$host_strFromHost"
     define ctx name [ "$x", WType.Externref ] strTy (fun () ->
+      match ctx.StringAbi with
+      | Exports ->
+        let x = local "$x" WType.Externref
+        // our strings are never null: a host null / undefined arrives as ""
+        WExpr.If(WExpr.RefIsNull x, WExpr.ArrayNew(StringTypeIdx, i32 0, i32 0, strTy), WExpr.Cast(x, strTy), strTy)
+      | Builtins ->
         let arr = getOrAddArrayType ctx WType.I16
         let length = jsString ctx "length" [ WType.Externref ] WType.I32
         let into = jsString ctx "intoCharCodeArray" [ WType.Externref; WType.Ref(arr, true); WType.I32 ] WType.I32
@@ -271,6 +281,17 @@ let private exportStringReaders (ctx: Ctx) =
         reader "__str_len" [ "$s", strTy ] (WExpr.ArrayLen s)
         reader "__str_at" [ "$s", strTy; "$i", WType.I32 ] (WExpr.ArrayGet(s, local "$i" WType.I32, WType.I32))
 
+/// The two exports with which a host builds a string for the module (the Exports string ABI): `__str_new(length)` and
+/// `__str_set(string, index, utf16CodeUnit)`.
+let private exportStringWriters (ctx: Ctx) =
+    if not (hasFunc ctx "__str_new") then
+        ctx.Functions.Add(
+            { Name = "__str_new"; Params = [ "$n", WType.I32 ]; Result = strTy; Locals = []; Exported = true
+              Body = WExpr.ArrayNew(StringTypeIdx, local "$n" WType.I32, i32 0, strTy) })
+        ctx.Functions.Add(
+            { Name = "__str_set"; Params = [ "$s", strTy; "$i", WType.I32; "$c", WType.I32 ]; Result = WType.Void; Locals = []; Exported = true
+              Body = WExpr.ArraySet(local "$s" strTy, local "$i" WType.I32, local "$c" WType.I32) })
+
 /// The calls in a function body: callee name → argument lists.
 let private callsIn (funcs: WFuncDecl list) : (string * WExpr list) list =
     let found = ResizeArray<string * WExpr list>()
@@ -290,6 +311,11 @@ let finalize (ctx: Ctx) (kept: WFuncDecl list) : bool =
     let mutable added = false
     if calls |> List.exists (fun (n, _) -> n = "consolePrint") && not (hasFunc ctx "__str_len") then
         exportStringReaders ctx
+        added <- true
+    // the Exports string ABI: the host reads and builds strings through accessors the module exports
+    if ctx.StringAbi = Exports && calls |> List.exists (fun (n, _) -> n = "$host_strToHost" || n = "$host_strFromHost") then
+        if not (hasFunc ctx "__str_len") then exportStringReaders ctx
+        if not (hasFunc ctx "__str_new") then exportStringWriters ctx
         added <- true
     let used =
         calls

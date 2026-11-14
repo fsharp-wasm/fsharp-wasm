@@ -452,6 +452,13 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
     | WExpr.Cast(obj, targetType) ->
         let objInstrs = emitExpr ctx obj
         match targetType with
+        // across the host boundary: a GC reference becomes an opaque `externref` (extern.convert_any), and what the host hands
+        // back is internalised again before it is cast to the type the module expects (any.convert_extern; ref.cast)
+        | WType.Externref when (match exprWType obj with WType.Ref _ -> true | _ -> false) ->
+            objInstrs @ [Instr.ExternConvertAny]
+        | WType.Ref(typeIdx, nullable) when (match exprWType obj with WType.Externref | WType.ExternNonNull -> true | _ -> false) ->
+            let rt = { Nullable = nullable; HeapType = HeapType.TypeIdx typeIdx }
+            objInstrs @ [Instr.AnyConvertExtern; Instr.RefCast rt]
         | WType.Ref(typeIdx, nullable) ->
             // Downcast from base DU type to a specific case subtype
             let rt = { Nullable = nullable; HeapType = HeapType.TypeIdx typeIdx }

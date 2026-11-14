@@ -3498,3 +3498,28 @@ let testStackTryPopAndSeqCtor () : int =
     let mutable none = 0
     let okEmpty = s.TryPop(&none)
     (if ok then top * 100 else 0) + (if okPeek then next * 10 else 0) + (if okEmpty then 1000 else 0) + s.Count
+
+/// `for c in s` and `s.ToCharArray()` give characters (i32), not one-character strings: Fable asks for s.split("") and types the
+/// result char[].  Digits of "a1b22c" summed (5) * 100 + its length (6) * 10 + 'h' - 'e' (3) = 563
+let testForInStringAndToCharArray () : int =
+    let mutable digits = 0
+    for c in "a1b22c" do
+        if c >= '0' && c <= '9' then digits <- digits + (int c - int '0')
+    let chars = "hello".ToCharArray()
+    digits * 100 + "a1b22c".Length * 10 + (int chars.[0] - int chars.[1])
+
+/// A string literal pattern: `match s with "" -> … | v -> …` (the empty string is a pattern like any other; it is
+/// `s <> null && s.Length = 0`, and the null literal must not reach the non-null string compare).
+/// "x" -> 10 + 1, "" -> None -> 0, a StringBuilder result "abcd" -> 100 + 4:  11 + 0 + 104 = 115
+let private classify (s: string) : int option =
+    match s with
+    | "" -> None
+    | v -> Some v.Length
+
+let testStringLiteralPattern () : int =
+    let a = match classify "x" with Some n -> 10 + n | None -> 0
+    let b = match classify "" with Some n -> 1000 + n | None -> 0
+    let sb = System.Text.StringBuilder()
+    sb.Append("abcd") |> ignore
+    let c = match classify (sb.ToString()) with Some n -> 100 + n | None -> 0
+    a + b + c

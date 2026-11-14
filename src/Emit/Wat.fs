@@ -709,6 +709,17 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
     | WExpr.Cast(obj, targetType) ->
         emit obj
         match targetType with
+        // across the host boundary (the Exports string ABI): a GC reference becomes an opaque `externref`, and what the host hands
+        // back is internalised again before it is cast to the type the module expects
+        | WType.Externref when (match exprType obj with WType.Ref _ -> true | _ -> false) ->
+            w "extern.convert_any"
+        | WType.Ref(typeIdx, nullable) when (match exprType obj with WType.Externref | WType.ExternNonNull -> true | _ -> false) ->
+            let name = typeNames |> Map.tryFind typeIdx |> Option.defaultValue (sprintf "%d" typeIdx)
+            w "any.convert_extern"
+            if nullable then
+                w $"ref.cast (ref null {watId name})"
+            else
+                w $"ref.cast (ref {watId name})"
         | WType.Ref(typeIdx, nullable) ->
             let name = typeNames |> Map.tryFind typeIdx |> Option.defaultValue (sprintf "%d" typeIdx)
             if nullable then
