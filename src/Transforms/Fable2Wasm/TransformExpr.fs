@@ -146,7 +146,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             | [arg] ->
                 let elemFableType = match ar.Type with | Fable.Type.Array(t, _) -> t | _ -> Fable.Type.Any
                 let elemWT = mapTypeKnown ctx elemFableType
-                let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemWT
+                let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayTypeFor ctx elemFableType elemWT
                 resizeArrayPushInline ctx elemWT arrTypeIdx ravTypeIdx (transformExpr ctx ar) (transformExpr ctx arg)
             | _ -> WExpr.Nop
         | _ -> WExpr.Nop
@@ -337,7 +337,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             if isResizeArr then
                 let elemFableType = match _expr.Type with | Fable.Type.Array(t, _) -> t | _ -> Fable.Type.Any
                 let elemT = mapTypeKnown ctx elemFableType
-                let (arrTypeIdx, _) = getOrAddResizeArrayType ctx elemT
+                let (arrTypeIdx, _) = getOrAddResizeArrayTypeFor ctx elemFableType elemT
                 let arrRefT = WType.Ref(arrTypeIdx, true)
                 let wRav = transformExpr ctx _expr
                 let wIdx = transformExpr ctx idxExpr
@@ -388,7 +388,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         // ResizeArray.Count / .Length → struct field 1 (len)
         let elemFableType = match expr.Type with | Fable.Type.Array(t, _) -> t | _ -> Fable.Type.Any
         let elemWT = mapTypeKnown ctx elemFableType
-        let (_, ravTypeIdx) = getOrAddResizeArrayType ctx elemWT
+        let (_, ravTypeIdx) = getOrAddResizeArrayTypeFor ctx elemFableType elemWT
         WExpr.StructGet(transformExpr ctx expr, 1, WType.I32)
 
     | Fable.Expr.Get(expr, GetKind.ExprGet idxExpr, typ, _)
@@ -396,7 +396,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         // ResizeArray.[i] → array.get on the struct's data field
         let elemFableType = match expr.Type with | Fable.Type.Array(t, _) -> t | _ -> Fable.Type.Any
         let elemWT = mapTypeKnown ctx elemFableType
-        let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayType ctx elemWT
+        let (arrTypeIdx, ravTypeIdx) = getOrAddResizeArrayTypeFor ctx elemFableType elemWT
         let arrRefT = WType.Ref(arrTypeIdx, true)
         arrayGet (WExpr.Cast(WExpr.StructGet(transformExpr ctx expr, 0, arrRefT), WType.Ref(arrTypeIdx, false)))
                  (transformExpr ctx idxExpr) (mapTypeKnown ctx typ)
@@ -606,7 +606,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             info.Args |> List.tryHead
             |> Option.map (transformExpr ctx)
             |> Option.defaultValue i32Zero
-        let arrTypeIdx = getOrAddArrayType ctx elemWTy
+        let arrTypeIdx = if packedBytes && ctorIdent.Name = "Uint8Array" then getOrAddArrayType ctx WType.I8 else getOrAddArrayType ctx elemWTy
         WExpr.ArrayNew(arrTypeIdx, wSize, zeroVal, WType.Ref(arrTypeIdx, false))
 
     | Call(callee, info, typ, _) ->
@@ -635,7 +635,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             ctorArgs |> List.tryHead
             |> Option.map (transformExpr ctx)
             |> Option.defaultValue (i32Zero)
-        let arrTypeIdx = getOrAddArrayType ctx elemWTy
+        let arrTypeIdx = if packedBytes && ctorIdent.Name = "Uint8Array" then getOrAddArrayType ctx WType.I8 else getOrAddArrayType ctx elemWTy
         WExpr.ArrayNew(arrTypeIdx, wSize, zeroVal, WType.Ref(arrTypeIdx, false))
 
     // Special case: sprintf/printfn — Fable emits:

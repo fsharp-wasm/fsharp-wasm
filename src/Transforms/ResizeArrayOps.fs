@@ -26,7 +26,7 @@ let private ravOf (ctx: Ctx) (t: Fable.Type) : Rav option =
     match t with
     | Fable.Type.Array(e, Fable.ArrayKind.ResizeArray) ->
         let elemT = mapTypeKnown ctx e
-        let arrIdx, ravIdx = getOrAddResizeArrayType ctx elemT
+        let arrIdx, ravIdx = getOrAddResizeArrayTypeFor ctx e elemT
         Some { ElemT = elemT; ArrIdx = arrIdx; RavIdx = ravIdx }
     | _ -> None
 
@@ -144,7 +144,7 @@ let private addRangeTo (transform: Ctx -> Fable.Expr -> WExpr) (ctx: Ctx) (r: Ra
 /// `ResizeArray<T>()` and `ResizeArray<T>(capacity)`: empty, room for four (the capacity is only a hint).
 let emptyOf (ctx: Ctx) (elemType: Fable.Type) : WExpr =
     let elemT = mapTypeKnown ctx elemType
-    let arrIdx, ravIdx = getOrAddResizeArrayType ctx elemT
+    let arrIdx, ravIdx = getOrAddResizeArrayTypeFor ctx elemType elemT
     WExpr.StructNew(ravIdx, [ WExpr.ArrayNew(arrIdx, i32Const 4, makeNumericZero elemT, WType.Ref(arrIdx, false)); i32Zero ], WType.Ref(ravIdx, false))
 
 /// A ResizeArray holding the given values (`ResizeArray [ a; b ]` with literal elements).
@@ -153,7 +153,7 @@ let ofValues (ctx: Ctx) (elemType: Fable.Type) (values: WExpr list) : WExpr =
     | [] -> emptyOf ctx elemType
     | _ ->
         let elemT = mapTypeKnown ctx elemType
-        let arrIdx, ravIdx = getOrAddResizeArrayType ctx elemT
+        let arrIdx, ravIdx = getOrAddResizeArrayTypeFor ctx elemType elemT
         WExpr.StructNew(ravIdx, [ WExpr.ArrayNewFixed(arrIdx, values, WType.Ref(arrIdx, false)); i32Const values.Length ], WType.Ref(ravIdx, false))
 
 /// `ResizeArray<T>(source)`: a copy of the elements of a list, seq, array or ResizeArray.

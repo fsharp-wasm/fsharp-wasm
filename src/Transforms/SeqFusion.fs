@@ -143,7 +143,7 @@ let rec private fuse (transform: TransformFn) (ctx: Ctx) (yieldTo: Yield) (e: Fa
         // a ResizeArray: the first Count elements of its data array (the length is read once, before the walk)
         | Type.Array(t, ArrayKind.ResizeArray) ->
             let elemWT = mapTypeKnown ctx t
-            let arrIdx, _ = getOrAddResizeArrayType ctx elemWT
+            let arrIdx, _ = getOrAddResizeArrayTypeFor ctx t elemWT
             let a = mkArrayShape elemWT arrIdx
             Some(wasm {
                 let! rav = transform ctx src
@@ -156,7 +156,7 @@ let rec private fuse (transform: TransformFn) (ctx: Ctx) (yieldTo: Yield) (e: Fa
             })
         | Type.Array(t, _) ->
             let elemWT = mapTypeKnown ctx t
-            let a = mkArrayShape elemWT (getOrAddArrayType ctx elemWT)
+            let a = mkArrayShape elemWT (getOrAddArrayTypeFor ctx t elemWT)
             Some(wasm {
                 let! arr = transform ctx src
                 let! i = mut (i32Const 0)
@@ -187,7 +187,7 @@ let trySeqFusionInline (transform: TransformFn) (ctx: Ctx) (call: Fable.Expr) : 
         let toArray (t: Fable.Type) (producer: Fable.Expr) =
             collect t producer (fun s rev ->
                 let elemWT = mapTypeKnown ctx t
-                let arrTypeIdx = getOrAddArrayType ctx elemWT
+                let arrTypeIdx = getOrAddArrayTypeFor ctx t elemWT
                 let a, gen = mkArrayShape elemWT arrTypeIdx, LabelGen "fza"
                 wasm {
                     let! len = listLength gen s rev

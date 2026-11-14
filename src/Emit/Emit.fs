@@ -77,7 +77,7 @@ let wtypeToBlockType (ty: WType) : BlockType =
     // A block that yields a value MUST declare it.  `| _ -> Empty` here silently produced
     // invalid modules for any if/loop/try whose result is anyref / eqref / i31ref / externref.
     | WType.AnyRef | WType.EqRef | WType.I31ref | WType.Externref | WType.ExternNonNull -> BlockType.Val ty
-    | WType.I16 | WType.Func _ | WType.Struct _ | WType.Array _ ->
+    | WType.I16 | WType.I8 | WType.Func _ | WType.Struct _ | WType.Array _ ->
         failwithf "Emit: %A is not a valid block result type" ty
 
 // ─────────────────────────────────────────────────────────────────
@@ -257,6 +257,7 @@ let rec emitExpr (ctx: EmitCtx) (expr: WExpr) : Instr list =
         let getInstr =
             match Map.tryFind typeIdx ctx.ArrayElemTypes with
             | Some WType.I16 -> Instr.ArrayGetS typeIdx
+            | Some WType.I8  -> Instr.ArrayGetU typeIdx
             | _              -> Instr.ArrayGet typeIdx
         emitExpr ctx arr @ emitExpr ctx idx @ [getInstr]
 

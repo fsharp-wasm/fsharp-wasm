@@ -68,6 +68,7 @@ let rec private wtypeToStr (typeNames: Map<int, string>) (ty: WType) : string =
     | WType.F32 -> "f32"
     | WType.F64 -> "f64"
     | WType.I16 -> "i16"  // packed type — only valid inside array type defs
+    | WType.I8 -> "i8"    // packed type — only valid inside array type defs
     | WType.Ref(idx, false) ->
         let name = typeNames |> Map.tryFind idx |> Option.defaultValue (sprintf "%d" idx)
         sprintf "(ref %s)" (watId name)
@@ -563,6 +564,7 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
         let instr =
             match Map.tryFind typeIdx arrayElemTypes with
             | Some WType.I16 -> "array.get_s"
+            | Some WType.I8  -> "array.get_u"
             | _              -> "array.get"
         w $"{instr} {watId name}"
 

@@ -75,6 +75,7 @@ let rec encodeValType (buf: ResizeArray<byte>) (ty: WType) =
     // Final GC spec: packedtype i8 = 0x78, i16 = 0x77.  (0x79 was the pre-standard draft value and
     // is rejected by every current engine.)
     | WType.I16 -> buf.Add(0x77uy)
+    | WType.I8 -> buf.Add(0x78uy)
     | WType.Ref(typeIdx, nullable) ->
         if nullable then
             buf.Add(0x63uy) // ref null typeIdx

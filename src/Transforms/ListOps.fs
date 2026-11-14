@@ -327,7 +327,8 @@ let tryListPrimitiveInline
         match tryListTypeInfo ctx (List.head fableArgs) with
         | Some(elemT, consIdx) ->
             let s, gen = mkListShape elemT consIdx, LabelGen("l2a")
-            let arrTypeIdx = getOrAddArrayType ctx elemT
+            let elemFable = match (List.head fableArgs).Type with ListOf t -> t | _ -> Fable.Type.Any
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFable elemT
             Some(wasm {
                 let! lst = wList
                 let! len = listLength gen s lst

@@ -132,14 +132,18 @@ type ArrayAccess =
     { TypeIdx: int; RefT: WType; Default: WExpr
       Read: WExpr -> WExpr -> WExpr; Write: WExpr -> WExpr -> WExpr -> WExpr }
 
-let arrayAccess (ctx: Ctx) (t: WType) : ArrayAccess =
+/// `arrayAccess` for the array of a user-visible F# array type: `elementType` decides whether the elements are stored packed
+/// (see `getOrAddArrayTypeFor`); a temporary array of the same elements can use `arrayAccess`.
+let arrayAccessFor (ctx: Ctx) (elementType: Fable.AST.Fable.Type) (t: WType) : ArrayAccess =
     let stored, zero =
         match t with
         | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
         | _ -> t, makeNumericZero t
-    let idx = getOrAddArrayType ctx stored
+    let idx = getOrAddArrayTypeFor ctx elementType stored
     { TypeIdx = idx; RefT = WType.Ref(idx, false); Default = zero
       Read = (fun arr i -> match t with
                            | WType.Ref(ri, false) -> cast (arrayGet arr i stored) (WType.Ref(ri, false))
                            | _ -> arrayGet arr i t)
       Write = arraySet }
+
+let arrayAccess (ctx: Ctx) (t: WType) : ArrayAccess = arrayAccessFor ctx Fable.AST.Fable.Type.Any t
