@@ -121,6 +121,37 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: bash tests/Differential/run-props.sh
 
+      # What tests/run-all.sh runs beyond the steps above.  All five passed on Node 22 (the version of this job) before they were added.
+      - name: IR pass tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: dotnet run -c Release --project tests/PassTests
+
+      - name: Host interop (callbacks, strings and closures across the boundary)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/HostInterop/run.sh
+
+      - name: QuickTestMulti (one compilation per domain)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/QuickTestMulti/run.sh
+
+      - name: BCL bootstrap
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/BclBootstrap/run.sh
+
+      - name: Backend harness (scenarios and closure fuzz)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/BackendHarness/run.sh
+
       # Same F# functions as .NET (Release) and as wasm on node: results must be identical (the checksum), the times
       # are printed to the job summary.  Timing is informational — shared runners are too noisy to gate on.
       - name: Benchmarks (.NET vs wasm)

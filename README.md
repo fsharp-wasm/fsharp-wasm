@@ -1,6 +1,6 @@
 # fsharp-wasm
 
-**Compile F# to WebAssembly GC — natively, without JavaScript.**
+**Compile F# to WebAssembly GC: small modules that use the engine's own garbage collector.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml/badge.svg)](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml)
@@ -15,8 +15,10 @@
 ## What is this?
 
 **fsharp-wasm** compiles F# source code directly to WebAssembly with garbage collection (WasmGC).
-No JavaScript glue code, no Emscripten, no linear memory GC — just native Wasm structs and arrays
-managed by the host runtime's GC.
+No Emscripten and no garbage collector shipped in the binary — just native Wasm structs and arrays
+managed by the host runtime's GC. A module needs no JavaScript runtime *library*; what it reaches outside itself (the DOM, the network, storage)
+comes through imports that a host provides: [fsharp-wasm-runtime](https://github.com/fsharp-wasm/fsharp-wasm-runtime) in the browser,
+[fsharp-wasm-edge](https://github.com/fsharp-wasm/fsharp-wasm-edge) on Cloudflare, Vercel, Netlify, Deno, Bun and Node.
 
 ```fsharp
 // hello.fs
@@ -68,15 +70,11 @@ dotnet fable hello.fsproj --lang wasmgc
 | **Module Linking**  | Multiple F# compilation units composed at runtime                                  |
 | **Binary Output**   | Direct `.wasm` binary encoding (LEB128, all sections) + human-readable `.wat`      |
 
-### Not Yet Implemented
+### Known gaps
 
-| Feature                          | Status                                      |
-| -------------------------------- | ------------------------------------------- |
-| Generic `Map<'K,'V>` / `Set<'T>` | Integer keys only; generic dispatch planned |
-| Interface dispatch / vtables     | Design complete, implementation upcoming    |
-| `seq { }` / `IEnumerable`        | Planned                                     |
-| Typed exceptions                 | Basic try/with works; typed throws planned  |
-| Async / JSPI                     | Planned                                     |
+Programs that do not compile yet, measured while writing tests (the full, dated list is in [docs/STATUS.md](docs/STATUS.md)): stepped ranges
+(`for i in 0 .. 2 .. 9`), `Array.map not`, `Array.concat` of a list of arrays, array slices, `System.Array.IndexOf` / `Resize` / `Clear` / `Reverse` /
+`Sort` / `CopyTo`, `sprintf "%A"`, dictionary literals, comparer constructor overloads, and `async` / JSPI (planned).
 
 ## Quick Start
 
@@ -121,16 +119,16 @@ This builds:
 ### 3. Run tests
 
 ```bash
-# Unit tests (353 tests)
-cd tests/QuickTest && bash run.sh
-
-# Showcase (26 real-world algorithms)
-cd tests/Showcase && bash run.sh
-
-# Component model examples
-cd examples/component-embed && bash run.sh    # 39 tests
-cd examples/component-linking && bash run.sh  # 22 tests
+bash tests/run-all.sh              # every suite, one summary table (--list, --only quicktest,showcase, --fail-fast)
+bash tests/QuickTest/run.sh        # the main regression suite: 656 tests
+bash tests/Showcase/run.sh         # 26 end-to-end programs
+cd examples/component-embed && bash run.sh      # 39 checks
+cd examples/component-linking && bash run.sh    # 22 checks
 ```
+
+What each suite checks, and the counts of a recorded run (656 + 26 + 39 + 22 + 14 + 11 + 5 + 27 named tests, a differential run of 183 012 calls
+against .NET with no disagreement, a closure fuzz of 30 720 checks), are in [docs/STATUS.md](docs/STATUS.md) and on
+[fsharp-wasm.github.io/tests](https://fsharp-wasm.github.io/tests).
 
 > **Note**: The test scripts run the compiler via `dotnet run --project vendor/Fable/src/Fable.Cli`
 > which automatically resolves the WasmGC backend from the parent repo.
@@ -203,14 +201,15 @@ See [docs/architecture.md](docs/architecture.md) for details.
 
 ```
 src/
-├── WasmGc.AST.fs                 # WasmGC IR types (WType, WExpr, WConst)
-├── WasmGcPipeline.fs             # Pipeline entry point + WIT generation
-├── Runtime/                      # Runtime helpers, CE builder, type system
-├── Transforms/                   # Fable AST → WasmGC IR translation
-└── Emit/                         # WAT emitter, binary encoder, optimizer
+├── Core/                         # the IR types (WType, WExpr, WFunc, WModule), registries, diagnostics
+├── Transforms/                   # Fable AST → WasmGC IR translation, the BCL replacements, host interop
+├── Patterns/                     # reusable IR patterns: loops, arrays, lists, closures, vtables
+├── Ir/, Pipeline/                # IR queries and dumps; the phases between the Fable AST and the emitter
+├── Emit/                         # WAT printer, binary encoder, optimiser, linker
+└── Pipeline.fs                   # project → IR → .wat / .wasm → WIT
 
 core/                            # submodule: fsharp-wasm-core — FSharp.Wasm.Core, the F# base library
-tests/                            # QuickTest (353) + Showcase (26) suites
+tests/                            # twelve suites, run together by tests/run-all.sh
 examples/                         # Component model demos
 docs/                             # Documentation
 vendor/Fable/                     # Fable 5 with WasmGC patches
