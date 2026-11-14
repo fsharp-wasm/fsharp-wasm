@@ -88,32 +88,6 @@ let coerceToSeq (ctx: Ctx) (argType: Fable.Type) (w: WExpr) : WExpr =
 
 // ── Main dispatch ────────────────────────────────────────────────────────────
 
-/// `Compare` of a Fable comparer argument (`ObjectExpr { Compare = fun x y -> … }`), or a bare two-argument lambda.
-let private (|ComparerLambda|_|) (e: Fable.Expr) =
-    match e with
-    | Fable.Expr.ObjectExpr(members, _, _) ->
-        members |> List.tryPick (fun m -> match m.Name, m.Body with "Compare", BinaryLambda(a, b, body) -> Some(a, b, body) | _ -> None)
-    | BinaryLambda(a, b, body) -> Some(a, b, body)
-    | _ -> None
-
-/// How elements of type `t` live in a GC array: reference elements are stored nullable (the array is created
-/// with null) and cast back to non-null on read.
-type ArrayAccess =
-    { TypeIdx: int; RefT: WType; Default: WExpr
-      Read: WExpr -> WExpr -> WExpr; Write: WExpr -> WExpr -> WExpr -> WExpr }
-
-let arrayAccess (ctx: Ctx) (t: WType) : ArrayAccess =
-    let stored, zero =
-        match t with
-        | WType.Ref(idx, _) -> WType.Ref(idx, true), WExpr.Const(WConst.Null(WType.Ref(idx, true)))
-        | _ -> t, makeNumericZero t
-    let idx = getOrAddArrayType ctx stored
-    { TypeIdx = idx; RefT = WType.Ref(idx, false); Default = zero
-      Read = (fun arr i -> match t with
-                           | WType.Ref(ri, false) -> cast (arrayGet arr i stored) (WType.Ref(ri, false))
-                           | _ -> arrayGet arr i t)
-      Write = arraySet }
-
 let tryArrayInline
         (transform : TransformFn)
         (ctx       : Ctx)

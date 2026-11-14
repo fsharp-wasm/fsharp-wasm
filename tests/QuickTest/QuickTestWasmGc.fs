@@ -3523,3 +3523,25 @@ let testStringLiteralPattern () : int =
     sb.Append("abcd") |> ignore
     let c = match classify (sb.ToString()) with Some n -> 100 + n | None -> 0
     a + b + c
+
+// ── List.sortBy: a stable merge sort by key, ordered by Fable's comparer (strings and structural keys too), records as elements ──
+
+type SByRec = { SbKey: string; SbRank: int }
+
+let testListSortByStringKey () : int =
+    let items = [ { SbKey = "pear"; SbRank = 1 }; { SbKey = "apple"; SbRank = 2 }; { SbKey = "fig"; SbRank = 3 }; { SbKey = "apple"; SbRank = 4 } ]
+    List.sortBy (fun r -> r.SbKey) items |> List.fold (fun h r -> h * 10 + r.SbRank) 0          // apple 2, apple 4 (stable), fig 3, pear 1
+
+let testListSortByDescendingStable () : int =
+    let items = [ (1, 'a'); (2, 'b'); (1, 'c'); (3, 'd'); (2, 'e') ]
+    List.sortByDescending fst items |> List.map (fun (_, c) -> int c - 96) |> List.fold (fun h v -> h * 10 + v) 0   // d b e a c
+
+let testListSortByTupleKey () : int =
+    let items = [ (2, "b"); (1, "z"); (2, "a"); (1, "a") ]
+    List.sortBy id items |> List.map (fun (n, s) -> n * 1000 + int s.[0]) |> List.fold (fun h v -> h * 31 + v) 7     // (1,a) (1,z) (2,a) (2,b)
+
+let testListSortByManyElements () : int =
+    let xs = List.init 3000 (fun i -> (i * 7919) % 3001)
+    let sorted = List.sortBy (fun v -> v % 1000) xs
+    let ok = sorted |> List.pairwise |> List.forall (fun (a, b) -> a % 1000 <= b % 1000)
+    (if ok then 1000000 else 0) + List.length sorted * 100 + List.sum sorted % 100
