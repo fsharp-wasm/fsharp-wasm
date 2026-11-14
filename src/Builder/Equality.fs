@@ -16,7 +16,13 @@ open WasmGc.Runtime.Locals
 /// null: null = null, and null differs from every string.  (`$strEq` itself takes non-null strings.)
 let strEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
     let strEq x y = WExpr.Call(ctx.UseHelper "$strEq", [x; y], WType.I32)
+    let isNullLiteral e = match e with WExpr.Const(WConst.Null _) -> true | _ -> false
     match exprWType a, exprWType b with
+    // `s = null` / `s <> null` (the string literal pattern `""` is `s <> null && s.Length = 0`): a null literal is typed as the string
+    // it is compared with, so it must not reach $strEq, which takes non-null strings
+    | _ when isNullLiteral a && isNullLiteral b -> i32Const 1
+    | _ when isNullLiteral b -> WExpr.RefIsNull a
+    | _ when isNullLiteral a -> WExpr.RefIsNull b
     | WType.Ref(_, false), WType.Ref(_, false) -> strEq a b
     | ta, tb ->
         let nonNull = WType.Ref(StringTypeIdx, false)

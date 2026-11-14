@@ -79,6 +79,14 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: bash tests/Showcase/run.sh
 
+      # Strings across the host boundary without the JS String Builtins (WASMGC_STRING_ABI=exports): the module imports no
+      # `wasm:js-string`, and round trips of non-ASCII text work on a host that only has the accessor exports.
+      - name: String ABI (exports)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/StringAbi/run.sh
+
       # The same F# functions on .NET (reference) and as wasm: values must be identical.  Catches wrong
       # behaviour that hand-written expectations can encode (e.g. `%f` without its 6 decimals).
       - name: Differential (.NET vs wasm)

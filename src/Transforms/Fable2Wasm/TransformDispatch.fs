@@ -1143,6 +1143,11 @@ let private transformCallCore
                 WExpr.Compare(WCompareOp.GeS, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; needle], WType.I32), i32Zero)
             | "replace", [oldSub; newSub] ->
                 WExpr.Call(ctx.UseHelper("$strReplace"), [wStr; oldSub; newSub], strRef)
+            | "split", [_] when (match typ with Fable.Type.Array(Fable.Type.Char, _) -> true | _ -> false) ->
+                // `for c in s` and `s.ToCharArray()`: Fable asks for s.split("") and types the result char[] — characters
+                // (i32), not the one-character strings $strSplit makes
+                let charArrTypeIdx = getOrAddArrayType ctx WType.I32
+                WExpr.Call(ctx.UseHelper("$strToChars"), [wStr], WType.Ref(charArrTypeIdx, false))
             | "split", [sep] ->
                 // str.split(sep) → $strSplit(str, sep); returns array of strings
                 let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))

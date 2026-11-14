@@ -39,6 +39,14 @@ let StringBuilderTypeIdx = 3
 ///      reads use array.get_s (sign-extend). Not all Wasm runtimes support i16 arrays yet.
 type StringMode = I32 | I16
 
+/// How a string crosses the boundary to the host (an extern's string argument or result).
+/// Builtins (default): a JS string, converted by the JS String Builtins (`wasm:js-string`); the host must compile the module with
+///      `{ builtins: ["js-string"] }` (V8 13+: Node 24, Deno 2.1, Chrome 130, Firefox 120).
+/// Exports: an opaque reference to the module's own string.  The host reads it through the exports `__str_len` / `__str_at` and
+///      builds one for the module with `__str_new` / `__str_set`; nothing else is needed from the engine, so the module also runs
+///      where modules are precompiled without builtins (Cloudflare Workers, Vercel Edge).  Chosen with WASMGC_STRING_ABI=exports.
+type StringAbi = Builtins | Exports
+
 /// Scope classification for identifier resolution in Phase 3.
 type ScopeKind =
     | Local
@@ -181,6 +189,9 @@ type Ctx =
         /// String storage mode: I32 (default, wide) or I16 (packed, 50 % smaller for ASCII).
         StringMode: StringMode
 
+        /// How strings cross the boundary to the host: the JS String Builtins (default) or the module's own accessor exports.
+        StringAbi: StringAbi
+
         // ── Interface vtable support ───────────────────────────────────────
         /// Interface full name → (vtableTypeIdx, boxTypeIdx, methodFuncTypeIndices, orderedMethodNames).
         /// Populated on first encounter of an interface being implemented.
@@ -236,8 +247,9 @@ type Ctx =
         Diagnostics: WasmGc.Core.Diagnostics.DiagnosticBag
     }
 
-    static member Create(com: ICompilerCore, ?stringMode: StringMode) =
+    static member Create(com: ICompilerCore, ?stringMode: StringMode, ?stringAbi: StringAbi) =
         let stringMode = defaultArg stringMode I32
+        let stringAbi = defaultArg stringAbi Builtins
         let typeDefs = new ResizeArray<WTypeDeclEntry>()
         let functions = new ResizeArray<WFuncDecl>()
         // Pre-register $AnyFn = struct {} (index 0)
@@ -291,6 +303,7 @@ type Ctx =
             KnownFuncsByPath = Map.empty
             ExternImports = System.Collections.Concurrent.ConcurrentDictionary<string, WImport>()
             StringMode = stringMode
+            StringAbi = stringAbi
             VTableRegistry = System.Collections.Generic.Dictionary<string, int * int * int list * string list>()
             VTableImplRegistry = System.Collections.Generic.Dictionary<string * string, string>()
             VTableGlobals = new ResizeArray<WGlobalDecl>()

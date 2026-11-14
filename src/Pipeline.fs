@@ -181,11 +181,15 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                     match System.Environment.GetEnvironmentVariable("WASMGC_STRING_MODE") with
                     | "i16" -> T.I16
                     | _     -> T.I32
+                let stringAbi =
+                    match System.Environment.GetEnvironmentVariable("WASMGC_STRING_ABI") with
+                    | "exports" -> T.Exports
+                    | _         -> T.Builtins
                 files
                 |> List.fold
                     (fun (ctx: T.Ctx) p ->
                         Lowering.processFileIntoCtx { ctx with ExportFunctions = p.IsEntry } p.Com p.File p.IsEntry)
-                    (T.Ctx.Create(files.Head.Com, stringMode))
+                    (T.Ctx.Create(files.Head.Com, stringMode, stringAbi))
 
             let wasmModule =
                 let declarations = (files |> List.filter (fun p -> not p.IsLibrary) |> List.tryLast |> Option.defaultValue files.Head).File.Declarations

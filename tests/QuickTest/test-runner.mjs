@@ -868,6 +868,8 @@ check("StringBuilder.Append(char / int) and ToString", 4 * 100 + 55, exp.testStr
 check("out argument of a reference type", 35, exp.testOutArgReference());
 check("module-level value is evaluated once and shared", 340, exp.testModuleValueIsShared());
 check("Stack(seq), TryPop and TryPeek", 320, exp.testStackTryPopAndSeqCtor());
+check("for-in over a string and ToCharArray give characters", 563, exp.testForInStringAndToCharArray());
+check("a string literal pattern, the empty string included", 115, exp.testStringLiteralPattern());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

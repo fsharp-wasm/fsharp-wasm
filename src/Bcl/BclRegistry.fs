@@ -62,6 +62,7 @@ let resolve (used: System.Collections.Generic.HashSet<string>) : unit =
 /// The builder is a `unit -> WFuncDecl` thunk — helpers are only built when used.
 let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
     let strArrTypeIdx = getOrAddArrayType ctx (WType.Ref(StringTypeIdx, false))
+    let charArrTypeIdx = getOrAddArrayType ctx WType.I32
     [
         // ── String ────────────────────────────────────────────────────────
         "$strConcat",         StringHelpers.makeStrConcatHelper
@@ -81,6 +82,7 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$strReplace",        StringHelpers.makeStrReplaceHelper
         "$strCompare",        StringHelpers.makeStrCompareHelper
         "$strSplit",          StringHelpers.makeStrSplitHelper strArrTypeIdx
+        "$strToChars",        StringHelpers.makeStrToCharsHelper charArrTypeIdx
         "$strJoin",           StringHelpers.makeStrJoinHelper  strArrTypeIdx
         "$strRepeat",         StringHelpers.makeStrRepeatHelper
         "$int64ToStr",        StringHelpers.makeInt64ToStrHelper

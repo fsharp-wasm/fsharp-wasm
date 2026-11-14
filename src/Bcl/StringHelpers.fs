@@ -528,6 +528,30 @@ let makeStrSplitHelper (arrTypeIdx: int) () : WFuncDecl =
                         ])))
                 ])))))
 
+/// Runtime helper: $strToChars(src) → the characters of src as an array of i32 — what `s.ToCharArray()` and `for c in s` give
+/// (Fable asks for `s.split("")` and types the result char[]; the array of one-character strings that $strSplit makes is wrong here).
+/// arrTypeIdx must be the WasmGC array type for (array (mut i32)).
+let makeStrToCharsHelper (arrTypeIdx: int) () : WFuncDecl =
+    let strRef = WType.Ref(StringTypeIdx, false)
+    let arrRef = WType.Ref(arrTypeIdx, false)
+    let i32    = WType.I32
+    let srcGet = localGet "$stc_src" strRef
+    let lenGet = localGet "$stc_len" i32
+    let iGet   = localGet "$stc_i"   i32
+    let arrGet = localGet "$stc_arr" arrRef
+    makeFunc "$strToChars" [("$stc_src", strRef)] arrRef (
+        WExpr.Let("$stc_len", arrayLen srcGet,
+        WExpr.Let("$stc_arr", arrayNew arrTypeIdx lenGet (i32Const 0) arrRef,
+        WExpr.LetMut("$stc_i", i32Const 0,
+            sequence [
+                whileLoop "$stc_loop" (ltS iGet lenGet)
+                    (sequence [
+                        arraySet arrGet iGet (arrayGet srcGet iGet i32)
+                        localSet "$stc_i" (add iGet (i32Const 1))
+                    ])
+                arrGet
+            ]))))
+
 /// Runtime helper: $strJoin(sep, arr) → join array of strings with separator.
 /// arrTypeIdx must be the WasmGC array type for (array (ref $WasmStr)).
 let makeStrJoinHelper (arrTypeIdx: int) () : WFuncDecl =
