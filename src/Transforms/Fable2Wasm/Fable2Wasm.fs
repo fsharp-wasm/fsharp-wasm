@@ -153,11 +153,14 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
             else
                 ctx.KnownFuncsByPath
         { ctx with KnownFuncs = kf; KnownFuncsByPath = kfByPath }
+    // a module-level `do …` (`do register [ … ]`): runs once at start-up, in declaration order, like the module's values
     | ActionDeclaration action ->
         let wBody = transformExpr ctx action.Body
+        let name = $"$action_{ctx.InitSteps.Count}"
         let func : WFuncDecl =
-            { Name = "$init"; Params = []; Result = WType.Void; Locals = []; Body = wBody; Exported = false }
+            { Name = name; Params = []; Result = WType.Void; Locals = []; Body = wBody; Exported = false }
         ctx.Functions.Add(func |> resolveLocals)
+        ctx.InitSteps.Add(WExpr.Call(name, [], WType.Void))
         ctx
     | ModuleDeclaration modDecl ->
         // Recurse into nested module declarations (library pre-scan is done in processFileIntoCtx).

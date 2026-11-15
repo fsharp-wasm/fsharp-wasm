@@ -372,7 +372,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
 
     // Math helpers imported from fable-library/Double.js, Util.js etc.
     // Route these through dispatchMathCall so they get proper WasmIR.
-    | ("abs" | "min" | "max" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest"), _, _ ->
+    | ("abs" | "min" | "max" | "clamp" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest"), _, _ ->
         // Fable's `sign` library function is int-typed, so it wraps a float argument in a cast to int32; a float
         // must keep its value (sign 0.5 = 1)
         let wArgs =

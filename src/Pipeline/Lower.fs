@@ -6,6 +6,7 @@
 ///   ClosureApply / TailCallRef  → Let($lo_clo_N, cast, CallRef(…))      (explicit calling convention)
 ///   SwitchInt                   → Let($lo_sw_N, scrut, if-chain)        (no br_table nesting subtleties)
 ///   TryCatch(_, _, Some fin)    → try/catch + explicit finalizer paths  (Emit never saw `fin`)
+///   TryCatch with a reference result → the value goes through a local (V8 12.4 mis-runs a `try_table` with a ref result)
 ///
 /// Pipeline position: AFTER Phase 4 (Normalize), BEFORE Phase 5 (Locals).
 ///
@@ -61,6 +62,21 @@ let private lowerSwitch (scrut: WExpr) (cases: (int * WExpr) list) (def: WExpr) 
             cases def
     WExpr.Let(tmp, scrut, chain)
 
+/// `try body with h` of type `ty`.  V8 12.4 (Node 22) runs a `try_table` whose result is a reference wrongly (the module traps
+/// with `unreachable`; Node 24 is fine), so a try/with that yields a reference keeps its value in a local instead:
+///
+///   let mutable r = null in (try r <- body with h -> r <- h'); r
+let private mkTry (body: WExpr) (catch: (string * WExpr) option) (ty: WType) : WExpr =
+    match ty with
+    | WType.Ref(idx, nullable) ->
+        let tmp = freshLow "tr"
+        let slotTy = WType.Ref(idx, true)
+        let store e = WExpr.Assign(tmp, e)
+        let guarded = WExpr.TryCatch(store body, catch |> Option.map (fun (name, h) -> name, store h), None, WType.Void)
+        let value = WExpr.LocalGet(tmp, slotTy)
+        WExpr.LetMut(tmp, WExpr.Const(WConst.Null slotTy), WExpr.Sequence [ guarded; (if nullable then value else WExpr.Cast(value, ty)) ])
+    | _ -> WExpr.TryCatch(body, catch, None, ty)
+
 /// try body [with h] finally fin
 ///
 ///   let r = try (try body with h) with _ -> { let e = carrier; fin; carrier <- e; rethrow }
@@ -69,7 +85,7 @@ let private lowerSwitch (scrut: WExpr) (cases: (int * WExpr) list) (def: WExpr) 
 /// The exception payload lives in a global, so it is saved around the finalizer (which may
 /// itself throw and catch) and restored before rethrowing.
 let private lowerTryFinally (body: WExpr) (catch: (string * WExpr) option) (fin: WExpr) (ty: WType) =
-    let inner = match catch with Some _ -> WExpr.TryCatch(body, catch, None, ty) | None -> body
+    let inner = match catch with Some _ -> mkTry body catch ty | None -> body
     let saved = freshLow "exn"
     let onExn =
         WExpr.Let(saved, WExpr.GlobalGet(exnCarrier, WType.AnyRef),
@@ -77,7 +93,7 @@ let private lowerTryFinally (body: WExpr) (catch: (string * WExpr) option) (fin:
                 [ fin
                   WExpr.GlobalSet(exnCarrier, WExpr.LocalGet(saved, WType.AnyRef))
                   WExpr.Throw WExpr.Nop ])
-    let guarded = WExpr.TryCatch(inner, Some("$lo_exn", onExn), None, ty)
+    let guarded = mkTry inner (Some("$lo_exn", onExn)) ty
     match ty with
     | WType.Void -> WExpr.Sequence [ guarded; fin ]
     | _ ->
@@ -92,6 +108,7 @@ let private lowerNode (e: WExpr) : WExpr option =
         Some(lowerClosureCall "tail" WExpr.ReturnCallRef clo args fti cti ret)
     | WExpr.SwitchInt(s, cases, def, ret) -> Some(lowerSwitch s cases def ret)
     | WExpr.TryCatch(body, catch, Some fin, ty) -> Some(lowerTryFinally body catch fin ty)
+    | WExpr.TryCatch(body, catch, None, (WType.Ref _ as ty)) -> Some(mkTry body catch ty)
     | _ -> None
 
 let lowerExpr (e: WExpr) : WExpr = rewrite lowerNode e

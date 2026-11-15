@@ -606,6 +606,32 @@ let tryListFindIndexInline
                     none)
         | None -> None
 
+    // tryPick f list: the first `Some` the callback returns (the callback runs once per element, so the result is kept, not recomputed)
+    | "tryPick", [UnaryLambda(farg, fbody); listArg] ->
+        match listInfo ctx listArg with
+        | Some(elemT, consIdx) ->
+            let s      = mkListShape elemT consIdx
+            let gen    = LabelGen "tryp"
+            let wBody  = transform (ctx.WithLocal(farg.Name, elemT)) fbody
+            let resTy  = exprWType wBody
+            let wList  = transform ctx listArg
+            Some(wasm {
+                let! cur = mutTy s.BaseTy wList
+                return! Wasm.labeledBlock gen "exit" resTy (fun ctrl -> wasm {
+                    do! Wasm.labeledLoop gen "lp" (fun lp -> wasm {
+                        if (refIsNotNull cur.Val) then
+                            let! picked = WExpr.Let(farg.Name, s.Head cur.Val, wBody)
+                            if (refIsNotNull picked) then
+                                do! ctrl.BreakWith picked
+                            do! cur <== s.Tail cur.Val
+                        else
+                            do! lp.Break
+                    })
+                    return WExpr.Const(WConst.Null resTy)
+                })
+            })
+        | None -> None
+
     | ("findIndex" | "tryFindIndex"), [UnaryLambda(farg, fbody); listArg] ->
         match listInfo ctx listArg with
         | Some(elemT, consIdx) ->

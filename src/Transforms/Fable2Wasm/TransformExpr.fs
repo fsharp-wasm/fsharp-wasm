@@ -84,6 +84,13 @@ let jsTypedArrayElemType (name: string) : (WType * WExpr) option =
 /// the stack). Reporting it here, at the source expression, is far more
 /// actionable than the resulting "expected i32 but nothing on stack" error
 /// from wasm-tools three transforms later.
+/// The wasm name of a module value or function of another file of the program: (file stem, selector) → qualified name.
+let private importedName (ctx: Ctx) (info: Fable.ImportInfo) : string =
+    let stem = System.IO.Path.GetFileNameWithoutExtension(info.Path)
+    match Map.tryFind (stem, info.Selector) ctx.KnownFuncsByPath with
+    | Some qualName -> qualName
+    | None -> info.Selector
+
 /// Read a module-level value that lives in a wasm global.  It is stored nullable (the initialiser has not run when the
 /// global is declared); a non-null reference is cast on read.
 let private readGlobal (qn: string) (ty: WType) : WExpr =
@@ -300,8 +307,14 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 match Scope.resolve ctx ctx.CurrentFunc ident.Name with
                 | Scope.Resolution.Global(qn, _) -> WExpr.GlobalSet(qn, wValue)
                 | _ -> WExpr.Assign(ident.Name, wValue)
+            // `A.Kind <- 1` on a mutable module value of ANOTHER file: that value lives in a wasm global named by (file, selector)
+            | Fable.Expr.Import(info, _, _) when ctx.MutableGlobals.ContainsKey(importedName ctx info) ->
+                WExpr.GlobalSet(importedName ctx info, transformExpr ctx value)
             | _ ->
-                WExpr.Nop // TODO
+                // never drop an assignment silently: the program would run, and compute something else
+                WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics "assignment to this kind of value"
+                    "Assign to a local `let mutable`, a mutable module value, a record field or an array element."
+                WExpr.Nop
         | FieldSet fieldName ->
             // Mutable record field assignment (Phase 3)
             match _expr.Type with
@@ -715,7 +728,8 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
                 WExpr.Let(ident.Name, globalGet "$fsharp_exn_carrier" WType.AnyRef, wHandlerExpr)
             ident.Name, wHandlerWithCarrier)
         let wFinally = finalizer |> Option.map (transformExpr ctx)
-        let ty = mapType body.Type
+        // `mapTypeKnown`, not `mapType`: a `try … with` that yields a record or union is typed as that struct, not as an i32
+        let ty = mapTypeKnown ctx body.Type
         WExpr.TryCatch(wBody, wCatch, wFinally, ty)
 
     // | Fable.Extended(Fable.Curry(expr, arity), typeInfo) ->
@@ -812,11 +826,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             let callName = ctx.RegisterExternFunc(info.Path, info.Selector, [], ty) 
             WExpr.FuncRef callName
         else
-            let stem = System.IO.Path.GetFileNameWithoutExtension(info.Path)
-            let actualName =
-                match Map.tryFind (stem, info.Selector) ctx.KnownFuncsByPath with
-                | Some qualName -> qualName
-                | None -> info.Selector
+            let actualName = importedName ctx info
             // a module VALUE of another file (`let nil = El 0`) is a nullary function here: reading it is a call;
             // only a value of function type (`let f () = …` passed along) is a function reference
             let isFunctionValue = (match typ with Fable.Type.LambdaType _ | Fable.Type.DelegateType _ -> true | _ -> false)

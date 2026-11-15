@@ -82,6 +82,24 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) (unsigned: b
             let! tb = b
             return wasmIf (if unsigned then WExpr.Compare(WCompareOp.GtU, ta, tb) else gtS ta tb) ta tb
         }
+    // clamp(value, lo, hi): .NET raises ArgumentException for lo > hi; NaN stays NaN (the float min/max propagate it)
+    | "clamp", [v; lo; hi], (WType.F64 | WType.F32) ->
+        wasm {
+            let! tlo = lo
+            let! thi = hi
+            return wasmIf (WExpr.Compare(WCompareOp.GtS, tlo, thi)) (WExpr.Throw WExpr.Nop)
+                       (WExpr.Binary(WBinaryOp.Min, WExpr.Binary(WBinaryOp.Max, v, tlo, ty), thi, ty))
+        }
+    | "clamp", [v; lo; hi], (WType.I32 | WType.I64) ->
+        let lt a b = if unsigned then ltU a b else ltS a b
+        let gt a b = if unsigned then WExpr.Compare(WCompareOp.GtU, a, b) else gtS a b
+        wasm {
+            let! tv = v
+            let! tlo = lo
+            let! thi = hi
+            return wasmIf (gt tlo thi) (WExpr.Throw WExpr.Nop)
+                       (wasmIf (lt tv tlo) tlo (wasmIf (gt tv thi) thi tv))
+        }
     // sign of a float: -1 / 0 / 1; NaN raises (ArithmeticException on .NET)
     | "sign", [arg], _ when (match exprWType arg with WType.F64 | WType.F32 -> true | _ -> false) ->
         wasm {

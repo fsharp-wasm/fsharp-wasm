@@ -205,60 +205,11 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
                 else
                     let argKeys = genArgs |> List.map (fun t -> wTypeKey (mapTypeKnown ctx t)) |> String.concat ","
                     $"{entRef.FullName}<{argKeys}>"
-            // Build a substitution map from generic param names to concrete types.
-            let substMap =
-                if genArgs.IsEmpty then Map.empty
-                else
-                    let paramNames = ent.GenericParameters |> List.map (fun p -> p.Name)
-                    (paramNames, genArgs) ||> List.zip |> Map.ofList
-            // Substitute a Fable generic param type using the substitution map.
-            let substituteType (t: Fable.Type) : Fable.Type =
-                match t with
-                | Fable.Type.GenericParam(name, _, _) ->
-                    match Map.tryFind name substMap with
-                    | Some concreteType -> concreteType
-                    | None -> t
-                | _ -> t
-            // Try to find or register base type + case types in GenericDuRegistry.
+            // Find or register the base type + case structs of this instantiation (Types.registerGenericUnion).
             let baseIdx =
-                // First check GenericDuRegistry (for generic types registered on-demand)
-                match ctx.GenericDuRegistry.TryGetValue(instKey) with
-                | true, idx -> idx
-                | false, _ ->
-                    // Also check TypeRegistry (for ClassDeclaration-registered types)
-                    match Map.tryFind instKey ctx.TypeRegistry with
-                    | Some idx -> idx
-                    | None ->
-                        // Not yet registered — register now using concrete genArgs.
-                        let baseIdx = ctx.TypeDefs.Count
-                        let cases = ent.UnionCases
-                        // Pre-register all indices.
-                        ctx.GenericDuRegistry.[instKey] <- baseIdx
-                        for i in 0 .. cases.Length - 1 do
-                            ctx.GenericDuRegistry.[$"{instKey}#{i}"] <- baseIdx + 1 + i
-                        // Emit base struct: { tag: i32 }
-                        ctx.TypeDefs.Add(
-                            { Name = instKey
-                              Def = WTypeDef.Struct([{ Name = "tag"; Type = WType.I32; Mutable = false }], None) })
-                        // Reserve ALL case slots first (baseIdx + 1 + i): mapping a field type can register further types
-                        // (a list of this very union, …) and would otherwise push the later cases off their indices.
-                        for i in 0 .. cases.Length - 1 do
-                            ctx.TypeDefs.Add({ Name = $"{instKey}#{i}"; Def = WTypeDef.Struct([], Some baseIdx) })
-                        // Fill the case structs, each extending the base.
-                        for i in 0 .. cases.Length - 1 do
-                            let case = cases.[i]
-                            let dataFields =
-                                case.UnionCaseFields
-                                |> List.map (fun f ->
-                                    let concreteType = substituteType f.FieldType
-                                    { Name = f.Name; Type = mapTypeKnown ctx concreteType; Mutable = false })
-                                |> List.filter (fun f -> f.Type <> WType.Void)
-                            ctx.TypeDefs.[baseIdx + 1 + i] <-
-                                { Name = $"{instKey}#{i}"
-                                  Def = WTypeDef.Struct(
-                                        { Name = "tag"; Type = WType.I32; Mutable = false } :: dataFields,
-                                        Some baseIdx) }
-                        baseIdx
+                match registerGenericUnion ctx entRef genArgs instKey with
+                | Some idx -> idx
+                | None -> failwithf "union '%s' cannot be registered" instKey
             // Build the case key and look up in both registries.
             let caseKey = $"{instKey}#{tag}"
             let caseTypeIdxOpt =

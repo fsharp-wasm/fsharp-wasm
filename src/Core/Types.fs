@@ -608,6 +608,11 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
                 match registerGenericClass ctx entRef genericArgs instKey with
                 | Some idx -> WType.Ref(idx, false)
                 | None ->
+                // A union that is not compiled from source (`Result<'T,'E>`, `Choice<…>`) gets its structs here, the first time
+                // its type is mapped: a closure signature `Result<int,string> -> …` is mapped before any case is constructed
+                match (if Map.containsKey entRef.FullName ctx.TypeRegistry then None else registerGenericUnion ctx entRef genericArgs instKey) with
+                | Some idx -> WType.Ref(idx, false)
+                | None ->
                 // Fall back to non-generic key (ClassDeclaration-registered types)
                 match Map.tryFind entRef.FullName ctx.TypeRegistry with
                 | Some idx -> WType.Ref(idx, false)
@@ -699,6 +704,46 @@ and registerGenericClass (ctx: Ctx) (entRef: Fable.EntityRef) (genericArgs: Fabl
                 { Name = f.Name; Type = ty; Mutable = true })
         ctx.TypeDefs.[idx] <- { Name = instKey; Def = WTypeDef.Struct(fields, None) }
         Some idx
+    | _ -> None
+
+/// On-demand base + case structs for ONE instantiation of a union (`Result<int,string>`): `{ tag }` and one `{ tag; fields… }`
+/// subtype per case, at consecutive indices after the base (`GenericDuRegistry["<key>"]`, `["<key>#<case>"]`).  The fields are
+/// mapped with the union's type parameters bound to the (already mapped) type arguments, so a nested `'T option` or `'T list` is
+/// the instantiated one.  `None` when `entRef` is not a union of that many type parameters.  Registered already → its base index.
+and registerGenericUnion (ctx: Ctx) (entRef: Fable.EntityRef) (genericArgs: Fable.Type list) (instKey: string) : int option =
+    match ctx.GenericDuRegistry.TryGetValue(instKey) with
+    | true, idx -> Some idx
+    | false, _ ->
+    match Map.tryFind instKey ctx.TypeRegistry with
+    | Some idx -> Some idx
+    | None ->
+    let ent = try Some(ctx.Compiler.GetEntity entRef) with _ -> None
+    match ent with
+    | Some ent when ent.IsFSharpUnion && ent.GenericParameters.Length = genericArgs.Length ->
+        let baseIdx = ctx.TypeDefs.Count
+        let cases = ent.UnionCases
+        let subst =
+            (ent.GenericParameters |> List.map (fun p -> p.Name), genericArgs |> List.map (mapTypeKnown ctx))
+            ||> List.zip |> Map.ofList
+        let inner = { ctx with TypeSubst = subst }
+        // pre-register every index: a field can mention this union (a recursive type) or register further types
+        ctx.GenericDuRegistry.[instKey] <- baseIdx
+        for i in 0 .. cases.Length - 1 do
+            ctx.GenericDuRegistry.[$"{instKey}#{i}"] <- baseIdx + 1 + i
+        ctx.TypeDefs.Add({ Name = instKey; Def = WTypeDef.Struct([ { Name = "tag"; Type = WType.I32; Mutable = false } ], None) })
+        // reserve ALL case slots first (baseIdx + 1 + i): mapping a field type can register further types (a list of this very
+        // union, …) and would otherwise push the later cases off their indices
+        for i in 0 .. cases.Length - 1 do
+            ctx.TypeDefs.Add({ Name = $"{instKey}#{i}"; Def = WTypeDef.Struct([], Some baseIdx) })
+        for i in 0 .. cases.Length - 1 do
+            let dataFields =
+                cases.[i].UnionCaseFields
+                |> List.map (fun f -> { Name = f.Name; Type = mapTypeKnown inner f.FieldType; Mutable = false })
+                |> List.filter (fun f -> f.Type <> WType.Void)
+            ctx.TypeDefs.[baseIdx + 1 + i] <-
+                { Name = $"{instKey}#{i}"
+                  Def = WTypeDef.Struct({ Name = "tag"; Type = WType.I32; Mutable = false } :: dataFields, Some baseIdx) }
+        Some baseIdx
     | _ -> None
 
 /// On-demand struct for ONE instantiation of a generic record: the fields are mapped with the record's type
