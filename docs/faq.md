@@ -206,8 +206,8 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ### Is there a sponsorship program?
 
-Yes — see [GitHub Sponsors](https://github.com/sponsors/fsharp-wasm). Sponsorship supports
-full-time development of the compiler backend, standard library work, and documentation.
+Yes — the fsharp-wasm organisation takes sponsorship through [GitHub Sponsors](https://github.com/sponsors/fsharp-wasm). It supports the work across the
+organisation's repositories: the compiler, the base library, the hosts, the documentation, and the tests and benchmarks.
 
 ### Where do I ask questions?
 

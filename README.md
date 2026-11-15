@@ -241,17 +241,13 @@ and adds a completely new backend that targets WebAssembly GC:
 
 ## Sponsoring
 
-fsharp-wasm is developed as an open-source project. If you find it useful or want to support
-the development of F# on WebAssembly, please consider sponsoring:
+fsharp-wasm is developed as an open-source project by the [fsharp-wasm organisation](https://github.com/fsharp-wasm). If you find it useful or want
+to support the development of F# on WebAssembly, please consider sponsoring the organisation:
 
-- [GitHub Sponsors](https://github.com/sponsors/fsharp-wasm)
+- [GitHub Sponsors: fsharp-wasm](https://github.com/sponsors/fsharp-wasm)
 
-Sponsorship funds go directly toward:
-
-- Full-time development of the compiler backend
-- WasmGC specification compliance testing
-- Building a complete F# standard library for WebAssembly
-- Documentation and ecosystem tooling
+Sponsorship supports the work across the organisation's repositories: the compiler and its tests, the base library and the hosts, the documentation,
+and the benchmarks and test infrastructure that let anyone check what is claimed.
 
 ## License
 
