@@ -1,6 +1,6 @@
 # Project status
 
-> **Recorded 2026-11-14** at commit `73f34dd`, with `tests/run-all.sh` and the commands in the table below.
+> **Recorded 2026-11-15** at commit `6d8fe71`, with `tests/run-all.sh` and the commands in the table below.
 > The CI of this repository is the live truth; this page is a dated snapshot of what it covers.
 
 ## Test results
@@ -18,13 +18,12 @@
 | BCL bootstrap | the base library's exceptions and math compiled through the backend | 11 passed | yes |
 | Component embed | WIT generation and embedding with wasm-tools | 39 passed | yes |
 | Component linking | two modules compiled apart and linked at run time | 22 passed | yes |
-| Wasm tests (wasmtime) | a test project compiled to WebAssembly and run in wasmtime | **does not compile** (18 errors); needs wasmtime | no |
-| Wasmecto | the test framework's own tests | **the runner expects an older repository layout** | no |
+| Wasmecto tests (`tests/Wasm`) | a test project written with the Wasmecto framework, compiled to WebAssembly and run in Node: language core, collections, closures, a compiler pipeline smoke test | 81 passed | yes |
+| Wasmecto's own tests | the test framework's own tests (`Math`, `Dictionary`, `Stack`, `StringBuilder`) | **does not compile** (7 errors: `StringBuilder.AppendLine(string)`, `Dictionary.SumValues`, `RuntimeHelpers.GetHashCode`, and the `AggregateException` null in the base library's `Task.fs`) | no |
 
-`bash tests/run-all.sh` runs every suite, keeps going after a failure and prints one table (`--list`, `--only a,b`). In the recorded run 10 of 12
-suites passed and one was skipped for a runner problem (`FSHARP_WASMECTO_DIR` as an absolute path is looked up below the repository root);
-the two rows marked above are open. The named tests and checks above add up to 800; the differential run, the closure fuzz and the pass
-tests' random programs add several hundred thousand generated cases.
+`bash tests/run-all.sh` runs every suite, keeps going after a failure and prints one table (`--list`, `--only a,b`). In the recorded run 11 of 12
+suites passed; the one that did not is the framework's own test project (row above). The differential run, the closure fuzz and the pass
+tests' random programs add several hundred thousand generated cases to the named tests and checks in the table.
 
 ## Where each area is tested
 
@@ -47,7 +46,8 @@ Measured while writing tests; each is a program that does not compile or a metho
 - stepped ranges: `for i in 0 .. 2 .. 9`
 - `Array.map not` (a function value of a built-in operator), `Array.concat` of a list of arrays, array slices `a.[1..3]`
 - `System.Array.IndexOf`, `Resize`, `Clear`, `Reverse`, `Sort`, `CopyTo`
-- `sprintf "%A"`, dictionary literals (`dict [ … ]`), a few enumerator cases (`for … in` over a `ResizeArray` through `GetEnumerator`), comparer constructor overloads
+- `sprintf "%A"` / `%O` of a record, union, list or tuple (a compile error, not a wrong output), dictionary literals (`dict [ … ]`), a few enumerator cases (`for … in` over a `ResizeArray` through `GetEnumerator`), comparer constructor overloads
+- a local function that is generic in its type arguments and whose only evidence of them is its use (`let bind r = match r with Ok v -> Ok (v + 1) | Error e -> Error e`, applied to a `Result<int, string>`) is compiled for `int`: annotate its parameter
 - `async` and JSPI: planned
 
 ## Source layout

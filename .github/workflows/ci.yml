@@ -173,3 +173,20 @@ jobs:
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: cd examples/component-linking && bash run.sh
+
+      # Wasmecto, the test framework compiled to WasmGC, and the project written with it (tests/Wasm, run in Node).
+      # fsharp-wasmecto is pinned to a commit, like the repositories the backend CI checks out.
+      - name: Check out fsharp-wasmecto
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/checkout@v6
+        with:
+          repository: fsharp-wasm/fsharp-wasmecto
+          ref: c9fd5beb46da97fef41d2640c1dc72b71501cf98
+          path: .deps/fsharp-wasmecto
+
+      - name: Wasmecto tests (tests/Wasm)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          FSHARP_WASMECTO_DIR: ${{ github.workspace }}/.deps/fsharp-wasmecto
+        run: bash tests/Wasm/run-tests.sh
