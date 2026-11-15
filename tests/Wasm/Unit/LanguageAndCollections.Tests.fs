@@ -73,7 +73,8 @@ module LanguageAndCollectionsTests =
                 Expect.equal (defaultOf None 7) 7 "none"
 
             testCase "result basic Ok/Error flow" <| fun () ->
-                let bindPlusOne r =
+                // annotated: a local function that is generic in its error type is not compiled for the type its use gives it (see docs/STATUS.md)
+                let bindPlusOne (r: Result<int, string>) =
                     match r with
                     | Ok v -> Ok (v + 1)
                     | Error e -> Error e

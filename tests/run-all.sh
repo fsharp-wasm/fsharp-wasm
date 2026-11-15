@@ -67,7 +67,8 @@ for entry in "${SUITES[@]}"; do
   name="${entry%%|*}"; cmd="${entry#*|}"
   [ -n "$ONLY" ] && [[ "$ONLY" != *",$name,"* ]] && continue
   script="${cmd%% *}"; [ "$script" = bash ] && { rest="${cmd#bash }"; script="${rest%% *}"; }
-  if [[ "$cmd" != dotnet* ]] && [ ! -f "$ROOT/$script" ]; then
+  case "$script" in /*) script_path="$script" ;; *) script_path="$ROOT/$script" ;; esac   # FSHARP_WASMECTO_DIR may be absolute
+  if [[ "$cmd" != dotnet* ]] && [ ! -f "$script_path" ]; then
     names+=("$name"); results+=("MISSING"); times+=("0"); continue
   fi
 

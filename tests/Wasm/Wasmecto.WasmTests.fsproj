@@ -6,6 +6,8 @@
     <RootNamespace>WasmTests</RootNamespace>
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
+    <!-- the Wasmecto sources: a sibling checkout of fsharp-wasmecto unless FSHARP_WASMECTO_DIR says otherwise -->
+    <FSHARP_WASMECTO_DIR Condition="'$(FSHARP_WASMECTO_DIR)' == ''">$(MSBuildThisFileDirectory)../../../fsharp-wasmecto</FSHARP_WASMECTO_DIR>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,11 +15,11 @@
     <Compile Include="$(FSharpWasmCoreDir)/Interop.fs" />
 
     <!-- Use Wasmecto framework sources directly (avoid project-level transitive deps) -->
-    <Compile Include="../../../fsharp-wasmecto/src/Types.fs" />
-    <Compile Include="../../../fsharp-wasmecto/src/ExnState.fs" />
-    <Compile Include="../../../fsharp-wasmecto/src/Expect.fs" />
-    <Compile Include="../../../fsharp-wasmecto/src/DSL.fs" />
-    <Compile Include="../../../fsharp-wasmecto/src/Runner.fs" />
+    <Compile Include="$(FSHARP_WASMECTO_DIR)/src/Types.fs" />
+    <Compile Include="$(FSHARP_WASMECTO_DIR)/src/ExnState.fs" />
+    <Compile Include="$(FSHARP_WASMECTO_DIR)/src/Expect.fs" />
+    <Compile Include="$(FSHARP_WASMECTO_DIR)/src/DSL.fs" />
+    <Compile Include="$(FSHARP_WASMECTO_DIR)/src/Runner.fs" />
 
     <!-- Unit tests (flattened structure) -->
     <Compile Include="Unit/LanguageAndCollections.Tests.fs" />

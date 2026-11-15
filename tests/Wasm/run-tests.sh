@@ -1,29 +1,23 @@
 #!/usr/bin/env bash
-# run-tests.sh — compile and run Wasmecto tests via wasmtime
-# Usage: ./run-tests.sh [test-project-dir]
+# Compile the Wasmecto test project with fsharp-wasm and run it in Node (WasmGC + the js-string builtins).
+#   tests/Wasm/run-tests.sh [project.fsproj]
+# The Wasmecto sources come from a sibling checkout of fsharp-wasmecto (FSHARP_WASMECTO_DIR overrides its location).
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR" && pwd)"
-FSHARP_WASM="${FSHARP_WASM:-$ROOT/../..}"
-TEST_PROJ="${1:-$ROOT/Wasmecto.WasmTests.fsproj}"
-OUT="$ROOT/dist"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+export FSHARP_WASMECTO_DIR="${FSHARP_WASMECTO_DIR:-$ROOT/../fsharp-wasmecto}"
+PROJ="${1:-$HERE/Wasmecto.WasmTests.fsproj}"
+OUT="$HERE/output"
 
-mkdir -p "$OUT"
+[ -d "$FSHARP_WASMECTO_DIR/src" ] || { echo "fsharp-wasmecto not found at $FSHARP_WASMECTO_DIR (set FSHARP_WASMECTO_DIR)" >&2; exit 2; }
 
-echo "==> Compiling Wasmecto + tests via fsharp-wasm..."
-dotnet run --project "$FSHARP_WASM/tools/FSharp.Wasm.Cli" -- \
-    "$TEST_PROJ" \
-    --outDir "$OUT"
+echo "==> Compiling the tests with fsharp-wasm..."
+rm -rf "$OUT"
+dotnet run -c Release --project "$ROOT/tools/FSharp.Wasm.Cli" -- "$PROJ" --outDir "$OUT" --noCache
 
-echo "==> Running tests in wasmtime..."
-wasmtime run "$OUT/wasmtests.wasm" 2>&1
-STATUS=$?
+WASM="$(ls "$OUT"/*.wasm | head -1)"
+command -v wasm-tools >/dev/null && wasm-tools validate "$WASM" --features gc
 
-if [ $STATUS -eq 0 ]; then
-    echo "All tests passed."
-else
-    echo "FAILED: $STATUS test(s) failed."
-fi
-
-exit $STATUS
+echo "==> Running $(basename "$WASM") in Node..."
+node "$HERE/run.mjs" "$WASM"

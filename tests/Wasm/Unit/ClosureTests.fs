@@ -5,12 +5,12 @@ open Wasmecto.Expect
 
 // ─── helpers (local to this module, not polluting global scope) ───────────────
 
-/// Run a function n times and collect results into a list.
+/// Run a function n times, in order 0 .. n-1, and collect the results into a list in that order.
 let private collect n (f: int -> 'a) : 'a list =
     let mutable acc = []
-    for i = n - 1 downto 0 do
+    for i in 0 .. n - 1 do
         acc <- f i :: acc
-    acc
+    List.rev acc
 
 /// Apply f repeatedly n times starting from seed.
 let private iterate n (f: 'a -> 'a) (seed: 'a) : 'a =
@@ -197,8 +197,8 @@ module ClosureTests =
 
             testCase "record containing a closure" <| fun () ->
                 // type Transformer = { Apply: int -> int; Name: string }
-                let double = { Apply = fun x -> x * 2;    Name = "double" }
-                let square = { Apply = fun x -> x * x;    Name = "square" }
+                let double = { Apply = (fun x -> x * 2); Name = "double" }
+                let square = { Apply = (fun x -> x * x); Name = "square" }
                 Expect.equal (double.Apply 5) 10 "double.Apply 5 = 10"
                 Expect.equal (square.Apply 5) 25 "square.Apply 5 = 25"
                 Expect.equal double.Name "double" "double name"
