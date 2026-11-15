@@ -1,6 +1,6 @@
 # Project status
 
-> **Recorded 2026-11-14** at commit `2e63a0c`, with `tests/run-all.sh` and the commands in the table below.
+> **Recorded 2026-11-14** at commit `73f34dd`, with `tests/run-all.sh` and the commands in the table below.
 > The CI of this repository is the live truth; this page is a dated snapshot of what it covers.
 
 ## Test results
