@@ -185,7 +185,14 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
         match instance with
         | Some typeIdx ->
             let wValues = values |> List.map (eval ctx)
-            WExpr.StructNew(typeIdx, wValues, WType.Ref(typeIdx, false))
+            // An F# `exception E of string` derives from System.Exception when the base library is part of the program: its struct
+            // then starts with the base's fields (the message), which the declaration's own values do not cover — those are null
+            let fieldTypes =
+                match (ctx.TypeDefs :> System.Collections.Generic.IList<_>).[typeIdx].Def with
+                | WTypeDef.Struct(fields, _) -> fields |> List.map (fun f -> f.Type)
+                | _ -> []
+            let padding = fieldTypes |> List.truncate (max 0 (fieldTypes.Length - wValues.Length)) |> List.map makeNumericZero
+            WExpr.StructNew(typeIdx, padding @ wValues, WType.Ref(typeIdx, false))
         | None ->
             // Record type not registered yet — emit stub
             i32Zero

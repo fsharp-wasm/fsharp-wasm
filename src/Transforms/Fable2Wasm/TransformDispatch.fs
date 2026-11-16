@@ -420,10 +420,60 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | "singleToUInt32Bits", [arg], _ -> WExpr.Unary(WUnaryOp.ReinterpretF32ToI32, arg, WType.I32)
     // ---------------------------------------------------
     // ── StringBuilder — calls from ./System.Text.fs ───────────────────────────
-    | "StringBuilder_$ctor", _, _ ->
-        // new StringBuilder() / new StringBuilder(capacity)
-        let cap = match wArgs with | [c] -> c | _ -> i32Const 16
-        WExpr.Call(ctx.UseHelper("$sbCreate"), [cap], WType.Ref(StringBuilderTypeIdx, false))
+    | sel, _, _ when sel.StartsWith("StringBuilder_$ctor") ->
+        // new StringBuilder() / new StringBuilder(capacity) / new StringBuilder(initialText)
+        let sbT = WType.Ref(StringBuilderTypeIdx, false)
+        match wArgs, info.Args |> List.tryHead |> Option.map (fun a -> a.Type) with
+        | [ text ], Some Fable.Type.String ->
+            wasm {
+                let! t = text
+                return WExpr.Call(ctx.UseHelper("$sbAppend"), [ WExpr.Call(ctx.UseHelper("$sbCreate"), [ add (arrayLen t) (i32Const 16) ], sbT); t ], sbT)
+            }
+        | [ c ], _ -> WExpr.Call(ctx.UseHelper("$sbCreate"), [ c ], sbT)
+        | _ -> WExpr.Call(ctx.UseHelper("$sbCreate"), [ i32Const 16 ], sbT)
+    // sb.AppendFormat("x={0}, y={1}", a, b) with a literal format: the literal pieces and the arguments, appended in order
+    | sel, sb :: _, _ when sel.StartsWith("StringBuilder__AppendFormat") ->
+        let strT = WType.Ref(StringTypeIdx, false)
+        let sbT = WType.Ref(StringBuilderTypeIdx, false)
+        let append (b: WExpr) (s: WExpr) = WExpr.Call(ctx.UseHelper("$sbAppend"), [b; s], sbT)
+        let rec unwrap (e: Fable.Expr) = match e with Fable.Expr.TypeCast(inner, _) -> unwrap inner | _ -> e
+        let lit (text: string) = WExpr.ArrayNewFixed(StringTypeIdx, text |> Seq.map (fun c -> i32Const (int c)) |> Seq.toList, strT)
+        match info.Args with
+        | _ :: Fable.Expr.Value(Fable.ValueKind.StringConstant format, _) :: args ->
+            let argText (i: int) =
+                match List.tryItem i args |> Option.map unwrap with
+                | Some a -> Some(primitiveToString ctx a.Type (eval ctx a))
+                | None -> None
+            // pieces: literal text and {n} holes ({{ and }} are the braces themselves)
+            let parts = System.Collections.Generic.List<Choice<string, int>>()
+            let text = System.Text.StringBuilder()
+            let mutable i = 0
+            let mutable ok = true
+            while ok && i < format.Length do
+                match format.[i] with
+                | '{' when i + 1 < format.Length && format.[i + 1] = '{' -> text.Append('{') |> ignore; i <- i + 2
+                | '}' when i + 1 < format.Length && format.[i + 1] = '}' -> text.Append('}') |> ignore; i <- i + 2
+                | '{' ->
+                    let close = format.IndexOf('}', i)
+                    match (if close > i then System.Int32.TryParse(format.Substring(i + 1, close - i - 1)) else (false, 0)) with
+                    | true, n ->
+                        if text.Length > 0 then parts.Add(Choice1Of2(text.ToString())); text.Clear() |> ignore
+                        parts.Add(Choice2Of2 n)
+                        i <- close + 1
+                    | _ -> ok <- false
+                | c -> text.Append(c) |> ignore; i <- i + 1
+            if text.Length > 0 then parts.Add(Choice1Of2(text.ToString()))
+            let texts = parts |> Seq.map (function Choice1Of2 t -> Some(lit t) | Choice2Of2 n -> argText n) |> Seq.toList
+            if ok && texts |> List.forall Option.isSome then
+                texts |> List.fold (fun acc t -> append acc t.Value) sb
+            else
+                WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics "StringBuilder.AppendFormat with this format"
+                    "Use a literal format with {0}, {1}, … holes (no format specifiers), or Append / sprintf."
+                WExpr.Nop
+        | _ ->
+            WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics "StringBuilder.AppendFormat with a format that is not a literal"
+                "Use a literal format string, or Append / sprintf."
+            WExpr.Nop
     | sel, sb :: value :: _, _ when sel.StartsWith("StringBuilder__Append_") ->
         // sb.Append(x) — returns sb (unit in F# use, but typed as ref $StringBuilder).  Everything is appended as a
         // string: a char is a one-character string, an integer its decimal text.
@@ -433,6 +483,24 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         | Some Fable.Type.Char -> append (WExpr.ArrayNew(StringTypeIdx, i32Const 1, value, strT))
         | Some(Fable.Type.Number _) when exprWType value = WType.I32 -> append (WExpr.Call(ctx.UseHelper("$intToStr"), [value], strT))
         | _ -> append value
+    // sb.AppendLine() / sb.AppendLine(s): the text, then "\n" (what Environment.NewLine is on Linux and in a browser)
+    | sel, sb :: rest, _ when sel.StartsWith("StringBuilder__AppendLine") ->
+        let strT = WType.Ref(StringTypeIdx, false)
+        let sbT = WType.Ref(StringBuilderTypeIdx, false)
+        let append (b: WExpr) (s: WExpr) = WExpr.Call(ctx.UseHelper("$sbAppend"), [b; s], sbT)
+        let newline = WExpr.ArrayNewFixed(StringTypeIdx, [ i32Const 10 ], strT)
+        match rest with
+        | [] -> append sb newline
+        | value :: _ ->
+            let text =
+                match info.Args |> List.tryLast |> Option.map (fun a -> a.Type) with
+                | Some Fable.Type.Char -> WExpr.ArrayNew(StringTypeIdx, i32Const 1, value, strT)
+                | Some(Fable.Type.Number _) when exprWType value = WType.I32 -> WExpr.Call(ctx.UseHelper("$intToStr"), [value], strT)
+                | _ -> value
+            append (append sb text) newline
+    // `isNull x` / `isNotNull x` of a reference: the base library's RuntimeHelpers.GetHashCode uses it
+    | "Operators_IsNull", [x], _ -> WExpr.RefIsNull x
+    | "Operators_IsNotNull", [x], _ -> WExpr.Compare(WCompareOp.Eq, WExpr.RefIsNull x, i32Zero)
     | "StringBuilder__Clear", [sb], _ ->
         // sb.Clear() — length back to 0, returns sb
         wasm {

@@ -3784,3 +3784,12 @@ let testOperatorsAsFunctions () : int =
     let d = [ 3; 9; 4 ] |> List.fold max 0                                               // 9
     a * 100000 + (b + 10) * 10000 + c * 100 + d
     // 100000 + 4 * 10000 + 2400 + 9
+
+let testStringBuilderLineAndFormat () : int =
+    let sb = System.Text.StringBuilder("ab")
+    sb.AppendLine("cd") |> ignore
+    sb.AppendLine() |> ignore
+    sb.AppendFormat("x={0},{1}", 7, "q") |> ignore
+    let s = sb.ToString()
+    s.Length * 1000 + s.IndexOf '\n' * 100 + int s.[s.Length - 1]
+    // "abcd\n\nx=7,q": 11 * 1000 + 4 * 100 + 'q' (113)

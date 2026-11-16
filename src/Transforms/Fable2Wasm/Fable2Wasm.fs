@@ -468,19 +468,22 @@ let processFileIntoCtx (ctx: Ctx) (com: ICompilerCore) (file: Fable.File) (isLas
                         NamePrefix = ""
                         FuncNameAlias = Map.empty }
     let ctx =
+        // Fable puts file-level module functions at the top level (NOT inside ModuleDeclaration), so they are collected here
+        // and prefixed with the file stem to avoid name collisions.
+        let rec collectMembers (keep: string -> bool) acc decls =
+            (acc, decls) ||> List.fold (fun a d ->
+                match d with
+                | MemberDeclaration m when keep m.Name -> Map.add m.Name (stem + "_" + m.Name) a
+                | ModuleDeclaration md -> collectMembers keep a md.Members
+                | _ -> a)
         if not isLastFile then
-            // Pre-scan: build FuncNameAlias for all top-level member functions in this library file.
-            // Fable puts file-level module functions at the top level (NOT inside ModuleDeclaration),
-            // so we collect them here and prefix with the file stem to avoid name collisions.
-            let rec collectMembers acc decls =
-                (acc, decls) ||> List.fold (fun a d ->
-                    match d with
-                    | MemberDeclaration m -> Map.add m.Name (stem + "_" + m.Name) a
-                    | ModuleDeclaration md -> collectMembers a md.Members
-                    | _ -> a)
-            let aliases = collectMembers Map.empty file.Declarations
-            { baseCtx with FuncNameAlias = aliases }
-        else baseCtx
+            // a library file: every function is internal and prefixed with the file stem
+            { baseCtx with FuncNameAlias = collectMembers (fun _ -> true) Map.empty file.Declarations }
+        else
+            // a file of the entry project keeps its names (they are the exports), except where a file before it has the same
+            // name already — `let tests` in several test modules is legal F#; the later ones are prefixed like library functions
+            let taken (name: string) = baseCtx.KnownFuncs.ContainsKey name || baseCtx.MutableGlobals.ContainsKey name
+            { baseCtx with FuncNameAlias = collectMembers taken Map.empty file.Declarations }
     preScanGenerics ctx file.Declarations
     for decl in file.Declarations do
         for name in FableNormalize.assignedIdents decl do

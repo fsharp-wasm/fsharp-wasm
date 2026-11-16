@@ -181,7 +181,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: fsharp-wasm/fsharp-wasmecto
-          ref: c9fd5beb46da97fef41d2640c1dc72b71501cf98
+          ref: ca14db6605f82c3b1ba071f41b726a35051e6f32
           path: .deps/fsharp-wasmecto
 
       - name: Wasmecto tests (tests/Wasm)
@@ -190,3 +190,11 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
           FSHARP_WASMECTO_DIR: ${{ github.workspace }}/.deps/fsharp-wasmecto
         run: bash tests/Wasm/run-tests.sh
+
+      # The framework's own tests (Math, Dictionary, Stack, StringBuilder), compiled against the `core` submodule
+      - name: Wasmecto's own tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          FSHARP_WASM: ${{ github.workspace }}
+        run: bash .deps/fsharp-wasmecto/run-tests.sh

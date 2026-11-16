@@ -913,6 +913,7 @@ check("Array.concat of a list and of an array of arrays", 6101354, exp.testArray
 check("List.concat and List.collect", 366, exp.testListConcat());
 check("System.Array.IndexOf with start and count", 303020, exp.testArrayIndexOf());
 check("operators as function values: not, (~-), (*), max", 142409, exp.testOperatorsAsFunctions());
+check("StringBuilder: ctor from string, AppendLine, AppendFormat", 11513, exp.testStringBuilderLineAndFormat());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
