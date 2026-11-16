@@ -181,7 +181,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: fsharp-wasm/fsharp-wasmecto
-          ref: ca14db6605f82c3b1ba071f41b726a35051e6f32
+          ref: 0f0f4e63f86e77d2b2bd4f788f024d72209cdb1a
           path: .deps/fsharp-wasmecto
 
       - name: Wasmecto tests (tests/Wasm)
