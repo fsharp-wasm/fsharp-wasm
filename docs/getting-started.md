@@ -46,7 +46,7 @@ You should see output like:
 ```
 Compiling QuickTestWasmGc...
 Running wasm-tools validate...
-656 passed, 0 failed
+675 passed, 0 failed
 ```
 
 ## Compile an F# File
@@ -108,7 +108,7 @@ node --experimental-wasm-gc run.mjs
 ## Run All Test Suites
 
 ```bash
-# The main regression suite (656 tests)
+# The main regression suite (675 tests)
 cd tests/QuickTest && bash run.sh && cd ../..
 
 # Real-world algorithm showcase (26 tests)

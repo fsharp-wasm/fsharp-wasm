@@ -1,13 +1,13 @@
 # Project status
 
-> **Recorded 2026-11-15** at commit `6d8fe71`, with `tests/run-all.sh` and the commands in the table below.
+> **Recorded 2026-11-16** at commit `51289ed`, with `tests/run-all.sh` and the commands in the table below.
 > The CI of this repository is the live truth; this page is a dated snapshot of what it covers.
 
 ## Test results
 
 | Suite | What it checks | Result | In CI |
 | --- | --- | --- | --- |
-| QuickTest | language features, collections, strings, closures, numerics, arrays (CI runs it three times: default, unpacked `bool[]`/`byte[]`, with the inlining pass) | 656 passed | yes |
+| QuickTest | language features, collections, strings, closures, numerics, arrays (CI runs it three times: default, unpacked `bool[]`/`byte[]`, with the inlining pass) | 675 passed | yes |
 | QuickTestMulti | the same, one compilation per domain (17 domains) | 17/17 domains passed | yes |
 | Differential: .NET against wasm | generated inputs through the same F# functions on .NET and as wasm | 392 functions, 183 012 calls: 179 115 identical, 0 disagreements, 3 896 where both sides fail, 1 known difference | yes |
 | Showcase | classic algorithms and small programs end to end | 26 passed | yes |
@@ -19,11 +19,10 @@
 | Component embed | WIT generation and embedding with wasm-tools | 39 passed | yes |
 | Component linking | two modules compiled apart and linked at run time | 22 passed | yes |
 | Wasmecto tests (`tests/Wasm`) | a test project written with the Wasmecto framework, compiled to WebAssembly and run in Node: language core, collections, closures, a compiler pipeline smoke test | 81 passed | yes |
-| Wasmecto's own tests | the test framework's own tests (`Math`, `Dictionary`, `Stack`, `StringBuilder`) | **does not compile** (7 errors: `StringBuilder.AppendLine(string)`, `Dictionary.SumValues`, `RuntimeHelpers.GetHashCode`, and the `AggregateException` null in the base library's `Task.fs`) | no |
+| Wasmecto's own tests | the test framework's own tests (`Math`, `Dictionary`, `Stack`, `StringBuilder`), compiled against the whole base library and run in Node | 36 passed | yes |
 
-`bash tests/run-all.sh` runs every suite, keeps going after a failure and prints one table (`--list`, `--only a,b`). In the recorded run 11 of 12
-suites passed; the one that did not is the framework's own test project (row above). The differential run, the closure fuzz and the pass
-tests' random programs add several hundred thousand generated cases to the named tests and checks in the table.
+`bash tests/run-all.sh` runs every suite, keeps going after a failure and prints one table (`--list`, `--only a,b`). The differential run, the closure
+fuzz and the pass tests' random programs add several hundred thousand generated cases to the named tests and checks in the table.
 
 ## Where each area is tested
 
@@ -43,12 +42,16 @@ tests' random programs add several hundred thousand generated cases to the named
 
 Measured while writing tests; each is a program that does not compile or a method that is not mapped yet:
 
-- stepped ranges: `for i in 0 .. 2 .. 9`
-- `Array.map not` (a function value of a built-in operator), `Array.concat` of a list of arrays, array slices `a.[1..3]`
-- `System.Array.IndexOf`, `Resize`, `Clear`, `Reverse`, `Sort`, `CopyTo`
-- `sprintf "%A"` / `%O` of a record, union, list or tuple (a compile error, not a wrong output), dictionary literals (`dict [ … ]`), a few enumerator cases (`for … in` over a `ResizeArray` through `GetEnumerator`), comparer constructor overloads
+- `System.Array.Reverse`, `Sort`, `Clear` and `Resize` (the front end rejects the static methods: use `Array.rev`, `Array.sort`, `Array.fill`), `System.Array.CopyTo`
+- a `seq { yield …; yield … }` that no consumer fuses (`Seq.delay` is not compiled); `for … in` over a `ResizeArray` through `GetEnumerator`
+- `sprintf "%A"` / `%O` of a record, union, list or tuple (a compile error, not a wrong output); dictionary literals (`dict [ … ]`); comparer constructor overloads
+- `StringBuilder.AppendFormat` with a format that is not a literal or has specifiers (`{0:N2}`): reported as unsupported
 - a local function that is generic in its type arguments and whose only evidence of them is its use (`let bind r = match r with Ok v -> Ok (v + 1) | Error e -> Error e`, applied to a `Result<int, string>`) is compiled for `int`: annotate its parameter
 - `async` and JSPI: planned
+
+Closed on 2026-11-16, each with tests whose expected values are what .NET computes: ranges with a step in `for`, `seq` and `Seq.iter`; array and string slices
+(`a.[1..3]`, `s.[..2]`, `a.[2..]`, clamped like F#); `Array.concat`, `List.concat`; `System.Array.IndexOf`; `StringBuilder.AppendLine`,
+`StringBuilder(text)` and `AppendFormat` with a literal; `isNull`.
 
 ## Source layout
 

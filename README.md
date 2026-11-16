@@ -120,13 +120,13 @@ This builds:
 
 ```bash
 bash tests/run-all.sh              # every suite, one summary table (--list, --only quicktest,showcase, --fail-fast)
-bash tests/QuickTest/run.sh        # the main regression suite: 656 tests
+bash tests/QuickTest/run.sh        # the main regression suite: 675 tests
 bash tests/Showcase/run.sh         # 26 end-to-end programs
 cd examples/component-embed && bash run.sh      # 39 checks
 cd examples/component-linking && bash run.sh    # 22 checks
 ```
 
-What each suite checks, and the counts of a recorded run (656 + 26 + 39 + 22 + 14 + 11 + 5 + 27 named tests, a differential run of 183 012 calls
+What each suite checks, and the counts of a recorded run (675 + 26 + 39 + 22 + 14 + 11 + 5 + 27 + 81 + 36 named tests, a differential run of 183 012 calls
 against .NET with no disagreement, a closure fuzz of 30 720 checks), are in [docs/STATUS.md](docs/STATUS.md) and on
 [fsharp-wasm.github.io/tests](https://fsharp-wasm.github.io/tests).
 

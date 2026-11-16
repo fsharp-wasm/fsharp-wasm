@@ -4,7 +4,7 @@
 > It is intentionally free of fixed dates — this is an open-source project and timing
 > depends on contributors, sponsors, and community priorities.
 >
-> **Current state:** see [STATUS.md](STATUS.md) for the dated test results and the known gaps (recorded 2026-11-14: 656 QuickTests and 11 more suites,
+> **Current state:** see [STATUS.md](STATUS.md) for the dated test results and the known gaps (recorded 2026-11-16: 675 QuickTests and 11 more suites,
 > a differential run against .NET of 183 012 calls with no disagreement). The sprint history below is kept as history.
 
 ---
