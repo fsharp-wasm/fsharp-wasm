@@ -274,8 +274,11 @@ module FableNormalize =
     // collection call.
     // ─────────────────────────────────────────────────────────────────
 
+    let rec private stripCasts (e: Expr) = match e with TypeCast(inner, _) -> stripCasts inner | _ -> e
+
+    /// `seq { 0 .. 5 .. 20 }` arrives as a cast of the range call to `seq<int>`: the cast does not make it another kind of value.
     let private isCollectionCall (e: Expr) =
-        match e with
+        match stripCasts e with
         | Call(Import({ Path = path }, _, _), _, _, _) ->
             (match System.IO.Path.GetFileNameWithoutExtension path with
              | "Seq" | "List" | "Array" | "Range" -> true
@@ -310,8 +313,6 @@ module FableNormalize =
     // is an iterator protocol the backend has no object for; as `List.iter (fun x -> body) xs` it becomes a plain loop
     // (the handlers inline the literal lambda, so mutable locals of the loop body keep working).
     // ─────────────────────────────────────────────────────────────────
-
-    let rec private stripCasts (e: Expr) = match e with TypeCast(inner, _) -> stripCasts inner | _ -> e
 
     let rec private foreachLoops (e: Expr) : Expr =
         match e with
@@ -429,10 +430,11 @@ module FableNormalize =
     let normalizeDeclaration (decl: Declaration) : Declaration = mapBodies normalizeBody decl
 
     /// Runs AFTER Fable's uncurrying (the calls have their final shape then): single-use stream intermediates move
-    /// into the call that consumes them, which is what exposes a pipeline to the fusion.
+    /// into the call that consumes them, which is what exposes a pipeline to the fusion.  Twice: `for x in 0 .. 2 .. 9`
+    /// becomes `Seq.iterate f range` only in the middle, and then the range moves into it.
     /// Tuples that are only taken apart go away here too: `d.TryGetValue(k, &v)` becomes the tuple `(found, v)` only in
     /// Fable's own transforms.
-    let finishDeclaration (decl: Declaration) : Declaration = mapBodies (fun _ -> inlineStreams >> foreachLoops >> scalarTuples) decl
+    let finishDeclaration (decl: Declaration) : Declaration = mapBodies (fun _ -> inlineStreams >> foreachLoops >> inlineStreams >> scalarTuples) decl
 
     /// Is the mutable local `name` both assigned and used inside a closure within `body`?  Such a variable cannot live in
     /// a wasm local (the closure would capture a copy): F# gives it a shared cell, so does the backend.

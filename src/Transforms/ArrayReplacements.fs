@@ -191,6 +191,28 @@ let tryArrayInline
                 })
             | None -> None
         | _ -> None
+    // System.Array.IndexOf(a, x [, start [, count]]): the first index whose element is structurally equal to x, or -1
+    | "indexOf" ->
+        match fableArgs, wArgs with
+        | arrArg :: _, wArr :: wItem :: rest0 when (arrElemT arrArg.Type).IsSome ->
+            let rest = rest0 |> List.filter (fun w -> exprWType w = WType.I32)     // start, count; Fable also passes the (unused) equality comparer
+            let elemFableT = (arrElemT arrArg.Type).Value
+            let elemT = mapTypeKnown ctx elemFableT
+            let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
+            Some(wasm {
+                let! arr = wArr
+                let! x = wItem
+                let! len = a.Len arr
+                let! start = (match rest with st :: _ -> st | [] -> i32Const 0)
+                let! stop = (match rest with [ _; count ] -> add start count | _ -> len)
+                let! i = mut start
+                let! found = mut (i32Const -1)
+                while! (wasmAnd (WExpr.Compare(WCompareOp.LtS, found.Val, i32Const 0)) (ltS i.Val stop)) do
+                    do! wasmWhen (WasmGc.Runtime.Equality.structuralEquals ctx (a.Get(arr, i.Val)) x) (found.Set i.Val)
+                    do! i.Set(add i.Val (i32Const 1))
+                return found.Val
+            })
+        | _ -> None
     // Array.fill
     // Array.blit source sourceIndex target targetIndex count and System.Array.Copy(source, sourceIndex, target, targetIndex, count) arrive as
     // copyTo / copyToArray with those arguments (Copy(source, target, count): without the indices).  array.copy moves overlapping ranges
@@ -1098,6 +1120,28 @@ let tryArrayInline
 // These arrive as Get(arr, FieldGet "filter/some/every/forEach") as callee
 // ─────────────────────────────────────────────────────────────────
 
+/// `a.[lo..hi]`, `a.[..hi]`, `a.[lo..]` of an array or a string.  Fable emits `x.slice(lower, upper)` with `lower` still an option and `upper` an
+/// option plus one (one past the end), or `x.length` when the slice is open at the end.  F# clamps both ends to the collection and gives an empty
+/// result when lo > hi (checked against .NET); `finish lo n` builds the result from the clamped start and the count.
+let isSliceBound (lower: Fable.Expr) = match lower with Value(NewOption _, _) -> true | _ -> false
+
+let slice (transform: TransformFn) (ctx: Ctx) (len: WExpr) (lower: Fable.Expr) (upper: Fable.Expr) (finish: WExpr -> WExpr -> WExpr) : WExpr =
+    let rec bound (e: Fable.Expr) : WExpr =
+        match e with
+        | Value(NewOption(Some x, _, _), _) -> transform ctx x
+        | Value(NewOption(None, _, _), _) -> i32Const 0
+        | Operation(Binary(BinaryPlus, a, b), _, _, _) -> add (bound a) (transform ctx b)
+        | Get(_, ExprGet(Value(StringConstant "length", _)), _, _) -> len       // an open end: the collection's own length
+        | _ -> transform ctx e
+    wasm {
+        let! l0 = bound lower
+        let! h0 = bound upper
+        let! hi = wasmIf (gtS h0 len) len h0
+        let! lo = wasmIf (ltS l0 (i32Const 0)) (i32Const 0) (wasmIf (gtS l0 len) len l0)
+        let! n = wasmIf (gtS hi lo) (sub hi lo) (i32Const 0)
+        return finish lo n
+    }
+
 /// Handle array instance-style calls: arr.filter/some/every/forEach(lambda)
 /// fieldName matches lowercase JS method name; returns None to fall through.
 let tryArrayInstanceCall
@@ -1181,6 +1225,23 @@ let tryArrayInstanceCall
                             WExpr.Let(farg2.Name, arrayGet src i.Val elemT, wBody)))
                     do! i.Set(add i.Val (i32Const 1))
                 return acc.Val
+            })
+        | None -> None
+    // `a.[lo..hi]`, `a.[..hi]`, `a.[lo..]` (see `slice`)
+    | "slice", [ lower; upper ] when isSliceBound lower ->
+        match arrElemT arrExpr.Type with
+        | Some elemFableT ->
+            let elemT = mapTypeKnown ctx elemFableT
+            let arrTypeIdx = getOrAddArrayTypeFor ctx elemFableT elemT
+            let arrRefT = WType.Ref(arrTypeIdx, false)
+            Some(wasm {
+                let! src = transform ctx arrExpr
+                return slice transform ctx (arrayLen src) lower upper (fun lo n ->
+                    wasm {
+                        let! dst = arrayNew arrTypeIdx n (makeNumericZero elemT) arrRefT
+                        do! arrayCopy dst (i32Const 0) src lo n
+                        return dst
+                    })
             })
         | None -> None
     | _ -> None

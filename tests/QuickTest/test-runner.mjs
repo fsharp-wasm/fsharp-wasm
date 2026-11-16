@@ -894,6 +894,25 @@ check("ResizeArray<byte>: add, ToArray, indexer", 12604, exp.testByteResizeArray
 check("ResizeArray<bool>: add, ToArray, indexer", 381, exp.testBoolResizeArray());
 check("byte[]: append and init", 10116, exp.testByteAppendInit());
 check("byte[]: Seq.toArray and Array.ofList", 259644, exp.testByteOfSeq());
+// ranges with a step, slices, Array.concat, List.concat, IndexOf — the expected values are what .NET computes (dotnet fsi)
+check("for i in 0 .. 2 .. 9", 20, exp.testStepForUp());
+check("for i in 10 .. -3 .. 0", 22, exp.testStepForDown());
+check("for over empty stepped ranges", 0, exp.testStepForEmpty());
+check("for with a big step", 101, exp.testStepForBig());
+check("for with a step in a variable", 18, exp.testStepForVariable());
+check("nested for with steps", 54, exp.testStepForNested());
+check("seq { 0 .. 5 .. 20 }: sum, length, toList", 500505, exp.testStepSeq());
+check("Seq.iter and List.iter over stepped ranges", 47, exp.testStepSeqIter());
+check("array slices a.[1..3] a.[..1] a.[2..] a.[0..4]", 90312005, exp.testArraySliceBounds());
+check("array slices: clamped bounds, empty when inverted", 5406000, exp.testArraySliceClamped());
+check("array slice with variable bounds", 90, exp.testArraySliceVariable());
+check("array slice is a copy", 1099, exp.testArraySliceIsCopy());
+check("array slices of string, float, byte and bool", 5651, exp.testArraySliceElementTypes());
+check("string slices", 1013223020, exp.testStringSlice());
+check("Array.concat of a list and of an array of arrays", 6101354, exp.testArrayConcat());
+check("List.concat and List.collect", 366, exp.testListConcat());
+check("System.Array.IndexOf with start and count", 303020, exp.testArrayIndexOf());
+check("operators as function values: not, (~-), (*), max", 142409, exp.testOperatorsAsFunctions());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

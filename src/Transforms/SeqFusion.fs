@@ -132,7 +132,8 @@ let rec private fuse (transform: TransformFn) (ctx: Ctx) (yieldTo: Yield) (e: Fa
             fuse transform ctx yieldTo elseE |> Option.map (fun we -> WExpr.If(transform ctx guard, wt, we, WType.Void)))
     | Let(x, value, body) ->
         fuse transform (bound x) yieldTo body |> Option.map (fun wb -> WExpr.Let(x.Name, transform ctx value, wb))
-    | RangeCall(start, step, stop) as r when (match r.Type with ListOf t -> isInt32 t | _ -> false) ->
+    // the arguments say it is an int32 range; the type of the call itself is a list or a `seq<int>`, whichever the source wrote
+    | RangeCall(start, step, stop) when isInt32 start.Type && isInt32 step.Type && isInt32 stop.Type ->
         Some(range transform ctx yieldTo start step stop)
     | src ->
         match src.Type with
@@ -209,6 +210,16 @@ let trySeqFusionInline (transform: TransformFn) (ctx: Ctx) (call: Fable.Expr) : 
         | ("List" | "Array"), ("map" | "filter" | "where"), [ UnaryLambda(_, f); src ], Type.Array(t, _) when isProducer src && isPure f -> toArray t call
         | _, ("toList" | "ofSeq"), [ src ], Type.List t when isProducer src -> toList t src
         | _, ("toArray" | "ofSeq"), [ src ], Type.Array(t, _) when isProducer src -> toArray t src
+        // Array.concat xs  =  Seq.toArray (Seq.collect id xs): the inner arrays are walked in place, one result array is built
+        | "Array", "concat", [ src ], Type.Array(t, _) ->
+            match src.Type with
+            | ListOf(Type.Array _ as inner) | ArrayOf(Type.Array _ as inner) ->
+                let x : Fable.Ident = { Name = freshName (); Type = inner; IsMutable = false; IsThisArgument = false; IsCompilerGenerated = true; IsInlineIfLambda = false; Range = None }
+                let collectCall =
+                    Call(Import({ Selector = "collect"; Path = "./Seq.fs"; Kind = LibraryImport(LibraryImportInfo.Create()) }, Any, None),
+                         CallInfo.Create(args = [ Lambda(x, IdentExpr x, None); src ]), Type.List t, None)
+                toArray t collectCall
+            | _ -> None
         // consumers
         | _, "fold", [ BinaryLambda(a, x, body); init; src ], accFT when isProducer src ->
             let accT = mapTypeKnown ctx accFT
@@ -222,6 +233,11 @@ let trySeqFusionInline (transform: TransformFn) (ctx: Ctx) (call: Fable.Expr) : 
                 let elemT = match src.Type with ListOf et | ArrayOf et -> mapTypeKnown ctx et | _ -> WType.I32
                 let wBody = transform (ctx.WithLocal(x.Name, elemT)) body
                 consume src (makeNumericZero accT) accT (fun acc elem -> checkedAdd acc (WExpr.Let(x.Name, elem, wBody)) accT))
+        // `for i in 0 .. 2 .. 9 do body` (a range with a step is not a counting loop in Fable's AST) and `Seq.iter f (seq { … })`
+        | _, ("iter" | "iterate"), [ UnaryLambda(x, body); src ], _ when isProducer src ->
+            let elemT = match src.Type with ListOf et | ArrayOf et -> mapTypeKnown ctx et | _ -> WType.I32
+            let wBody = transform (ctx.WithLocal(x.Name, elemT)) body
+            fuse transform ctx (fun elem -> WExpr.Let(x.Name, elem, wBody)) src
         | _, ("length" | "count"), [ src ], _ when isProducer src ->
             consume src (i32Const 0) WType.I32 (fun acc _ -> add acc (i32Const 1))
         | _ -> None

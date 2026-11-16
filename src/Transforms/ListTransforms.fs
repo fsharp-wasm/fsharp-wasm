@@ -284,21 +284,16 @@ let tryListCollectInline
                     return structNew tupleIdx [listRevInPlace gen s yes.Val; listRevInPlace gen s no.Val] tupleRefT
                 })
         | None -> None
+    // List.concat / List.flatten of a list of LISTS (an array of arrays is Array.concat, which the fusion handles)
     | "concat", [listArg] ->
-        match tryListTypeInfo ctx listArg with
-        | Some(innerListT, _) ->
-            match innerListT with
-            | WType.Ref(innerConsIdx, _) ->
-                // list<list<T>> → flatten
-                match seqElemType listArg.Type |> Option.bind (seqElemType) with
-                | Some innerElemFableT ->
-                    let innerElemT = mapTypeKnown ctx innerElemFableT
-                    let s = mkListShape (WType.Ref(innerConsIdx, true)) innerConsIdx
-                    Some(listConcat (LabelGen "cat") s (transform ctx listArg) innerElemT innerConsIdx)
-                | None -> None
-            | _ -> None
-        | None -> None
-
+        match tryListTypeInfo ctx listArg, seqElemType listArg.Type with
+        | Some(outerElemT, outerConsIdx), Some(Fable.Type.List innerElemFableT) ->
+            match tryListTypeInfoFromElemType ctx innerElemFableT with
+            | Some(innerElemT, innerConsIdx) ->
+                let outer = mkListShape outerElemT outerConsIdx
+                Some(listConcat (LabelGen "cat") outer (transform ctx listArg) innerElemT innerConsIdx)
+            | None -> None
+        | _ -> None
     | "append", [listArg1; listArg2] ->
         match tryListTypeInfo ctx listArg1 with
         | Some(elemT, consIdx) ->

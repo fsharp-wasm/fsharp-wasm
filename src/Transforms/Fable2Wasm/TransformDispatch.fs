@@ -1121,6 +1121,13 @@ let private transformCallCore
                 WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; start; len], strRef)
             | "substring", [start; len] ->
                 WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; start; len], strRef)
+            // `s.[lo..hi]`: bounds clamped like an array's (see ArrayReplacements.slice)
+            | "slice", [ _; _ ] when isSliceBound info.Args.Head ->
+                wasm {
+                    let! str = wStr
+                    return slice eval ctx (arrayLen str) info.Args.[0] info.Args.[1]
+                                 (fun lo n -> WExpr.Call(ctx.UseHelper("$strSubstring"), [str; lo; n], strRef))
+                }
             | "slice", [start] ->
                 let len = WExpr.Binary(WBinaryOp.Sub, arrayLen wStr, start, WType.I32)
                 WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; start; len], strRef)

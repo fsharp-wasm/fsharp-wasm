@@ -3665,3 +3665,122 @@ let testByteOfSeq () : int =
     let a = Seq.toArray (seq { for i in 0 .. 5 -> byte (i * 60) })
     let b = Array.ofList [ 9uy; 250uy ]
     Array.sumBy int a + Array.sumBy int b * 1000
+
+
+// ── ranges with a step, slices, Array.concat, List.concat, System.Array.IndexOf (every value checked against .NET) ──
+
+let testStepForUp () : int =
+    let mutable s = 0
+    for i in 0 .. 2 .. 9 do s <- s + i
+    s                                                                     // 0+2+4+6+8
+
+let testStepForDown () : int =
+    let mutable s = 0
+    for i in 10 .. -3 .. 0 do s <- s + i
+    s                                                                     // 10+7+4+1
+
+let testStepForEmpty () : int =
+    let mutable n = 0
+    for _ in 5 .. 2 .. 1 do n <- n + 1
+    for _ in 1 .. -1 .. 5 do n <- n + 1
+    n                                                                     // both ranges are empty
+
+let testStepForBig () : int =
+    let mutable n = 0
+    for _ in 0 .. 1000 .. 100000 do n <- n + 1
+    n                                                                     // 101
+
+let testStepForVariable () : int =
+    let step = 3
+    let mutable s = 0
+    for i in 0 .. step .. 10 do s <- s + i
+    s                                                                     // 0+3+6+9
+
+let testStepForNested () : int =
+    let mutable s = 0
+    for i in 0 .. 2 .. 4 do
+        for j in 1 .. 2 .. 5 do s <- s + i * j
+    s                                                                     // (0+2+4) * (1+3+5)
+
+let testStepSeq () : int =
+    let sum = seq { 0 .. 5 .. 20 } |> Seq.sum                             // 50
+    let len = seq { 0 .. 5 .. 20 } |> Seq.length                          // 5
+    let lst = seq { 0 .. 5 .. 20 } |> Seq.toList |> List.length          // 5
+    sum * 10000 + len * 100 + lst
+
+let testStepSeqIter () : int =
+    let mutable s = 0
+    Seq.iter (fun i -> s <- s + i) (seq { 1 .. 2 .. 9 })
+    [ 1 .. 3 .. 10 ] |> List.iter (fun i -> s <- s + i)
+    s                                                                     // 25 + 22
+
+let private sliceSource () = [| 10; 20; 30; 40; 50 |]
+
+let testArraySliceBounds () : int =
+    let a = sliceSource ()
+    let sum (x: int[]) = Array.sum x
+    sum a.[1..3] * 1000000 + sum a.[..1] * 10000 + sum a.[2..] * 100 + a.[0..4].Length
+    // 90 * 1000000 + 30 * 10000 + 120 * 100 + 5
+
+let testArraySliceClamped () : int =
+    let a = sliceSource ()
+    // out of range is clamped, an inverted range is empty (the .NET results)
+    a.[1..10].Length * 100000 + a.[3..1].Length * 10000 + (Array.sum a.[-1..2]) * 100 + a.[5..].Length * 10 + a.[7..].Length + a.[..10].Length * 1000000 + a.[..(-1)].Length * 1000
+    // 4 * 100000 + 0 + 60 * 100 + 0 + 0 + 5 * 1000000 + 0
+
+let testArraySliceVariable () : int =
+    let a = sliceSource ()
+    let i, j = 1, 2
+    Array.sum a.[i .. i + j]                                              // 90
+
+let testArraySliceIsCopy () : int =
+    let a = sliceSource ()
+    let b = a.[0..2]
+    b.[0] <- 99
+    a.[0] * 100 + b.[0]                                                   // 10 * 100 + 99
+
+let testArraySliceElementTypes () : int =
+    let s = [| "a"; "bb"; "ccc" |].[1..] |> Array.sumBy (fun x -> x.Length)           // 5
+    let f = int ([| 1.5; 2.5; 3.5 |].[1..] |> Array.sum)                               // 6
+    let b = [| 1uy; 2uy; 3uy; 4uy |].[1..2] |> Array.sumBy int                         // 5
+    let t = [| true; false; true |].[1..] |> Array.filter id |> Array.length           // 1
+    s * 1000 + f * 100 + b * 10 + t
+
+let testStringSlice () : int =
+    let h = "hello"
+    // "ell" "he" "lo" "llo" "" "he" ""  (lengths 3 2 2 3 0 2 0), and the content
+    (h.[1..3].Length * 1000000 + h.[..1].Length * 100000 + h.[3..].Length * 10000 + h.[2..10].Length * 1000
+     + h.[3..1].Length * 100 + h.[-1..1].Length * 10 + h.[7..].Length) + int h.[1..3].[0] * 10000000
+
+let testArrayConcat () : int =
+    let a = Array.concat [ [| 1; 2 |]; [| 3 |]; [||] ]                                  // 6
+    let b = Array.concat [| [| 1; 2 |]; [| 3; 4 |] |]                                   // 10
+    let c = [ [| 1; 2 |]; [| 3 |]; [| 4; 5 |] ] |> Array.concat
+    let d = (Array.concat ([] : int[] list)).Length                                     // 0
+    let e = Array.concat [ [| "a" |]; [| "bb"; "c" |] ] |> Array.sumBy (fun s -> s.Length)   // 4
+    Array.sum a * 1000000 + Array.sum b * 10000 + c.[0] * 1000 + c.[2] * 100 + c.[4] * 10 + d + e
+    // 6 * 1000000 + 10 * 10000 + 1000 + 300 + 50 + 0 + 4
+
+let testListConcat () : int =
+    let a = List.concat [ [ 1 ]; [ 2; 3 ] ] |> List.length                              // 3
+    let b = [ [ 1; 2 ]; [ 3 ] ] |> List.concat |> List.sum                              // 6
+    let c = List.collect (fun x -> [ x; x ]) [ 1; 2; 3 ] |> List.length                 // 6
+    a * 100 + b * 10 + c
+
+let testArrayIndexOf () : int =
+    let i1 = System.Array.IndexOf([| 5; 6; 7 |], 7)                                     // 2
+    let i2 = System.Array.IndexOf([| 5; 6; 7 |], 9)                                     // -1
+    let i3 = System.Array.IndexOf([| 5; 6; 5 |], 5, 1)                                  // 2
+    let i4 = System.Array.IndexOf([| 5; 6; 5 |], 5, 1, 1)                               // -1
+    let i5 = System.Array.IndexOf([| "a"; "bb"; "c" |], "bb")                           // 1
+    let i6 = System.Array.IndexOf(Array.empty<int>, 1)                                  // -1
+    (i1 + 1) * 100000 + (i2 + 1) * 10000 + (i3 + 1) * 1000 + (i4 + 1) * 100 + (i5 + 1) * 10 + (i6 + 1)
+    // 3 * 100000 + 0 + 3 * 1000 + 0 + 2 * 10 + 0
+
+let testOperatorsAsFunctions () : int =
+    let a = [| true; false; true |] |> Array.map not |> Array.filter id |> Array.length  // 1
+    let b = [| 1; 2; 3 |] |> Array.map (~-) |> Array.sum                                // -6
+    let c = [| 1; 2; 3; 4 |] |> Array.reduce (*)                                         // 24
+    let d = [ 3; 9; 4 ] |> List.fold max 0                                               // 9
+    a * 100000 + (b + 10) * 10000 + c * 100 + d
+    // 100000 + 4 * 10000 + 2400 + 9
