@@ -632,7 +632,7 @@ let encodeTypeSection (buf: ResizeArray<byte>) (structTypes: WTypeDeclEntry list
     // are only valid inside a rec group.
     let refs =
         Array.append
-            (structArr |> Array.map (fun e -> Traverse.typeDefRefs e.Def))
+            (Traverse.typeDefRefsGrouped (structArr |> Array.map (fun e -> e.Def)))
             (funcArr |> Array.map (fun (ps, rs) -> (ps @ rs) |> List.collect Traverse.wTypeRefs))
     let encodeOne (i: int) =
         if i < nStruct then encodeGcTypeDef content structArr.[i].Def

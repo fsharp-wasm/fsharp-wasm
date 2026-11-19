@@ -46,8 +46,8 @@ let rec compareByWType (ctx: Ctx) (ty: WType) (a: WExpr) (b: WExpr) : WExpr =
         match getOrAddStructuralEquals ctx idx with
         | Some funcName -> WExpr.Call(funcName, [a; b], WType.I32)
         | None ->
-            // Not a structural type (closure, …) — reference equality
-            WExpr.Compare(WCompareOp.Eq, a, b)
+            // Not a structural type (closure, class, …) — reference equality
+            WExpr.Compare(WCompareOp.RefEq, a, b)
     | WType.Ref(idx, true) ->
         // Nullable ref: if both null → 1, one null → 0, both non-null → recurse
         let nullA = WExpr.RefIsNull a
@@ -62,8 +62,8 @@ let rec compareByWType (ctx: Ctx) (ty: WType) (a: WExpr) (b: WExpr) : WExpr =
                      let aFixed = WExpr.Cast(a, WType.Ref(idx, false))
                      let bFixed = WExpr.Cast(b, WType.Ref(idx, false))
                      WExpr.Call(funcName, [aFixed; bFixed], WType.I32)
-                 | None -> WExpr.Compare(WCompareOp.Eq, a, b)))
-    | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
+                 | None -> WExpr.Compare(WCompareOp.RefEq, a, b)))
+    | _ -> WExpr.Compare(WCompareOp.RefEq, a, b)
 
 /// Generate an equality function for a record struct type.
 /// `typeIdx` must be in ctx.TypeDefs; `fields` are the struct fields.
@@ -150,12 +150,25 @@ and getOrAddStructuralEquals (ctx: Ctx) (typeIdx: int) : string option =
         match entry.Def with
         | WTypeDef.Struct(fields, None) ->
             // Record or DU base — need to distinguish
-            let isDuBase =
+            let hasSubtype =
                 // Check if there's a sub-type at typeIdx+1 that has superType = Some typeIdx
                 typeIdx + 1 < ctx.TypeDefs.Count &&
                 (match (ctx.TypeDefs :> System.Collections.Generic.IList<_>).[typeIdx + 1].Def with
                  | WTypeDef.Struct(_, Some parent) -> parent = typeIdx
                  | _ -> false)
+            // A union's base struct is its tag and nothing else.  A class that has subclasses (System.Exception and its
+            // kin) also has a subtype, but its first field is not a tag: it has reference equality, not a case chain.
+            let isTagOnly = (match fields with [ f ] -> f.Type = WType.I32 | _ -> false)
+            let isDuBase = hasSubtype && isTagOnly
+            // A struct that holds function references (an interface's vtable, a closure) has no structural equality: function
+            // references are not `eq` types, so `ref.eq` on them does not validate.  Two such structs are equal when they are the
+            // same object.
+            let holdsFunction =
+                fields |> List.exists (fun f ->
+                    match f.Type with
+                    | WType.Ref(i, _) when i < ctx.TypeDefs.Count -> (match (ctx.TypeDefs :> System.Collections.Generic.IList<_>).[i].Def with WTypeDef.Func _ -> true | _ -> false)
+                    | _ -> false)
+            if (hasSubtype && not isTagOnly) || holdsFunction then None else
             let funcName = $"$equals_{typeIdx}"
             // Pre-register to prevent infinite recursion on recursive types
             ctx.EqualityRegistry.[typeIdx] <- funcName
@@ -456,9 +469,10 @@ let structuralEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
         else
             match ctx.EqualityRegistry.TryGetValue idx with
             | true, funcName -> WExpr.Call(funcName, [ a; b ], WType.I32)
-            | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
+            | _ -> WExpr.Compare(WCompareOp.RefEq, a, b)       // a class, a closure: the same object
     // strings compare by content (generic code reaches `=` with a string only once instantiated)
     | WType.Ref(idx, _) when idx = StringTypeIdx -> strEquals ctx a b
+    | WType.EqRef -> WExpr.Compare(WCompareOp.RefEq, a, b)
     | _ -> WExpr.Compare(WCompareOp.Eq, a, b)
 
 // ─────────────────────────────────────────────────────────────────

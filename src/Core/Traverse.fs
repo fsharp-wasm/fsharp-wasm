@@ -141,6 +141,28 @@ let typeDefRefs (d: WTypeDef) : int list =
     | WTypeDef.Array(elem, _) -> wTypeRefs elem
     | WTypeDef.Func(ps, r) -> (r :: ps) |> List.collect wTypeRefs
 
+/// The type references of every type definition, plus one more reference per union: a union's base struct (the tag and
+/// nothing else) points forward to its last case, which puts the base and its cases in one `rec` group.
+///
+/// Types are canonicalised structurally, and every union base is `(sub (struct (field i32)))`: without a group of its
+/// own, two unions would be one and the same type to `ref.test` and `ref.cast`.  Lists share one base type and tell their
+/// element types apart by the head field, so a list of one union was taken for a list of another (structural equality
+/// of a union with a list field read the cases of the wrong union).  A group of the base and its cases makes unions of
+/// different shapes different types.
+let typeDefRefsGrouped (defs: WTypeDef[]) : int list[] =
+    let refs = defs |> Array.map typeDefRefs
+    let isTagOnlyBase (d: WTypeDef) =
+        match d with
+        | WTypeDef.Struct([ f ], None) -> f.Type = WType.I32
+        | _ -> false
+    for i in 0 .. defs.Length - 1 do
+        if isTagOnlyBase defs.[i] then
+            let mutable last = i
+            while last + 1 < defs.Length && (match defs.[last + 1] with WTypeDef.Struct(_, Some parent) -> parent = i | _ -> false) do
+                last <- last + 1
+            if last > i then refs.[i] <- refs.[i] @ [ last ]
+    refs
+
 /// Contiguous recursion groups `(first, last)` covering indices 0..n-1.
 ///
 /// WasmGC only allows a type to refer to an EARLIER type, or to types of its own `rec` group.

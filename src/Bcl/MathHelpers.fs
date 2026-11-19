@@ -25,20 +25,67 @@ let makePownHelper () : WFuncDecl =
                 e <- e >>> 1
             result @>
 
-/// Runtime helper: $powF64(base, exp) → float exponentiation via integer repeated squaring.
-/// exp is truncated to i32; non-integer exponents are approximated by truncation.
-/// Negative exponents return 1.0 (not supported without f64.div; document as limitation).
+/// Runtime helper: $powF64(base, exp) → base ^ exp.
+///   · a whole exponent (positive or negative): repeated squaring, exact for small cases; a negative exponent divides;
+///   · any other exponent, base > 0: e^(exp · ln base) — ln by range reduction and the artanh series, e^y by range
+///     reduction and a 14-term Taylor sum (error below 1e-15 relative);
+///   · base = 0: 0 for a positive exponent, +∞ otherwise;  base < 0 with a fractional exponent: NaN.
+/// (It used to truncate the exponent: Math.Pow(x, 2.4) was x², and a negative exponent gave 1.)
 let makePowF64Helper () : WFuncDecl =
     q "$powF64"
         <@ fun (x: float) (n: float) ->
-            let mutable result = 1.0
-            let mutable b = x
-            let mutable e = truncF64 n
-            while e > 0 do
-                if e &&& 1 <> 0 then result <- result * b
-                b <- b * b
-                e <- e >>> 1
-            result @>
+            let k = truncF64 n
+            if intToF64 k = n then
+                let mutable result = 1.0
+                let mutable b = x
+                let mutable e = if k < 0 then -k else k
+                while e > 0 do
+                    if e &&& 1 <> 0 then result <- result * b
+                    b <- b * b
+                    e <- e >>> 1
+                if k < 0 then 1.0 / result else result
+            elif x > 0.0 then
+                let ln2 = 0.6931471805599453
+                // ln x: bring x into [0.5, 2], then 2·artanh((x-1)/(x+1))
+                let mutable xx  = x
+                let mutable adj = 0.0
+                while xx > 2.0 do
+                    xx  <- xx / 2.0
+                    adj <- adj + ln2
+                while xx < 0.5 do
+                    xx  <- xx * 2.0
+                    adj <- adj - ln2
+                let z  = (xx - 1.0) / (xx + 1.0)
+                let z2 = z * z
+                let mutable term  = z
+                let mutable sum   = 0.0
+                let mutable denom = 1.0
+                let mutable i     = 0
+                while i < 15 do
+                    sum   <- sum + term / denom
+                    term  <- term * z2
+                    denom <- denom + 2.0
+                    i     <- i + 1
+                let y = n * (sum * 2.0 + adj)
+                // e^y = 2^k · e^r with |r| <= ln2 / 2
+                let kk = truncF64 (y / ln2 + (if y < 0.0 then -0.5 else 0.5))
+                let r  = y - intToF64 kk * ln2
+                let mutable er = 1.0
+                let mutable j  = 14
+                while j > 1 do
+                    j  <- j - 1
+                    er <- 1.0 + er * r / intToF64 j
+                let mutable pw = 1.0
+                let mutable bv = 2.0
+                let mutable ki = if kk < 0 then -kk else kk
+                while ki > 0 do
+                    if ki &&& 1 <> 0 then pw <- pw * bv
+                    bv <- bv * bv
+                    ki <- ki >>> 1
+                if kk < 0 then er / pw else er * pw
+            elif x = 0.0 then
+                if n > 0.0 then 0.0 else 1.0 / 0.0
+            else 0.0 / 0.0 @>
 
 /// Runtime helper: $mathExp(x) → e^x.
 /// Algorithm: range-reduce x = k*ln2 + r (|r| <= 0.5*ln2), compute e^r via 7-term

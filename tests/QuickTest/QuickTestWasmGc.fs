@@ -1952,6 +1952,19 @@ let testPowF64_cube () : int = int (5.0 ** 3.0)
 /// Test: Math.Pow(2.0, 8.0) = 256.0
 let testMathPow () : int = int (System.Math.Pow(2.0, 8.0))
 
+/// Test: a fractional exponent is a power, not a truncated one — 0.4945 ^ 2.4 = 0.18450116…  (it used to be 0.4945²)
+let testMathPowFractional () : int = int (System.Math.Pow(0.4945, 2.4) * 1000000.0)
+
+/// Test: a negative exponent divides — 2 ^ -3 = 0.125  (it used to be 1)
+let testMathPowNegative () : int = int (System.Math.Pow(2.0, -3.0) * 1000.0 + 0.5)
+
+/// Test: a root — 9 ^ 0.5 = 3, 10 ^ -2.5 = 0.00316227…
+let testMathPowRoot () : int =
+    int (System.Math.Pow(9.0, 0.5) * 1000.0 + 0.5) + int (System.Math.Pow(10.0, -2.5) * 1000000.0)
+
+/// Test: 0 ^ 2.5 = 0
+let testMathPowZeroBase () : int = int (System.Math.Pow(0.0, 2.5) * 1000.0 + 7.0)
+
 // ── ref.test DU pattern matching ──────────────────────────────────────────
 
 type GeoShape =
@@ -3793,3 +3806,38 @@ let testStringBuilderLineAndFormat () : int =
     let s = sb.ToString()
     s.Length * 1000 + s.IndexOf '\n' * 100 + int s.[s.Length - 1]
     // "abcd\n\nx=7,q": 11 * 1000 + 4 * 100 + 'q' (113)
+
+// ── structural equality of unions that have list fields, and of lists of exceptions ───────────────────────────────
+
+type EqJson =
+    | EqNull
+    | EqStr of string
+    | EqList of EqJson list
+
+type EqTree =
+    | EqLeaf of int
+    | EqNode of EqTree list
+
+/// Test: two unions of different shapes, both with a list field, compared in one program.  Types are canonical by
+/// structure and both bases are `(struct (field i32))`: lists of the two element types used to be one type to the
+/// equality dispatcher, which read the cases of the wrong union (illegal cast).   Result 3 = (equal, equal, different).
+let testEqTwoUnionsWithLists () : int =
+    let a = EqList [ EqStr "x"; EqList [ EqNull ] ]
+    let b = EqList [ EqStr "x"; EqList [ EqNull ] ]
+    let c = EqNode [ EqLeaf 1; EqNode [ EqLeaf 2 ] ]
+    let d = EqNode [ EqLeaf 1; EqNode [ EqLeaf 2 ] ]
+    (if a = b then 1 else 0) + (if c = d then 2 else 0) + (if a = EqList [ EqStr "y"; EqList [ EqNull ] ] then 4 else 0)
+
+type EqPair = { PA: int; PB: string }
+
+/// Test: `List.contains` and `Array.contains` compare by content, not by reference — strings, records and unions.
+/// Result 15 = list of strings (1) + array of strings (2) + list of records (4) + a missing string is not found (8).
+let testContainsByContent () : int =
+    let words = [ "click here"; "read more"; "here" ]
+    let needle = "Click here".ToLowerInvariant()
+    let arr = [| "a"; "b" |]
+    let recs = [ { PA = 1; PB = "x" }; { PA = 2; PB = "y" } ]
+    (if List.contains needle words then 1 else 0)
+    + (if Array.contains ("a" + "") arr then 2 else 0)
+    + (if List.contains { PA = 2; PB = "y" } recs then 4 else 0)
+    + (if List.contains "nope" words then 0 else 8)

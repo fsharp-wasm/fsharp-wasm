@@ -916,7 +916,7 @@ let tryArrayInline
                 Some(wasm {
                     let! needle = wNeedle
                     return! arrayExists gen a wArr
-                        (fun elem -> eq elem needle)
+                        (fun elem -> WasmGc.Runtime.Equality.structuralEquals ctx elem needle)   // by content: strings, records, unions
                 })
             | None -> None
         | None -> None

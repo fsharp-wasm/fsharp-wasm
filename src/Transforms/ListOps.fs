@@ -497,7 +497,7 @@ let tryListPrimitiveInline
             Some(wasm {
                 let! needle = wNeedle
                 return! listSearch gen s wListArg WType.I32
-                    (fun elem -> eq elem needle)
+                    (fun elem -> WasmGc.Runtime.Equality.structuralEquals ctx elem needle)   // by content: strings, records, unions
                     (fun _ -> i32Const 1)
                     (i32Const 0)
             })

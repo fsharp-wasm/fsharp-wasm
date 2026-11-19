@@ -1054,7 +1054,7 @@ let moduleToWat (wmod: WModule) : string =
         sb.AppendLine("  ;; ── Types ───────────────────────────────────────────") |> ignore
         // Forward references (mutually recursive types) need `rec` groups — same grouping as the encoder.
         let typeArr = Array.ofList wmod.Types
-        let groups = WasmGc.Core.Traverse.recGroups (typeArr |> Array.map (fun e -> WasmGc.Core.Traverse.typeDefRefs e.Def))
+        let groups = WasmGc.Core.Traverse.recGroups (WasmGc.Core.Traverse.typeDefRefsGrouped (typeArr |> Array.map (fun e -> e.Def)))
         for (first, last) in groups do
             if first = last then
                 sb.AppendLine(typeDefToWat typeNames typeArr.[first]) |> ignore

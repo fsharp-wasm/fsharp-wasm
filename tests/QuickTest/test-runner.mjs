@@ -574,6 +574,10 @@ check("2.0 ** 10.0 = 1024", 1024, exp.testPowF64_2_10());
 check("3.0 ** 0.0 = 1",     1,    exp.testPowF64_zero());
 check("5.0 ** 3.0 = 125",   125,  exp.testPowF64_cube());
 check("Math.Pow(2,8) = 256", 256, exp.testMathPow());
+check("Math.Pow(0.4945, 2.4) = 0.184501", 184501, exp.testMathPowFractional());
+check("Math.Pow(2, -3) = 0.125", 125, exp.testMathPowNegative());
+check("Math.Pow(9, 0.5) and Math.Pow(10, -2.5)", 3000 + 3162, exp.testMathPowRoot());
+check("Math.Pow(0, 2.5) = 0", 7, exp.testMathPowZeroBase());
 
 console.log("\n─── Multi-case DU pattern matching ──────────────\n");
 check("Circle 5 → radius = 5",   5,  exp.testRefTestCircle());
@@ -914,6 +918,10 @@ check("List.concat and List.collect", 366, exp.testListConcat());
 check("System.Array.IndexOf with start and count", 303020, exp.testArrayIndexOf());
 check("operators as function values: not, (~-), (*), max", 142409, exp.testOperatorsAsFunctions());
 check("StringBuilder: ctor from string, AppendLine, AppendFormat", 11513, exp.testStringBuilderLineAndFormat());
+
+console.log("\n─── Structural equality: unions with list fields ───\n");
+check("two unions of different shapes, both with list fields", 3, exp.testEqTwoUnionsWithLists());
+check("List.contains / Array.contains compare by content", 15, exp.testContainsByContent());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
