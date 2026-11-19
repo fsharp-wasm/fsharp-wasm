@@ -464,8 +464,10 @@ let structuralEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
         getOrAddStructuralEquals ctx idx |> ignore
         ctx.UseHelper "$strEq" |> ignore                      // fields may be strings
         if nullable then
-            WExpr.Let("$eqn_a", a, WExpr.Let("$eqn_b", b,
-                compareByWType ctx ty (WExpr.LocalGet("$eqn_a", ty)) (WExpr.LocalGet("$eqn_b", ty))))
+            // one local per type: a function that compares an option and a list would otherwise bind `$eqn_a` at two types
+            let na, nb = $"$eqn_a{idx}", $"$eqn_b{idx}"
+            WExpr.Let(na, a, WExpr.Let(nb, b,
+                compareByWType ctx ty (WExpr.LocalGet(na, ty)) (WExpr.LocalGet(nb, ty))))
         else
             match ctx.EqualityRegistry.TryGetValue idx with
             | true, funcName -> WExpr.Call(funcName, [ a; b ], WType.I32)
