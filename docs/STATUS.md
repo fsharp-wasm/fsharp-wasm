@@ -49,17 +49,19 @@ Measured while writing tests; each is a program that does not compile or a metho
 - a local function that is generic in its type arguments and whose only evidence of them is its use (`let bind r = match r with Ok v -> Ok (v + 1) | Error e -> Error e`, applied to a `Result<int, string>`) is compiled for `int`: annotate its parameter
 - `async` and JSPI: planned
 - exceptions as values: an `exn` stored in a list or a record is typed as an integer (`[ System.Exception "x" ]` does not validate); `System.ArgumentException("x")` (a constructor that delegates to the primary one) leaves its second field out; a derived class that adds a field writes it to the base class's field (`inherit EqBase(name)` with an own `size`)
+- two modules with the same name in different namespaces (`Browser.Css` of the runtime and a `Css` of another library) share one set of function names (`Css_color`): the first definition wins and a call to the other does not validate; name the modules differently
 - an exception with a payload cannot be caught by type: `try … with MyError m -> …` receives no value (the JSON parser of fsharp-wasm-newsletter records its first error instead)
 
 Closed on 2026-11-16, each with tests whose expected values are what .NET computes: ranges with a step in `for`, `seq` and `Seq.iter`; array and string slices
 (`a.[1..3]`, `s.[..2]`, `a.[2..]`, clamped like F#); `Array.concat`, `List.concat`; `System.Array.IndexOf`; `StringBuilder.AppendLine`,
 `StringBuilder(text)` and `AppendFormat` with a literal; `isNull`.
 
-Closed on 2026-11-19, after the recorded run above (found while building fsharp-wasm-newsletter; six QuickTests added, 681 pass): structural equality of unions that have a list field
+Closed on 2026-11-19, after the recorded run above (found while building fsharp-wasm-newsletter; ten QuickTests added, 685 pass): structural equality of unions that have a list field
 (two unions of different shapes were one type to `ref.test`, so the list dispatcher read the cases of the wrong union: a union's base struct and its
 cases are now one `rec` group); equality of lists of class instances whose class has subclasses (it was generated as a case chain over a field that is not a tag, which did not validate; classes compare by reference now) and of
 structs that hold function references (an interface's vtable); `List.contains` and `Array.contains` on strings, records and unions (they compared by reference);
-`Math.Pow` with a fractional or a negative exponent (the exponent was truncated: `Math.Pow(0.4945, 2.4)` was 0.4945², `Math.Pow(2, -3)` was 1).
+`Math.Pow` with a fractional or a negative exponent (the exponent was truncated: `Math.Pow(0.4945, 2.4)` was 0.4945², `Math.Pow(2, -3)` was 1);
+`%` on floats (compiled to `unreachable`: the emitter had no float remainder; it is `x - trunc(x / y) * y` now, the sign of the dividend as in .NET); `String.EndsWith` with a suffix that also occurs earlier (it compared the first occurrence with the end: `"6000".EndsWith "0"` was false).
 The equality of lists of class instances is exercised by that repository's suite (a Wasmecto project that links the whole base library, which has the `Exception` hierarchy) and not by a QuickTest, because building a derived class in a QuickTest runs into the constructor gap above.
 
 ## Source layout

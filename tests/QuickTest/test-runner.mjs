@@ -922,6 +922,10 @@ check("StringBuilder: ctor from string, AppendLine, AppendFormat", 11513, exp.te
 console.log("\n─── Structural equality: unions with list fields ───\n");
 check("two unions of different shapes, both with list fields", 3, exp.testEqTwoUnionsWithLists());
 check("List.contains / Array.contains compare by content", 15, exp.testContainsByContent());
+check("7.5 % 2.0 = 1.5", 150, exp.testFloatModulus());
+check("-7.5 % 2.0 = -1.5 (the sign of the dividend)", -150, exp.testFloatModulusNegative());
+check("370.5 % 360.0 = 10.5", 105, exp.testFloatModulusWrap());
+check("EndsWith with a suffix that also occurs earlier", 15, exp.testEndsWithRepeated());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

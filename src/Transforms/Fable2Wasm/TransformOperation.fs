@@ -125,6 +125,12 @@ let transformOperation
             wrap (WExpr.Binary(WBinaryOp.Mul, wLeft, wRight, ty))
         | BinaryDivide ->
             WExpr.Binary(pick WBinaryOp.DivS WBinaryOp.DivU, wLeft, wRight, ty)
+        | BinaryModulus when (ty = WType.F64 || ty = WType.F32) ->
+            // WebAssembly has no float remainder instruction (the emitter knows i32 and i64 only: `x % y` on floats compiled to `unreachable`).
+            // x % y = x - trunc(x / y) * y: the sign of the dividend, as fmod and JavaScript give it.
+            let a, b = WExpr.LocalGet("$fmod_a", ty), WExpr.LocalGet("$fmod_b", ty)
+            WExpr.Let("$fmod_a", wLeft, WExpr.Let("$fmod_b", wRight,
+                WExpr.Binary(WBinaryOp.Sub, a, WExpr.Binary(WBinaryOp.Mul, WExpr.Unary(WUnaryOp.Trunc, WExpr.Binary(WBinaryOp.DivS, a, b, ty), ty), b, ty), ty)))
         | BinaryModulus ->
             WExpr.Binary(pick WBinaryOp.RemS WBinaryOp.RemU, wLeft, wRight, ty)
         | BinaryShiftLeft ->

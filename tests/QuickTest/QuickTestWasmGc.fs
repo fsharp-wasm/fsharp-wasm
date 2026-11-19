@@ -3841,3 +3841,24 @@ let testContainsByContent () : int =
     + (if Array.contains ("a" + "") arr then 2 else 0)
     + (if List.contains { PA = 2; PB = "y" } recs then 4 else 0)
     + (if List.contains "nope" words then 0 else 8)
+
+// ── the remainder of floats ───────────────────────────────────────────────────────────────────────────────────────
+
+/// Test: 7.5 % 2.0 = 1.5 (`%` on floats compiled to `unreachable`: the emitter had no float remainder)
+let testFloatModulus () : int = int (7.5 % 2.0 * 100.0)
+
+/// Test: the sign of the dividend, as in .NET and JavaScript: -7.5 % 2.0 = -1.5
+let testFloatModulusNegative () : int = int (-7.5 % 2.0 * 100.0)
+
+/// Test: a hue wrapped into a circle, the way a colour library does it: (370.5 % 360.0) = 10.5
+let testFloatModulusWrap () : int = int (370.5 % 360.0 * 10.0)
+
+// ── String.EndsWith with a suffix that also occurs earlier ──────────────────────────────────────────────────────────
+
+/// Test: EndsWith compared the FIRST occurrence of the suffix with the end: "6000".EndsWith "0" was false.
+/// Result 15 = one-character suffix (1) + repeated suffix (2) + not a suffix (0, +4 when right) + empty suffix (8).
+let testEndsWithRepeated () : int =
+    (if "6000".EndsWith "0" then 1 else 0)
+    + (if "abcabc".EndsWith "bc" then 2 else 0)
+    + (if "abcabd".EndsWith "bc" then 0 else 4)
+    + (if "x".EndsWith "" then 8 else 0)

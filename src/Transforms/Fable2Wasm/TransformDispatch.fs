@@ -529,10 +529,12 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         let strLen  = arrayLen str
         let sufLen  = arrayLen suffix
         let pos     = WExpr.Binary(WBinaryOp.Sub, strLen, sufLen, WType.I32)
-        // pos >= 0 && $strIndexOf(str, suffix) == pos
+        // pos >= 0 && ($strLastIndexOf(str, suffix) == pos || suffix is empty).  The LAST occurrence: the first one is not at the end
+        // when the suffix also occurs earlier ("6000".EndsWith "0" is true although "0" first occurs at 1).
         let posOk   = WExpr.Compare(WCompareOp.GeS, pos, i32Zero)
-        let atEnd   = WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; suffix], WType.I32), pos)
-        WExpr.Binary(WBinaryOp.And, posOk, atEnd, WType.I32)
+        let atEnd   = WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strLastIndexOf"), [str; suffix], WType.I32), pos)
+        let empty   = WExpr.Compare(WCompareOp.Eq, sufLen, i32Zero)
+        WExpr.Binary(WBinaryOp.And, posOk, WExpr.Binary(WBinaryOp.Or, empty, atEnd, WType.I32), WType.I32)
     // String.substring(str, start, len) → $strSubstring
     | "substring", [str; start; len], _ ->
         WExpr.Call(ctx.UseHelper("$strSubstring"), [str; start; len], WType.Ref(StringTypeIdx, false))
@@ -1180,10 +1182,12 @@ let private transformCallCore
             | "startsWith", [prefix] ->
                 WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; prefix], WType.I32), i32Zero)
             | "endsWith", [suffix] ->
+                // the last occurrence must be at the end (see the module-level `endsWith` above)
                 let pos = WExpr.Binary(WBinaryOp.Sub, arrayLen wStr, arrayLen suffix, WType.I32)
                 let posOk = WExpr.Compare(WCompareOp.GeS, pos, i32Zero)
-                let atEnd = WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strIndexOf"), [wStr; suffix], WType.I32), pos)
-                WExpr.Binary(WBinaryOp.And, posOk, atEnd, WType.I32)
+                let atEnd = WExpr.Compare(WCompareOp.Eq, WExpr.Call(ctx.UseHelper("$strLastIndexOf"), [wStr; suffix], WType.I32), pos)
+                let empty = WExpr.Compare(WCompareOp.Eq, arrayLen suffix, i32Zero)
+                WExpr.Binary(WBinaryOp.And, posOk, WExpr.Binary(WBinaryOp.Or, empty, atEnd, WType.I32), WType.I32)
             | "substring", [start] ->
                 let len = WExpr.Binary(WBinaryOp.Sub, arrayLen wStr, start, WType.I32)
                 WExpr.Call(ctx.UseHelper("$strSubstring"), [wStr; start; len], strRef)
