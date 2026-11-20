@@ -20,6 +20,8 @@
 | Component linking | two modules compiled apart and linked at run time | 22 passed | yes |
 | Wasmecto tests (`tests/Wasm`) | a test project written with the Wasmecto framework, compiled to WebAssembly and run in Node: language core, collections, closures, a compiler pipeline smoke test | 81 passed | yes |
 | Wasmecto's own tests | the test framework's own tests (`Math`, `Dictionary`, `Stack`, `StringBuilder`), compiled against the whole base library and run in Node | 36 passed | yes |
+| Dogfood: core libraries (`tests/Dogfood/run.sh core-libs`) | the suites of FSharp.Wasm.Data (JSON, numbers) and FSharp.Wasm.Ui (typed CSS and HTML, the email grid), compiled from fsharp-wasm-core and run in Node | 29 passed (recorded 2026-11-20) | yes |
+| Dogfood: newsletter (`tests/Dogfood/run.sh newsletter`) | the newsletter library's suite, and the designer module (an Elmish program on the HTML DSL) compiled, validated, and checked for its `start` export | 53 passed, designer 320 703 bytes (2026-11-20) | yes |
 
 `bash tests/run-all.sh` runs every suite, keeps going after a failure and prints one table (`--list`, `--only a,b`). The differential run, the closure
 fuzz and the pass tests' random programs add several hundred thousand generated cases to the named tests and checks in the table.

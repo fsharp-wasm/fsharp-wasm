@@ -198,3 +198,37 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
           FSHARP_WASM: ${{ github.workspace }}
         run: bash .deps/fsharp-wasmecto/run-tests.sh
+
+      # Real programs as a gate (tests/Dogfood/run.sh): the platform's own libraries and the newsletter designer are compiled by this
+      # compiler and run.  Both repositories are pinned to a commit; bump the pins when they change (and they pin this compiler back).
+      - name: Check out fsharp-wasm-core (the standard libraries)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/checkout@v6
+        with:
+          repository: fsharp-wasm/fsharp-wasm-core
+          ref: 52afb741ce65cb5690030549aa0a7b7e7bb1203c
+          path: .deps/fsharp-wasm-core
+          submodules: true
+
+      - name: Dogfood - FSharp.Wasm.Data and FSharp.Wasm.Ui
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          FSHARP_CORE_DIR: ${{ github.workspace }}/.deps/fsharp-wasm-core
+        run: bash tests/Dogfood/run.sh core-libs
+
+      - name: Check out fsharp-wasm-newsletter
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/checkout@v6
+        with:
+          repository: fsharp-wasm/fsharp-wasm-newsletter
+          ref: 9a9cb001acd29567010b872143297af420638cc4
+          path: .deps/fsharp-wasm-newsletter
+          submodules: true
+
+      - name: Dogfood - the newsletter library and the designer module
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          FSHARP_NEWSLETTER_DIR: ${{ github.workspace }}/.deps/fsharp-wasm-newsletter
+        run: bash tests/Dogfood/run.sh newsletter

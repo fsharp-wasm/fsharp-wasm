@@ -29,6 +29,8 @@ SUITES=(
   "component-embed|examples/component-embed/run.sh"
   "component-linking|examples/component-linking/run.sh"
   "wasmecto|bash ${FSHARP_WASMECTO_DIR:-../fsharp-wasmecto}/run-tests.sh"
+  "core-libs|tests/Dogfood/run.sh core-libs"
+  "newsletter|tests/Dogfood/run.sh newsletter"
 )
 
 ONLY=""; FAIL_FAST=0; VERBOSE=0
