@@ -66,6 +66,8 @@ structs that hold function references (an interface's vtable); `List.contains` a
 `%` on floats (compiled to `unreachable`: the emitter had no float remainder; it is `x - trunc(x / y) * y` now, the sign of the dividend as in .NET); `String.EndsWith` with a suffix that also occurs earlier (it compared the first occurrence with the end: `"6000".EndsWith "0"` was false).
 The equality of lists of class instances is exercised by that repository's suite (a Wasmecto project that links the whole base library, which has the `Exception` hierarchy) and not by a QuickTest, because building a derived class in a QuickTest runs into the constructor gap above.
 
+Closed on 2026-11-20 (686 QuickTests pass; found by compiling the widget editor of fsharp-wasm-ide, which the dogfooding gates did not cover yet): a union declared in the program and generic (`Cmd<'Msg>`, the Elm-style command of the widget editor) was mapped to its uninstantiated structs in signatures while constructors and matches used the structs of the instantiation (`Cmd<Msg>`): a function that returned `CmdNone` at a record type declared one type and built another (`type mismatch: expected (ref $type), found (ref (exact $type))`, or `unknown field`). It had only validated while the structs of a union were canonical by shape, which the 2026-11-19 change to one `rec` group per union ended. Signatures use the instantiation now (Types.mapTypeKnown); the QuickTest builds such a union at a record type.
+
 ## Source layout
 
 ```text

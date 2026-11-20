@@ -608,9 +608,12 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
                 match registerGenericClass ctx entRef genericArgs instKey with
                 | Some idx -> WType.Ref(idx, false)
                 | None ->
-                // A union that is not compiled from source (`Result<'T,'E>`, `Choice<…>`) gets its structs here, the first time
-                // its type is mapped: a closure signature `Result<int,string> -> …` is mapped before any case is constructed
-                match (if Map.containsKey entRef.FullName ctx.TypeRegistry then None else registerGenericUnion ctx entRef genericArgs instKey) with
+                // A union gets the structs of an instantiation here, the first time its type is mapped: a closure signature
+                // `Result<int,string> -> …` is mapped before any case is constructed.  Also a union declared in the program
+                // (`Cmd<'Msg>`): its constructors and matches use the instantiation (TransformConstruct, TransformExpr), so the
+                // signatures must too — a function returning `CmdNone` at a record type built one instantiation and declared
+                // another, which only validated while the structs of a union were canonical by shape.
+                match registerGenericUnion ctx entRef genericArgs instKey with
                 | Some idx -> WType.Ref(idx, false)
                 | None ->
                 // Fall back to non-generic key (ClassDeclaration-registered types)

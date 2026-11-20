@@ -913,6 +913,7 @@ check("array slice with variable bounds", 90, exp.testArraySliceVariable());
 check("array slice is a copy", 1099, exp.testArraySliceIsCopy());
 check("array slices of string, float, byte and bool", 5651, exp.testArraySliceElementTypes());
 check("string slices", 1013223020, exp.testStringSlice());
+check("generic union of the program, function returning a case at a record type", 7, exp.testGenericUnionAtReferenceType());
 check("Array.concat of a list and of an array of arrays", 6101354, exp.testArrayConcat());
 check("List.concat and List.collect", 366, exp.testListConcat());
 check("System.Array.IndexOf with start and count", 303020, exp.testArrayIndexOf());

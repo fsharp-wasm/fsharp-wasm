@@ -3862,3 +3862,29 @@ let testEndsWithRepeated () : int =
     + (if "abcabc".EndsWith "bc" then 2 else 0)
     + (if "abcabd".EndsWith "bc" then 0 else 4)
     + (if "x".EndsWith "" then 8 else 0)
+
+// ── a generic union declared in the program, at a reference type ──────────────────────────────────────────────────
+
+type CmdLike<'M> =
+    | CmdNone
+    | CmdEmit of 'M
+    | CmdBatch of CmdLike<'M> list
+
+type CmdMsg = { CmdCode: int; CmdLabel: string }
+
+let cmdNone<'M> () : CmdLike<'M> = CmdNone
+let cmdEmit (m: 'M) : CmdLike<'M> = CmdEmit m
+
+let rec cmdWeight (c: CmdLike<CmdMsg>) : int =
+    match c with
+    | CmdNone -> 0
+    | CmdEmit m -> m.CmdCode
+    | CmdBatch cs -> cs |> List.sumBy cmdWeight
+
+/// Test: a function that returns a case of a generic union declared in the program (the Elm-style `Cmd<'Msg>` of the widget
+/// editor), called at a record type.  The function's declared result type and the struct it builds were two instantiations of the
+/// union; they only validated while the structs of a union were canonical by shape.  5 + 2 = 7
+let testGenericUnionAtReferenceType () : int =
+    let a : CmdLike<CmdMsg> = cmdNone ()
+    let b = cmdEmit { CmdCode = 5; CmdLabel = "x" }
+    cmdWeight (CmdBatch [ a; b; cmdEmit { CmdCode = 2; CmdLabel = "y" } ])
