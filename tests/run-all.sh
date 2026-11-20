@@ -31,6 +31,7 @@ SUITES=(
   "wasmecto|bash ${FSHARP_WASMECTO_DIR:-../fsharp-wasmecto}/run-tests.sh"
   "core-libs|tests/Dogfood/run.sh core-libs"
   "newsletter|tests/Dogfood/run.sh newsletter"
+  "widget-editor|tests/Dogfood/run.sh widget-editor"
 )
 
 ONLY=""; FAIL_FAST=0; VERBOSE=0

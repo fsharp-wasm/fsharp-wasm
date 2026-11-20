@@ -232,3 +232,19 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
           FSHARP_NEWSLETTER_DIR: ${{ github.workspace }}/.deps/fsharp-wasm-newsletter
         run: bash tests/Dogfood/run.sh newsletter
+
+      - name: Check out fsharp-wasm-ide
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/checkout@v6
+        with:
+          repository: fsharp-wasm/fsharp-wasm-ide
+          ref: aa0bdca38502b050a15eea254ab833046e470f9a
+          path: .deps/fsharp-wasm-ide
+          submodules: true
+
+      - name: Dogfood - the widget editor (the FSharp.Graphics stack as one module)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          FSHARP_IDE_DIR: ${{ github.workspace }}/.deps/fsharp-wasm-ide
+        run: bash tests/Dogfood/run.sh widget-editor
