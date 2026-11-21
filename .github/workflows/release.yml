@@ -49,14 +49,13 @@ jobs:
         id: fsc
         uses: ./.github/actions/patched-fsc
 
+      # a fixed version (the one the checks were made with); no call to the GitHub API, whose unauthenticated limit fails this step now and then
       - name: Install wasm-tools
-        continue-on-error: true
+        env:
+          WASM_TOOLS: 1.263.0
         run: |
-          RELEASE_URL=$(curl -sSf https://api.github.com/repos/bytecodealliance/wasm-tools/releases/latest \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); a=[x['browser_download_url'] for x in d['assets'] if 'x86_64-linux' in x['name'] and x['name'].endswith('.tar.gz')]; print(a[0])")
-          curl -LO "$RELEASE_URL"
-          tar xzf wasm-tools-*.tar.gz
-          find . -maxdepth 2 -name wasm-tools -type f | head -1 | xargs -I{} sudo install -m755 {} /usr/local/bin/wasm-tools
+          curl -sSfL --retry 4 "https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS}/wasm-tools-${WASM_TOOLS}-x86_64-linux.tar.gz" | tar xz -C "$RUNNER_TEMP"
+          sudo install -m755 "$RUNNER_TEMP/wasm-tools-${WASM_TOOLS}-x86_64-linux/wasm-tools" /usr/local/bin/wasm-tools
           wasm-tools --version
 
       # No FAKE here: FAKE 6 runs on net6 with FSharp.Core 8 and breaks on the runner image (see ci.yml).  The same
@@ -92,6 +91,16 @@ jobs:
           cd win-x64 && zip -r ../fsharp-wasm-win-x64.zip . && cd ..
           # what fsharp-wasm-runtime's build.js (FSHARP_WASM_VERSION) checks a download against
           sha256sum fsharp-wasm-*.tar.gz fsharp-wasm-*.zip > SHA256SUMS
+
+      # What is released must itself compile and run a program: unpack the linux-x64 archive and let it compile the QuickTest, which Node then runs
+      # (the same 686 checks as CI, with the packed binary instead of `dotnet run`).  A tag whose archive cannot do that publishes nothing.
+      - name: Smoke test of the linux-x64 archive
+        run: |
+          d="$RUNNER_TEMP/released-cli"; rm -rf "$d"; mkdir -p "$d"
+          tar xzf publish/fsharp-wasm-linux-x64.tar.gz -C "$d"
+          "$d/fsharp-wasm" tests/QuickTest --outDir tests/QuickTest/output --noCache
+          wasm-tools validate tests/QuickTest/output/QuickTestWasmGc.wasm --features gc
+          node tests/QuickTest/test-runner.mjs
 
       - name: Publish to NuGet.org
         if: github.ref_type == 'tag' && env.NUGET_API_KEY != ''

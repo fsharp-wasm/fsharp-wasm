@@ -47,14 +47,13 @@ jobs:
         id: fsc
         uses: ./.github/actions/patched-fsc
 
+      # a fixed version (the one the checks were made with); no call to the GitHub API, whose unauthenticated limit fails this step now and then
       - name: Install wasm-tools
-        continue-on-error: true
+        env:
+          WASM_TOOLS: 1.263.0
         run: |
-          RELEASE_URL=$(curl -sSf https://api.github.com/repos/bytecodealliance/wasm-tools/releases/latest \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); a=[x['browser_download_url'] for x in d['assets'] if 'x86_64-linux' in x['name'] and x['name'].endswith('.tar.gz')]; print(a[0])")
-          curl -LO "$RELEASE_URL"
-          tar xzf wasm-tools-*.tar.gz
-          find . -maxdepth 2 -name wasm-tools -type f | head -1 | xargs -I{} sudo install -m755 {} /usr/local/bin/wasm-tools
+          curl -sSfL --retry 4 "https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS}/wasm-tools-${WASM_TOOLS}-x86_64-linux.tar.gz" | tar xz -C "$RUNNER_TEMP"
+          sudo install -m755 "$RUNNER_TEMP/wasm-tools-${WASM_TOOLS}-x86_64-linux/wasm-tools" /usr/local/bin/wasm-tools
           wasm-tools --version
 
       # build.fsx (FAKE) remains the local entry point; CI runs the same steps directly. FAKE 6 needs a net6.0
