@@ -4113,3 +4113,17 @@ let testSeqOverString () : int =
     let n = s |> Seq.filter (fun c -> c <> 'X') |> Seq.length
     let codes = s |> Seq.map int |> Seq.sum
     (if allLower then 1 else 0) + (if anyUpper then 10 else 0) + n * 100 + codes * 1000
+
+/// Structural equality of packed arrays (`bool[]` and `byte[]` are arrays of i8): equal contents, one difference, inside a record, in a list.
+/// The comparison of the elements was a reference comparison, which does not validate for a number.  1 + 10 + 100 + 1000 + 10000
+type PackedBits = { Bits: byte[]; Flags: bool[] }
+
+let testPackedArrayEquality () : int =
+    let a = [| true; false; true |]
+    let b = [| true; false; true |]
+    let c = [| true; true; true |]
+    let x = { Bits = [| 1uy; 2uy |]; Flags = a }
+    let y = { Bits = [| 1uy; 2uy |]; Flags = b }
+    let z = { Bits = [| 1uy; 3uy |]; Flags = a }
+    (if a = b then 1 else 0) + (if a <> c then 10 else 0) + (if x = y then 100 else 0) + (if x <> z then 1000 else 0)
+    + (if [ [| 1uy |]; [| 2uy |] ] = [ [| 1uy |]; [| 2uy |] ] then 10000 else 0)

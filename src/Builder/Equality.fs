@@ -201,10 +201,12 @@ and makeArrayEqualsFunc (ctx: Ctx) (funcName: string) (typeIdx: int) (elemT: WTy
     let refT = WType.Ref(typeIdx, false)
     let a, b = WExpr.LocalGet("$eq_a", refT), WExpr.LocalGet("$eq_b", refT)
     let i, ok = WExpr.LocalGet("$eq_i", WType.I32), WExpr.LocalGet("$eq_ok", WType.I32)
-    let at arr = WExpr.ArrayGet(arr, i, elemT)
+    // a packed array (bool[], byte[]: i8; i16) holds its elements in fewer bits and reads them as i32, as every other read of it does: compared as numbers, not as references
+    let valueT = (match elemT with WType.I8 | WType.I16 -> WType.I32 | t -> t)
+    let at arr = WExpr.ArrayGet(arr, i, valueT)
     let loop =
         whileLoop "$eq_loop" (and_ ok (WExpr.Compare(WCompareOp.LtS, i, WExpr.ArrayLen a)))
-            (WExpr.Sequence [ WExpr.Assign("$eq_ok", compareByWType ctx elemT (at a) (at b))
+            (WExpr.Sequence [ WExpr.Assign("$eq_ok", compareByWType ctx valueT (at a) (at b))
                               WExpr.Assign("$eq_i", add i (i32Const 1)) ])
     let body =
         wasmIf (WExpr.Compare(WCompareOp.Ne, WExpr.ArrayLen a, WExpr.ArrayLen b))

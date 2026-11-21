@@ -94,6 +94,10 @@ Closed on 2026-11-21 (697 QuickTests pass; found by FSharp.Wasm.Icons of fsharp-
 and the rest of the module, and any `seq<char>` parameter) was passed on as the string itself, and the list code that a seq stands for cast it to a list cell: the module did not validate. The cast of a string to a
 seq is a list of its characters now, as the cast of an array is a list of its elements (`coerceToSeq`); the diagnostic that said "string does not convert yet" was never reached on this path.
 
+Closed on 2026-11-21 (698 QuickTests pass; found by the widget editor of fsharp-wasm-ide, which compares a drag session): structural equality of `bool[]` and `byte[]` (arrays of i8, alone, in a record, in a
+list) compared the elements as references, and the module did not validate (`expected ref but found i32`). The elements of a packed array are read as i32, as every other read of it does, and compared as numbers
+(`makeArrayEqualsFunc`).
+
 Measured on 2026-11-21 (693 QuickTests pass, in all three modes): what a stack of DSLs needs from the compiler. User-defined computation expression builders
 (`result` and `option` with `Bind`/`Return`/`ReturnFrom`, a view DSL with `Yield`/`Zero`/`Delay`/`Combine`/`For`/`Run` in which attributes and children are yielded
 and elements nest by calling another builder), builders with `inline` members and `InlineIfLambda`, `[<CustomOperation>]` (a query-like DSL), list, array and seq
