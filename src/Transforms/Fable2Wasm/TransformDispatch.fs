@@ -211,7 +211,9 @@ let trySpecializeCall
             // 9. Build specialized context: set substitution + populate arg locals.
             //    Override Compiler with the declaring file's compiler so entity lookups
             //    within the body resolve against the right compilation unit.
-            let ctx' = { ctx with TypeSubst = subst; CurrentFunc = Some mangledName; Compiler = declCom }
+            //    The body names the functions of the declaring file: the names of that file (a library file prefixes its functions).
+            let declAlias = (match ctx.GenericFuncAliases.TryGetValue funcName with | true, a -> a | _ -> ctx.FuncNameAlias)
+            let ctx' = { ctx with TypeSubst = subst; CurrentFunc = Some mangledName; Compiler = declCom; FuncNameAlias = declAlias }
             let ctx' =
                 (ctx', memberDecl.Args)
                 ||> List.fold (fun c a -> c.WithLocal(a.Name, mapTypeKnown c a.Type))

@@ -29,15 +29,18 @@ let private preScanGenerics (ctx: Ctx) (decls: Declaration list) : unit =
         match decl with
         | MemberDeclaration m ->
             ctx.GenericFuncRegistry.[m.Name] <- (ctx.Compiler, m :> obj)
+            ctx.GenericFuncAliases.[m.Name] <- ctx.FuncNameAlias
         | ModuleDeclaration md ->
             md.Members |> List.iter scan
         | ClassDeclaration cd ->
             cd.AttachedMembers |> List.iter (fun m ->
-                ctx.GenericFuncRegistry.[m.Name] <- (ctx.Compiler, m :> obj))
+                ctx.GenericFuncRegistry.[m.Name] <- (ctx.Compiler, m :> obj)
+                ctx.GenericFuncAliases.[m.Name] <- ctx.FuncNameAlias)
             // the constructor of a generic class is instantiated per type-argument list (see trySpecializeCall)
             match cd.Constructor with
             | Some ctor when (match ctx.Compiler.TryGetEntity cd.Entity with Some e -> e.GenericParameters.Length > 0 | None -> false) ->
                 ctx.GenericCtors.[ctor.Name] <- (ctx.Compiler, cd)
+                ctx.GenericFuncAliases.[ctor.Name] <- ctx.FuncNameAlias
             | _ -> ()
         | ActionDeclaration _ -> ()
     decls |> List.iter scan

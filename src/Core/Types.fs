@@ -142,6 +142,9 @@ type Ctx =
         // and depend on that instead. Track in issue: decouple-ctx-from-compiler.
         // TODO: we shouldn't reference the full Compiler
         GenericFuncRegistry: System.Collections.Generic.Dictionary<string, ICompilerCore * obj>
+        /// The names of the functions of the file that declares a generic function (its `FuncNameAlias`): a specialisation is compiled at the call, in
+        /// another file, but its body refers to the functions of the declaring file, which a library file prefixes with its name.
+        GenericFuncAliases: System.Collections.Generic.Dictionary<string, Map<string, string>>
 
         /// Cache of already-emitted or in-progress specializations.
         /// Key = mangled name (e.g. "MyModule.swap|i32,ref1"); Value = same mangled name (sentinel).
@@ -291,6 +294,7 @@ type Ctx =
             CompareRegistry = System.Collections.Generic.Dictionary<int, string>()
             HashRegistry = System.Collections.Generic.Dictionary<int, string>()
             GenericFuncRegistry = System.Collections.Generic.Dictionary<string, ICompilerCore * obj>()
+            GenericFuncAliases = System.Collections.Generic.Dictionary<string, Map<string, string>>()
             MonoCache = System.Collections.Generic.Dictionary<string, string>()
             TypeSubst = Map.empty
             BoxedLocals = Map.empty
