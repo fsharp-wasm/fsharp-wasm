@@ -89,6 +89,25 @@ let rec hasGenericParam (t: Type) =
     | Type.DeclaredType(_, ts) -> List.exists hasGenericParam ts
     | _ -> false
 
+/// A function type with its arguments one by one: a delegate of two arguments and a function of two curried arguments are the same type to a caller,
+/// and `unify` compares structure.
+let rec curriedType (t: Type) : Type =
+    match t with
+    | Type.DelegateType(ts, r) -> List.foldBack (fun a acc -> Type.LambdaType(a, acc)) ts (curriedType r)
+    | Type.LambdaType(a, r) -> Type.LambdaType(a, curriedType r)
+    | _ -> t
+
+/// The names of the type parameters a type mentions.
+let rec genericParamNames (t: Type) : string list =
+    match t with
+    | Type.GenericParam(name, _, _) -> [ name ]
+    | Type.List e | Type.Option(e, _) | Type.Array(e, _) -> genericParamNames e
+    | Type.Tuple(ts, _) -> List.collect genericParamNames ts
+    | Type.LambdaType(a, r) -> genericParamNames a @ genericParamNames r
+    | Type.DelegateType(ts, r) -> List.collect genericParamNames ts @ genericParamNames r
+    | Type.DeclaredType(_, ts) -> List.collect genericParamNames ts
+    | _ -> []
+
 /// The type arguments of a call to a generic function that the call does not state: read them off the types at the call
 /// site.  A member of a generic class (`Stack<'T>.Push`) has no type arguments of its own — `'T` is the class's — so
 /// the receiver and arguments are what say it.  `[]` when nothing generic is bound.
@@ -107,18 +126,36 @@ let trySpecializeCall
     (ctx: Ctx)
     (eval: Ctx -> Expr -> WExpr)
     (funcName: string)
+    (declFile: string option)
     (info: CallInfo)
     (resultFableType: Type)
     : WExpr option =
 
     // 1. Is this function body registered (i.e., defined in-module)?
+    // The plain name is not unique (a private `show` in two files): where the call says which file declares the function, that file's declaration is the one.
+    let byFile =
+        match declFile with
+        | Some f -> (match ctx.GenericDeclsByFile.TryGetValue((f, funcName)) with | true, e -> Some e | _ -> None)
+        | None -> None
     let isCtor, registered =
         match ctx.GenericCtors.TryGetValue funcName with
         | true, (declCom, classDecl) -> true, Some(declCom, classDecl.Constructor.Value :> obj)
         | _ ->
-            match ctx.GenericFuncRegistry.TryGetValue funcName with
-            | true, entry -> false, Some entry
-            | _ -> false, None
+            match byFile with
+            | Some (declCom, decl, _) -> false, Some(declCom, decl)
+            | None ->
+                match ctx.GenericFuncRegistry.TryGetValue funcName with
+                | true, entry -> false, Some entry
+                | _ -> false, None
+    // …and when another declaration took the plain name, this one's specialisations are named with its file too (the cache is keyed by name)
+    let clashes =
+        match byFile, ctx.GenericFuncRegistry.TryGetValue funcName with
+        | Some (_, decl, _), (true, (_, plain)) -> not (obj.ReferenceEquals(decl, plain))
+        | _ -> false
+    let uniqueName =
+        match declFile with
+        | Some f when clashes -> System.IO.Path.GetFileNameWithoutExtension f + "_" + funcName
+        | _ -> funcName
     if System.Environment.GetEnvironmentVariable "WASMGC_TRACE_SPEC" = "1" then
         eprintfn "[spec] %s registered=%b ctor=%b ctors=%d funcs=%d" funcName registered.IsSome isCtor ctx.GenericCtors.Count ctx.GenericFuncRegistry.Count
     match registered with
@@ -177,7 +214,7 @@ let trySpecializeCall
         let paramNames, wTypeArgs = List.unzip named
 
         // 4. Compute the mangled name for this specialization.
-        let mangledName = mangleGenericName funcName wTypeArgs
+        let mangledName = mangleGenericName uniqueName wTypeArgs
 
         // 5. Pre-evaluate call arguments under the OUTER (non-specialized) ctx.
         //    An instance member's receiver comes in `ThisArg`; the compiled function takes it as its first parameter.
@@ -190,7 +227,22 @@ let trySpecializeCall
                 | Some t when memberDecl.Args.Length = info.Args.Length + 1
                               || (memberDecl.Args.Length > info.Args.Length + 1 && omittedOptional (info.Args.Length + 1)) -> [ eval ctx t ]
                 | _ -> []
-            let given = receiver @ (info.Args |> List.map (eval ctx))
+            // A lambda written in the argument (`within at (fun items i -> … None) roots`) can have a type variable of its own that nothing in
+            // the lambda fixes: the `None` above is `'b option`, and the callee's parameter type says what `'b` is.  Left alone it would be compiled
+            // as an `int`, and the closure would build another option than the callee takes.  The parameter type, in the callee's terms and with
+            // the callee's type arguments, gives it.
+            let calleeCtx = { ctx with TypeSubst = List.zip paramNames wTypeArgs |> Map.ofList }
+            let argCtx (i: int) (arg: Expr) : Ctx =
+                match arg, List.tryItem (i + receiver.Length) memberDecl.Args with
+                | (Expr.Lambda _ | Expr.Delegate _), Some declared when hasGenericParam arg.Type ->
+                    let own =
+                        unify (curriedType arg.Type) (curriedType declared.Type) Map.empty
+                        |> Map.filter (fun n t ->
+                            not (ctx.TypeSubst.ContainsKey n) && genericParamNames t |> List.forall calleeCtx.TypeSubst.ContainsKey)
+                    if own.IsEmpty then ctx
+                    else { ctx with TypeSubst = own |> Map.fold (fun m n t -> Map.add n (mapTypeKnown calleeCtx t) m) ctx.TypeSubst }
+                | _ -> ctx
+            let given = receiver @ (info.Args |> List.mapi (fun i a -> eval (argCtx i a) a))
             let substCtx = { ctx with TypeSubst = List.zip paramNames wTypeArgs |> Map.ofList }
             let missing = memberDecl.Args |> List.skip (min given.Length memberDecl.Args.Length)
             if not missing.IsEmpty && missing |> List.forall isOptional then
@@ -212,7 +264,10 @@ let trySpecializeCall
             //    Override Compiler with the declaring file's compiler so entity lookups
             //    within the body resolve against the right compilation unit.
             //    The body names the functions of the declaring file: the names of that file (a library file prefixes its functions).
-            let declAlias = (match ctx.GenericFuncAliases.TryGetValue funcName with | true, a -> a | _ -> ctx.FuncNameAlias)
+            let declAlias =
+                match byFile with
+                | Some (_, _, a) -> a
+                | None -> (match ctx.GenericFuncAliases.TryGetValue funcName with | true, a -> a | _ -> ctx.FuncNameAlias)
             let ctx' = { ctx with TypeSubst = subst; CurrentFunc = Some mangledName; Compiler = declCom; FuncNameAlias = declAlias }
             let ctx' =
                 (ctx', memberDecl.Args)
@@ -277,11 +332,12 @@ let private stringifyItems (ctx: Ctx) (itemsType: Fable.Type) (items: WExpr) : W
 
 /// Does an import path point into the core library?  The path is relative to the importing file ("./Set.fs" inside the
 /// library, "../core/FSharp.Wasm.Core/Collections/Set.fs" from the program), so it is resolved first.
+let private resolveImportPath (ctx: Ctx) (path: string) : string =
+    try System.IO.Path.GetFullPath(System.IO.Path.Combine(System.IO.Path.GetDirectoryName ctx.Compiler.CurrentFile, path))
+    with _ -> path
+
 let private isCoreLibraryPath (ctx: Ctx) (path: string) : bool =
-    let resolved =
-        try System.IO.Path.GetFullPath(System.IO.Path.Combine(System.IO.Path.GetDirectoryName ctx.Compiler.CurrentFile, path))
-        with _ -> path
-    isCoreLibraryFile ctx.Compiler resolved
+    isCoreLibraryFile ctx.Compiler (resolveImportPath ctx path)
 
 /// Behandelt String, Math und Import Calls
 let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: ImportInfo) (info: CallInfo) (typ: Type) (wArgs: WExpr list) : WExpr =
@@ -816,7 +872,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         // a member or constructor of a generic CLASS (`Queue$1__Enqueue_…`, `Queue$1_$ctor`) is instantiated even when it
         // lives in the core library: its name is the class's, there is no plain-name collision to fear
         let isClassMember = selector.Contains "$"
-        match (if isLibraryFunc && not isClassMember then None else trySpecializeCall ctx eval selector info typ) with
+        match (if isLibraryFunc && not isClassMember then None else trySpecializeCall ctx eval selector (Some (resolveImportPath ctx importInfo.Path)) info typ) with
         | Some specialised -> specialised
         | None ->
         // Use the import path to find the module-qualified function name.
@@ -1003,7 +1059,7 @@ let private transformCallCore
                 ClosureBuilder.applyClosure ctx ident.Type wClosure (info.Args |> List.map (fun a -> a.Type)) wArgs ty
             | _ ->
             // Sprint 5: demand-driven generic specialization.
-            match trySpecializeCall ctx eval ident.Name info typ with
+            match trySpecializeCall ctx eval ident.Name (Some ctx.Compiler.CurrentFile) info typ with
             | Some specialized -> specialized
             | None ->
                 // Direct function call (non-generic or unregistered generic).  An instance member called on an

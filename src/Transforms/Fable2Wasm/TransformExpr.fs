@@ -115,10 +115,14 @@ let private lambdaInstantiation (ctx: Ctx) (ident: Ident) (value: Fable.Expr) (b
             // a lambda of several arguments is a delegate: its uses are plain calls
             | Fable.Expr.Call(Fable.Expr.IdentExpr id, info, resultType, _) when id.Name = ident.Name ->
                 bound <- unify ident.Type (Fable.Type.DelegateType(info.Args |> List.map (fun a -> a.Type), resultType)) bound
+            // the lambda as a value (`within at put roots`): the type of that occurrence is the instance the use asks for
+            | Fable.Expr.IdentExpr id when id.Name = ident.Name -> bound <- unify ident.Type id.Type bound
             | _ -> ()
             e)
         |> ignore
-        let fresh = bound |> Map.filter (fun name t -> not (ctx.TypeSubst.ContainsKey name) && not (hasGenericParam t))
+        // an instance that names a type parameter of the enclosing function is as good as a concrete one in a specialisation: it is known there
+        let known (t: Fable.Type) = genericParamNames t |> List.forall ctx.TypeSubst.ContainsKey
+        let fresh = bound |> Map.filter (fun name t -> not (ctx.TypeSubst.ContainsKey name) && known t)
         if fresh.IsEmpty then ctx
         else { ctx with TypeSubst = fresh |> Map.fold (fun m name t -> Map.add name (mapTypeKnown ctx t) m) ctx.TypeSubst }
     | _ -> ctx
@@ -810,7 +814,7 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         // `d :> seq<_>` of a portable collection (Dictionary, HashSet, Stack, Queue): its `ToSeqList()` member builds the list
         | Fable.Type.DeclaredType(e, _), target when isSeqType target && e.FullName.StartsWith "System.Collections.Generic." ->
             let selector = e.FullName.Substring(e.FullName.LastIndexOf '.' + 1).Replace('`', '$') + "__ToSeqList"
-            match trySpecializeCall ctx transformExpr selector (Fable.CallInfo.Create(thisArg = innerExpr, args = [ Fable.Expr.Value(Fable.ValueKind.UnitConstant, None) ])) targetTy with
+            match trySpecializeCall ctx transformExpr selector None (Fable.CallInfo.Create(thisArg = innerExpr, args = [ Fable.Expr.Value(Fable.ValueKind.UnitConstant, None) ])) targetTy with
             | Some call -> call
             | None -> w
         | _, target when isSeqType target -> w

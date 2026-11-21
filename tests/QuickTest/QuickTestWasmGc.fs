@@ -4014,3 +4014,25 @@ let testCeStaticMembers () : int =
     let b = ceSumBy (fun (x: int) -> x) [ 1; 2 ]
     let c = ceTwice 1.0 |> int
     a + b + c
+
+// ── A lambda in an argument, with a type variable that only the callee fixes ──────────────────────────────────────────────────────────────
+
+type LgNode = { LgName: string }
+
+let lgWithin (path: int list) (f: 'i list -> int -> ('i list * 'i option) option) (items: 'i list) : ('i list * 'i option) option =
+    match path with
+    | [ i ] -> f items i
+    | _ -> None
+
+let lgInsertInto (at: int list) (item: 'i) (roots: 'i list) : 'i list option =
+    let put (items: 'i list) (i: int) = if i < 0 || i > List.length items then None else Some (item :: items, None)
+    match lgWithin at put roots with
+    | Some (r, _) -> Some r
+    | None -> None
+
+/// The `None` of `put` is `'b option`, and nothing in `put` says what `'b` is: the parameter type of `lgWithin` does (`'i option`).  It was compiled as an
+/// `int option`, the closure built another tuple than `lgWithin` took, and the call trapped (`illegal cast`).  Three items: 3
+let testLambdaVariableFixedByCallee () : int =
+    match lgInsertInto [ 1 ] { LgName = "x" } [ { LgName = "a" }; { LgName = "b" } ] with
+    | Some r -> List.length r
+    | None -> -1

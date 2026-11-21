@@ -145,6 +145,9 @@ type Ctx =
         /// The names of the functions of the file that declares a generic function (its `FuncNameAlias`): a specialisation is compiled at the call, in
         /// another file, but its body refers to the functions of the declaring file, which a library file prefixes with its name.
         GenericFuncAliases: System.Collections.Generic.Dictionary<string, Map<string, string>>
+        /// The same functions keyed by (the file that declares them, name): the plain name is not unique across files (a private `show` in two files), the
+        /// declaring file is known at a call (the file itself, or the path of the import).  Value: the declaring compiler, the declaration, the names of that file.
+        GenericDeclsByFile: System.Collections.Generic.Dictionary<string * string, ICompilerCore * obj * Map<string, string>>
 
         /// Cache of already-emitted or in-progress specializations.
         /// Key = mangled name (e.g. "MyModule.swap|i32,ref1"); Value = same mangled name (sentinel).
@@ -295,6 +298,7 @@ type Ctx =
             HashRegistry = System.Collections.Generic.Dictionary<int, string>()
             GenericFuncRegistry = System.Collections.Generic.Dictionary<string, ICompilerCore * obj>()
             GenericFuncAliases = System.Collections.Generic.Dictionary<string, Map<string, string>>()
+            GenericDeclsByFile = System.Collections.Generic.Dictionary<string * string, ICompilerCore * obj * Map<string, string>>()
             MonoCache = System.Collections.Generic.Dictionary<string, string>()
             TypeSubst = Map.empty
             BoxedLocals = Map.empty

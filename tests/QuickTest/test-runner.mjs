@@ -921,6 +921,7 @@ check("ce: list, array and seq comprehensions", 31, exp.testCeComprehensions())
 check("ce: custom operations (a query-like DSL)", 12, exp.testCeCustomOperations())
 check("ce: view DSL (yield attributes and children, for, nesting)", 1404, exp.testCeViewDsl())
 check("ce: statically resolved member constraints", 9, exp.testCeStaticMembers())
+check("lambda argument with a type variable that only the callee fixes", 3, exp.testLambdaVariableFixedByCallee())
 check("Array.concat of a list and of an array of arrays", 6101354, exp.testArrayConcat());
 check("List.concat and List.collect", 366, exp.testListConcat());
 check("System.Array.IndexOf with start and count", 303020, exp.testArrayIndexOf());

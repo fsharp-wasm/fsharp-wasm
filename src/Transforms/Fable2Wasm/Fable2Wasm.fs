@@ -30,6 +30,7 @@ let private preScanGenerics (ctx: Ctx) (decls: Declaration list) : unit =
         | MemberDeclaration m ->
             ctx.GenericFuncRegistry.[m.Name] <- (ctx.Compiler, m :> obj)
             ctx.GenericFuncAliases.[m.Name] <- ctx.FuncNameAlias
+            ctx.GenericDeclsByFile.[(ctx.Compiler.CurrentFile, m.Name)] <- (ctx.Compiler, m :> obj, ctx.FuncNameAlias)
         | ModuleDeclaration md ->
             md.Members |> List.iter scan
         | ClassDeclaration cd ->
