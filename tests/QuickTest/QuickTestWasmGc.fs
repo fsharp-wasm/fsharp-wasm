@@ -4100,3 +4100,16 @@ let testDispose () : int =
             let! x = c.Weight
             return x + 1 }
     viaUse + viaBuilder + log.Count * 100
+
+/// The Seq functions over a string: its characters are the elements.  Written the way a library writes a check (`name |> Seq.forall …`), through a function that takes the
+/// string, and inline on a literal.  1 (all lower case) + 10 (one upper case) + 300 (three that are not X) + 382 000 (the sum of the codes 97 + 98 + 88 + 99)
+let private isLower (name: string) : bool =
+    name.Length > 0 && name |> Seq.forall (fun c -> c >= 'a' && c <= 'z')
+
+let testSeqOverString () : int =
+    let s = "abXc"
+    let allLower = isLower "abc"
+    let anyUpper = s |> Seq.exists (fun c -> c >= 'A' && c <= 'Z')
+    let n = s |> Seq.filter (fun c -> c <> 'X') |> Seq.length
+    let codes = s |> Seq.map int |> Seq.sum
+    (if allLower then 1 else 0) + (if anyUpper then 10 else 0) + n * 100 + codes * 1000

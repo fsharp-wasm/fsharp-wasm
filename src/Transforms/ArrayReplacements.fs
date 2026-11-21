@@ -50,7 +50,7 @@ let coerceToSeq (ctx: Ctx) (argType: Fable.Type) (w: WExpr) : WExpr =
     let unsupported what =
         WasmGc.Core.Diagnostics.unsupported ctx.Diagnostics
             $"a {what} where a seq<'T> is expected"
-            "A seq is a list here: lists, arrays and ResizeArrays convert, other collections (Set, Map, string) do not yet — use `Set.toList` first."
+            "A seq is a list here: lists, arrays, ResizeArrays and strings convert, other collections (Set, Map) do not yet — use `Set.toList` first."
         w
     match argType with
     // a ResizeArray as a seq: a snapshot of its first Count elements as a list (the way Stack / Queue / HashSet do)
@@ -65,7 +65,18 @@ let coerceToSeq (ctx: Ctx) (argType: Fable.Type) (w: WExpr) : WExpr =
                 return! arrayToListRev (LabelGen "r2s") s data (WExpr.StructGet(rav, 1, WType.I32)) (fun ar i -> arrayGet ar i elemT)
             }
         | None -> w
-    | Fable.Type.String -> unsupported "string"
+    // a string as a seq<char>: its characters, copied into a list the way an array's elements are
+    | Fable.Type.String ->
+        match tryListTypeInfoFromElemType ctx Fable.Type.Char with
+        | Some(elemT, consIdx) ->
+            let s = mkListShape elemT consIdx
+            let charsIdx = getOrAddArrayType ctx WType.I32
+            let chars = WExpr.Call(ctx.UseHelper "$strToChars", [ w ], WType.Ref(charsIdx, false))
+            wasm {
+                let! a = chars
+                return! arrayToListRev (LabelGen "s2s") s a (arrayLen a) (fun ar i -> arrayGet ar i elemT)
+            }
+        | None -> w
     | Fable.Type.DeclaredType(e, _) when e.FullName.StartsWith "Microsoft.FSharp.Collections.FSharpSet" || e.FullName.StartsWith "Microsoft.FSharp.Collections.FSharpMap" ->
         unsupported "Set or Map"
     | _ ->

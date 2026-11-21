@@ -90,6 +90,10 @@ Closed on 2026-11-21 (found by the newsletter designer, which measures the drop 
 the host took at most four arguments (`WGC011`), the width of the export `__cb`. It takes eight now, and `__cb` is as wide as the widest callback the program passes (four at least, so a module that never needed more
 keeps its export). The suite `tests/HostInterop` passes a callback with six and one with eight arguments (it failed to compile before).
 
+Closed on 2026-11-21 (697 QuickTests pass; found by FSharp.Wasm.Icons of fsharp-wasm-core, whose check of a name is `name |> Seq.forall …`): a string used as a `seq<char>` (`s |> Seq.exists`, `Seq.filter`, `Seq.map`
+and the rest of the module, and any `seq<char>` parameter) was passed on as the string itself, and the list code that a seq stands for cast it to a list cell: the module did not validate. The cast of a string to a
+seq is a list of its characters now, as the cast of an array is a list of its elements (`coerceToSeq`); the diagnostic that said "string does not convert yet" was never reached on this path.
+
 Measured on 2026-11-21 (693 QuickTests pass, in all three modes): what a stack of DSLs needs from the compiler. User-defined computation expression builders
 (`result` and `option` with `Bind`/`Return`/`ReturnFrom`, a view DSL with `Yield`/`Zero`/`Delay`/`Combine`/`For`/`Run` in which attributes and children are yielded
 and elements nest by calling another builder), builders with `inline` members and `InlineIfLambda`, `[<CustomOperation>]` (a query-like DSL), list, array and seq

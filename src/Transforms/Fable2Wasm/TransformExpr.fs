@@ -809,8 +809,8 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
             WExpr.Unary(WUnaryOp.ExtendI32U, w, WType.I64)
         // char → string
         | Fable.Type.Char, Fable.Type.String when exprWType w = WType.I32 -> charToString w
-        // `arr :> seq<_>`: a seq is a list
-        | Fable.Type.Array _, target when isSeqType target -> coerceToSeq ctx innerExpr.Type w
+        // `arr :> seq<_>` and `s :> seq<char>`: a seq is a list
+        | (Fable.Type.Array _ | Fable.Type.String), target when isSeqType target -> coerceToSeq ctx innerExpr.Type w
         // `d :> seq<_>` of a portable collection (Dictionary, HashSet, Stack, Queue): its `ToSeqList()` member builds the list
         | Fable.Type.DeclaredType(e, _), target when isSeqType target && e.FullName.StartsWith "System.Collections.Generic." ->
             let selector = e.FullName.Substring(e.FullName.LastIndexOf '.' + 1).Replace('`', '$') + "__ToSeqList"
