@@ -3888,3 +3888,127 @@ let testGenericUnionAtReferenceType () : int =
     let a : CmdLike<CmdMsg> = cmdNone ()
     let b = cmdEmit { CmdCode = 5; CmdLabel = "x" }
     cmdWeight (CmdBatch [ a; b; cmdEmit { CmdCode = 2; CmdLabel = "y" } ])
+
+
+// ── Computation expressions and DSL shapes ───────────────────────────────────────────────────────────────────────────────────────────
+// What a stack of DSLs needs from the compiler: user-defined builders (Bind/Return/Delay/Combine/For/Run), inlined builders, custom operations,
+// comprehensions and statically resolved members.  Each is a program of the kind a library would write; the expected value is what .NET computes.
+
+type CeResultBuilder() =
+    member _.Bind(r: Result<'a, 'e>, f: 'a -> Result<'b, 'e>) : Result<'b, 'e> = match r with Ok v -> f v | Error e -> Error e
+    member _.Return(v: 'a) : Result<'a, 'e> = Ok v
+    member _.ReturnFrom(r: Result<'a, 'e>) : Result<'a, 'e> = r
+let ceResult = CeResultBuilder()
+let ceParse (s: string) : Result<int, string> = if s = "x" then Error "bad" else Ok s.Length
+
+/// a result builder: let! chains and a short circuit.  3 * 8 + 19 = 43, an Error stops the chain (+1000 would show it did not)
+let testCeResult () : int =
+    let ok =
+        ceResult {
+            let! a = ceParse "abc"
+            let! b = ceParse "abcdefgh"
+            return a * b + 19 }
+    let bad =
+        ceResult {
+            let! a = ceParse "x"
+            let! b = ceParse "abcdefgh"
+            return a + b + 1000 }
+    (match ok with Ok v -> v | Error _ -> -1) + (match bad with Ok _ -> 1000 | Error _ -> 0)
+
+type CeOptionBuilder() =
+    member _.Bind(o: 'a option, f: 'a -> 'b option) : 'b option = match o with Some v -> f v | None -> None
+    member _.Return(v: 'a) : 'a option = Some v
+let ceOption = CeOptionBuilder()
+let ceHalf (n: int) : int option = if n % 2 = 0 then Some (n / 2) else None
+
+/// an option builder; a None on the way gives None.  4 + 2 + 1 = 7
+let testCeOption () : int =
+    let ok =
+        ceOption {
+            let! a = ceHalf 8
+            let! b = ceHalf a
+            return a + b + 1 }
+    let bad =
+        ceOption {
+            let! a = ceHalf 3
+            return a }
+    (match ok with Some v -> v | None -> -100) + (match bad with Some _ -> 1000 | None -> 0)
+
+type CePipe() =
+    member inline _.Bind(x: int, [<InlineIfLambda>] f: int -> int) : int = f (x + 1)
+    member inline _.Return(x: int) : int = x * 2
+let cePipe = CePipe()
+
+/// a builder with inline members and InlineIfLambda, the zero-cost shape: a = 5, b = 8, (5 + 8 + 2) * 2 = 30
+let testCeInlineBuilder () : int =
+    cePipe {
+        let! a = 4
+        let! b = a + 2
+        return a + b + 2 }
+
+/// list, array and seq comprehensions with a guard.  30 + 2 - 1 + 0 + 0 = 31
+let testCeComprehensions () : int =
+    let a = [ for i in 1 .. 4 -> i * i ]
+    let b = [| for i in 1 .. 3 do if i % 2 = 1 then yield i |]
+    let c = seq { for i in 1 .. 3 do yield i * 10 } |> Seq.sum
+    (List.sum a) + (Array.length b) - 1 + (c - 60) + (if Array.length b = 2 then 0 else 100)
+
+type CeRange = { CeMin: int; CeMax: int; CeStep: int }
+type CeRangeBuilder() =
+    member _.Yield(_) : CeRange = { CeMin = 0; CeMax = 0; CeStep = 1 }
+    [<CustomOperation("from")>] member _.From(q: CeRange, v: int) : CeRange = { q with CeMin = v }
+    [<CustomOperation("upTo")>] member _.UpTo(q: CeRange, v: int) : CeRange = { q with CeMax = v }
+    [<CustomOperation("by")>] member _.By(q: CeRange, v: int) : CeRange = { q with CeStep = v }
+    member _.Run(q: CeRange) : int =
+        let mutable n = 0
+        for _ in q.CeMin .. q.CeStep .. q.CeMax do n <- n + 1
+        n
+let ceRange = CeRangeBuilder()
+
+/// custom operations: a query-like DSL with named clauses.  1 4 7 10 = 4 values, 0 2 .. 14 = 8 values
+let testCeCustomOperations () : int =
+    let a = ceRange { from 1; upTo 10; by 3 }
+    let b = ceRange { from 0; upTo 14; by 2 }
+    a + b
+
+type CeNode = CeText of string | CeEl of string * (string * string) list * CeNode list
+type CeItem = CeAttr of string * string | CeChild of CeNode
+type CeElBuilder(tag: string) =
+    member _.Yield(i: CeItem) : CeItem list = [ i ]
+    member _.Yield(n: CeNode) : CeItem list = [ CeChild n ]
+    member _.Yield(s: string) : CeItem list = [ CeChild (CeText s) ]
+    member _.Zero() : CeItem list = []
+    member _.Delay(f: unit -> CeItem list) : CeItem list = f ()
+    member _.Combine(a: CeItem list, b: CeItem list) : CeItem list = a @ b
+    member _.For(xs: int list, f: int -> CeItem list) : CeItem list = List.collect f xs
+    member _.Run(items: CeItem list) : CeNode =
+        CeEl(tag, [ for i in items do match i with CeAttr (k, v) -> yield (k, v) | _ -> () ],
+                  [ for i in items do match i with CeChild n -> yield n | _ -> () ])
+let ceDiv = CeElBuilder "div"
+let ceLi = CeElBuilder "li"
+let ceCls (v: string) : CeItem = CeAttr ("class", v)
+let rec ceCount (n: CeNode) : int =
+    match n with
+    | CeText s -> s.Length
+    | CeEl (_, a, c) -> 100 + a.Length * 1000 + List.sumBy ceCount c
+
+/// a view DSL as a computation expression: attributes and children are yielded, `for` repeats a child, elements nest by calling another builder.
+/// 100 + 1000 + (100 + 2) + (100 + 1) + (100 + 1) = 1404
+let testCeViewDsl () : int =
+    let n =
+        ceDiv {
+            ceCls "box"
+            ceLi { "ab" }
+            for _ in [ 1; 2 ] do
+                ceLi { "x" } }
+    ceCount n
+
+let inline ceTwice (x: ^a) : ^a = x + x
+let inline ceSumBy ([<InlineIfLambda>] f: 'a -> ^n) (xs: 'a list) : ^n = List.fold (fun acc x -> acc + f x) LanguagePrimitives.GenericZero xs
+
+/// statically resolved member constraints, the way to write numeric helpers that cost nothing.  4 + 3 + 2 = 9
+let testCeStaticMembers () : int =
+    let a = ceTwice 2
+    let b = ceSumBy (fun (x: int) -> x) [ 1; 2 ]
+    let c = ceTwice 1.0 |> int
+    a + b + c

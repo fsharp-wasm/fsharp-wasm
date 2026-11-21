@@ -54,6 +54,7 @@ Measured while writing tests; each is a program that does not compile or a metho
 - exceptions as values: an `exn` stored in a list or a record is typed as an integer (`[ System.Exception "x" ]` does not validate); `System.ArgumentException("x")` (a constructor that delegates to the primary one) leaves its second field out; a derived class that adds a field writes it to the base class's field (`inherit EqBase(name)` with an own `size`)
 - two modules with the same name in different namespaces (`Browser.Css` of the runtime and a `Css` of another library) share one set of function names (`Css_color`): the first definition wins and a call to the other does not validate; name the modules differently
 - an exception with a payload cannot be caught by type: `try … with MyError m -> …` receives no value (the JSON parser of fsharp-wasm-newsletter records its first error instead)
+- `IDisposable.Dispose` is a no-op (measured 2026-11-21): `use r = new Resource()`, `(r :> IDisposable).Dispose()` and a builder's `Using` run no cleanup, while `try … finally` runs it; clean up with `try … finally` until this is closed
 
 Closed on 2026-11-16, each with tests whose expected values are what .NET computes: ranges with a step in `for`, `seq` and `Seq.iter`; array and string slices
 (`a.[1..3]`, `s.[..2]`, `a.[2..]`, clamped like F#); `Array.concat`, `List.concat`; `System.Array.IndexOf`; `StringBuilder.AppendLine`,
@@ -68,6 +69,12 @@ structs that hold function references (an interface's vtable); `List.contains` a
 The equality of lists of class instances is exercised by that repository's suite (a Wasmecto project that links the whole base library, which has the `Exception` hierarchy) and not by a QuickTest, because building a derived class in a QuickTest runs into the constructor gap above.
 
 Closed on 2026-11-20 (686 QuickTests pass; found by compiling the widget editor of fsharp-wasm-ide, which no dogfooding gate covered then; `run.sh widget-editor` does now): a union declared in the program and generic (`Cmd<'Msg>`, the Elm-style command of the widget editor) was mapped to its uninstantiated structs in signatures while constructors and matches used the structs of the instantiation (`Cmd<Msg>`): a function that returned `CmdNone` at a record type declared one type and built another (`type mismatch: expected (ref $type), found (ref (exact $type))`, or `unknown field`). It had only validated while the structs of a union were canonical by shape, which the 2026-11-19 change to one `rec` group per union ended. Signatures use the instantiation now (Types.mapTypeKnown); the QuickTest builds such a union at a record type.
+
+Measured on 2026-11-21 (693 QuickTests pass, in all three modes): what a stack of DSLs needs from the compiler. User-defined computation expression builders
+(`result` and `option` with `Bind`/`Return`/`ReturnFrom`, a view DSL with `Yield`/`Zero`/`Delay`/`Combine`/`For`/`Run` in which attributes and children are yielded
+and elements nest by calling another builder), builders with `inline` members and `InlineIfLambda`, `[<CustomOperation>]` (a query-like DSL), list, array and seq
+comprehensions with guards, and statically resolved member constraints (`inline` numeric helpers) all compile and give what .NET gives (seven QuickTests, `ce:`).
+The same probes confirmed two gaps that were already listed (`for … in` over a `ResizeArray`, a `seq { yield …; yield … }` nothing fuses) and found one new one (`IDisposable.Dispose`, above).
 
 ## Source layout
 
