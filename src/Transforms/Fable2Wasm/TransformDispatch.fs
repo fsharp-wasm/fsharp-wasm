@@ -340,6 +340,34 @@ let private isCoreLibraryPath (ctx: Ctx) (path: string) : bool =
     isCoreLibraryFile ctx.Compiler (resolveImportPath ctx path)
 
 /// Behandelt String, Math und Import Calls
+/// `Dispose` of an object: the slot of the `IDisposable` vtable of its class, called on it boxed as that interface (an object that is the interface
+/// already is its box).  Nothing for null (`use` of null disposes nothing), and nothing when no class of the program implements the interface
+/// or the object's type is not one that does.
+let private disposeCall (ctx: Ctx) (wObj: WExpr) : WExpr =
+    let iface = "System.IDisposable"
+    // `use` hands over `(c :> IDisposable)`, a cast of the object to the box type that is only right for an object that is a box: the object itself
+    // is what is wanted, its class says which vtable it has
+    let wObj =
+        match wObj, ctx.VTableRegistry.TryGetValue iface with
+        | WExpr.Cast(inner, WType.Ref(i, _)), (true, (_, boxIdx, _, _)) when i = boxIdx -> inner
+        | _ -> wObj
+    match ctx.VTableRegistry.TryGetValue iface, VT.tryFindMemberSlot ctx iface [ "Dispose" ], exprWType wObj with
+    | (true, (vtableTypeIdx, boxTypeIdx, funcTypeIndices, _)), Some slot, (WType.Ref(objIdx, _) as objTy) ->
+        let name = freshName ()
+        let o = WExpr.LocalGet(name, objTy)
+        let call (box: WExpr) = VT.emitCallVirtual iface vtableTypeIdx boxTypeIdx funcTypeIndices slot box [] WType.Void
+        let body =
+            if objIdx = boxTypeIdx then Some (call o)
+            else
+                match ctx.TypeRegistry |> Map.tryFindKey (fun _ i -> i = objIdx) with
+                | Some implTypeName when ctx.VTableImplRegistry.ContainsKey((implTypeName, iface)) ->
+                    Some (call (VT.emitBox ctx o implTypeName iface boxTypeIdx))
+                | _ -> None
+        match body with
+        | Some c -> WExpr.Let(name, wObj, WExpr.If(WExpr.RefIsNull o, WExpr.Nop, c, WType.Void))
+        | None -> WExpr.Nop
+    | _ -> WExpr.Nop
+
 let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: ImportInfo) (info: CallInfo) (typ: Type) (wArgs: WExpr list) : WExpr =
     let ty = mapTypeKnown ctx typ
     let path = importInfo.Path
@@ -792,9 +820,9 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         | WType.F32 -> f32Const 0.0f
         | WType.F64 -> f64Const 0.0
         | _ -> WExpr.Nop
-    // ── IDisposable.Dispose → no-op (for now) ───────────────────────────────────────
-    | "disposeSafe", [_obj], _ ->
-        WExpr.Nop
+    // ── IDisposable.Dispose: `use`, an explicit `x.Dispose()`, a builder's `Using` — Fable calls them all `disposeSafe` ─────
+    | "disposeSafe", [wObj], _ ->
+        disposeCall ctx wObj
     // ── Seq.empty → null list ────────────────────────────────────────────────────────
     | "empty", [], _ ->
         WExpr.Const(WConst.Null ty)

@@ -4036,3 +4036,67 @@ let testLambdaVariableFixedByCallee () : int =
     match lgInsertInto [ 1 ] { LgName = "x" } [ { LgName = "a" }; { LgName = "b" } ] with
     | Some r -> List.length r
     | None -> -1
+
+// ── for ... in over a ResizeArray ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// `for x in resizeArray do …` is the `GetEnumerator` form, which the backend has no object for: it is written as an `iterate` over the elements, like a list's.
+/// Ints, strings, a mutable local the body assigns, a nested loop and an empty one.  (1 + 2 + 3) * 100 + (2 + 3) * 10 + 2 pairs = 652
+let testForInResizeArray () : int =
+    let l = ResizeArray<int>()
+    l.Add 1
+    l.Add 2
+    l.Add 3
+    let mutable s = 0
+    for v in l do s <- s + v
+    let names = ResizeArray<string>()
+    names.Add "ab"
+    names.Add "cde"
+    let mutable n = 0
+    for x in names do n <- n + x.Length
+    let mutable pairs = 0
+    for a in l do
+        for b in names do
+            if a = b.Length - 1 then pairs <- pairs + 1
+    let empty = ResizeArray<int>()
+    let mutable none = 0
+    for _ in empty do none <- none + 1
+    s * 100 + n * 10 + pairs + none
+
+// ── IDisposable: use, an explicit Dispose, a builder's Using ───────────────────────────────────────────────────────────────────────────────
+
+type DisposeLog() =
+    member val Count = 0 with get, set
+
+type DisposeCell(log: DisposeLog, weight: int) =
+    member _.Weight = weight
+    interface System.IDisposable with
+        member _.Dispose() = log.Count <- log.Count + weight
+
+type DisposeBuilder() =
+    member _.Return(x: int) : int = x
+    member _.Bind(x: int, f: int -> int) : int = f x
+    member _.Delay(f: unit -> int) : int = f ()
+    member _.Using(d: DisposeCell, f: DisposeCell -> int) : int =
+        try f d
+        finally (d :> System.IDisposable).Dispose()
+
+let disposeOf (c: DisposeCell) : System.IDisposable = c :> System.IDisposable
+
+/// `use` disposes at the end of its scope (also when it is left by the result, here a value computed first), an explicit call through the interface
+/// disposes, a value held as the interface disposes, and a builder's `Using` that disposes itself does so once.  1 + 10 + 100 + 1000 + (weights 3)
+let testDispose () : int =
+    let log = DisposeLog()
+    let viaUse =
+        use c = new DisposeCell(log, 1)
+        c.Weight * 7
+    let c2 = new DisposeCell(log, 10)
+    (c2 :> System.IDisposable).Dispose()
+    let held = disposeOf (new DisposeCell(log, 100))
+    held.Dispose()
+    let viaBuilder =
+        let b = DisposeBuilder()
+        b {
+            use c = new DisposeCell(log, 1000)
+            let! x = c.Weight
+            return x + 1 }
+    viaUse + viaBuilder + log.Count * 100

@@ -223,6 +223,20 @@ let tryImport
     match stem, selector, args with
     | "Util", "clear", [ ar ] ->
         ravOf ctx ar.Type |> Option.map (fun _ -> setLen (transform ctx ar) (i32Const 0))
+    // `for x in ra do body`, which FableNormalize writes as `Array.iterate (fun x -> body) ra`: the elements 0 .. Count - 1 (Count is read once)
+    | "Array", "iterate", [ UnaryLambda(farg, fbody); ar ] ->
+        ravOf ctx ar.Type
+        |> Option.map (fun r ->
+            let wBody = transform (ctx.WithLocal(farg.Name, r.ElemT)) fbody
+            wasm {
+                let! rav = transform ctx ar
+                let! d = dataOf r rav
+                let! n = lenOf rav
+                let! i = mut (i32Const 0)
+                while (i.Val <. n) do
+                    do! WExpr.Let(farg.Name, arrayGet d i.Val r.ElemT, wBody)
+                    do! i.Set(i.Val +. i32Const 1)
+            })
     | "Array", "addRangeInPlace", [ source; ar ] ->
         ravOf ctx ar.Type
         |> Option.bind (fun r ->

@@ -7,6 +7,8 @@ open WasmGc.Core.AST
 open WasmGc.Runtime.Types
 open WasmGc.Builder.Core
 
+let private typeTestCounter = ref 0
+
 // ─────────────────────────────────────────────────────────────────
 // Test translation
 // ─────────────────────────────────────────────────────────────────
@@ -72,7 +74,20 @@ let transformTest
                 // Type not (yet) registered — check GenericDuRegistry too
                 match ctx.GenericDuRegistry.TryGetValue(entRef.FullName) with
                 | true, typeIdx -> WExpr.RefTest(wExpr, WType.Ref(typeIdx, false))
-                | false, _ -> WExpr.Const(WConst.I32 0)  // unknown type: test fails
+                | false, _ ->
+                    // An interface (`x :? IDisposable`, which F# writes for every `use` of a type that is not sealed): the value is the box of the
+                    // interface, or an instance of one of the classes that implement it.
+                    match ctx.VTableRegistry.TryGetValue entRef.FullName with
+                    | true, (_, boxTypeIdx, _, _) ->
+                        let name = sprintf "$tt%d" (System.Threading.Interlocked.Increment typeTestCounter)
+                        let v = WExpr.LocalGet(name, exprWType wExpr)
+                        let implementors =
+                            ctx.VTableImplRegistry.Keys
+                            |> Seq.choose (fun (impl, iface) -> if iface = entRef.FullName then Map.tryFind impl ctx.TypeRegistry else None)
+                            |> Seq.toList
+                        let tests = (boxTypeIdx :: implementors) |> List.map (fun idx -> WExpr.RefTest(v, WType.Ref(idx, false)))
+                        WExpr.Let(name, wExpr, List.reduce (fun a b -> WExpr.Binary(WBinaryOp.Or, a, b, WType.I32)) tests)
+                    | false, _ -> WExpr.Const(WConst.I32 0)  // unknown type: test fails
         | _ ->
             // Primitive / other types can't be runtime-tested via ref.test
             WExpr.Const(WConst.I32 0)

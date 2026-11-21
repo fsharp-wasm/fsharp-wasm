@@ -46,7 +46,7 @@ fuzz and the pass tests' random programs add several hundred thousand generated 
 Measured while writing tests; each is a program that does not compile or a method that is not mapped yet:
 
 - `System.Array.Reverse`, `Sort`, `Clear` and `Resize` (the front end rejects the static methods: use `Array.rev`, `Array.sort`, `Array.fill`), `System.Array.CopyTo`
-- a `seq { yield …; yield … }` that no consumer fuses (`Seq.delay` is not compiled); `for … in` over a `ResizeArray` through `GetEnumerator`
+- a `seq { yield …; yield … }` that no consumer fuses (`Seq.delay` is not compiled)
 - `sprintf "%A"` / `%O` of a record, union, list or tuple (a compile error, not a wrong output); dictionary literals (`dict [ … ]`); comparer constructor overloads
 - `StringBuilder.AppendFormat` with a format that is not a literal or has specifiers (`{0:N2}`): reported as unsupported
 - a local function that is generic in its type arguments and whose only evidence of them is its use (`let bind r = match r with Ok v -> Ok (v + 1) | Error e -> Error e`, applied to a `Result<int, string>`) is compiled for `int`: annotate its parameter
@@ -54,7 +54,6 @@ Measured while writing tests; each is a program that does not compile or a metho
 - exceptions as values: an `exn` stored in a list or a record is typed as an integer (`[ System.Exception "x" ]` does not validate); `System.ArgumentException("x")` (a constructor that delegates to the primary one) leaves its second field out; a derived class that adds a field writes it to the base class's field (`inherit EqBase(name)` with an own `size`)
 - two modules with the same name in different namespaces (`Browser.Css` of the runtime and a `Css` of another library) share one set of function names (`Css_color`): the first definition wins and a call to the other does not validate; name the modules differently
 - an exception with a payload cannot be caught by type: `try … with MyError m -> …` receives no value (the JSON parser of fsharp-wasm-newsletter records its first error instead)
-- `IDisposable.Dispose` is a no-op (measured 2026-11-21): `use r = new Resource()`, `(r :> IDisposable).Dispose()` and a builder's `Using` run no cleanup, while `try … finally` runs it; clean up with `try … finally` until this is closed
 
 Closed on 2026-11-16, each with tests whose expected values are what .NET computes: ranges with a step in `for`, `seq` and `Seq.iter`; array and string slices
 (`a.[1..3]`, `s.[..2]`, `a.[2..]`, clamped like F#); `Array.concat`, `List.concat`; `System.Array.IndexOf`; `StringBuilder.AppendLine`,
@@ -81,6 +80,11 @@ a lambda in an argument that has a type variable of its own (`put` in `insertInt
 with a type variable that only the callee fixes`). And the registry of generic functions, keyed by the plain name, took the wrong function when two files have a private function of the same name
 (`show` of Wasmecto's `Expect` and a `show` of a test file: `expected i32, found (ref …)`): it is also keyed by the declaring file, which a call knows (its own file, or the path of the import), and a
 specialisation of a function that another declaration shadowed is named with its file.
+
+Closed on 2026-11-21 (696 QuickTests pass; both found by the probes of computation expressions): `for x in resizeArray do …` — F# writes the `GetEnumerator` form, which the backend has no object for, and
+FableNormalize left it alone for a ResizeArray (lists, arrays and seqs became an `iterate`): it is an `iterate` over the elements 0 … Count - 1 now, compiled by ResizeArrayOps. And `IDisposable.Dispose` was a no-op
+(`use`, `(x :> IDisposable).Dispose()` and a builder's `Using` ran no cleanup): Fable calls all three `disposeSafe`, which calls the `Dispose` slot of the class's vtable now, nothing for null; `use` of a type that is not
+sealed is `if (x :? IDisposable) then x.Dispose()` in F#, and that type test on an interface was the constant false: it tests the box of the interface and the classes that implement it.
 
 Measured on 2026-11-21 (693 QuickTests pass, in all three modes): what a stack of DSLs needs from the compiler. User-defined computation expression builders
 (`result` and `option` with `Bind`/`Return`/`ReturnFrom`, a view DSL with `Yield`/`Zero`/`Delay`/`Combine`/`For`/`Run` in which attributes and children are yielded

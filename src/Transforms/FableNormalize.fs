@@ -324,7 +324,8 @@ module FableNormalize =
                      CallInfo.Create(args = [ Lambda(x, foreachLoops body, None); src ]), Unit, None)
             (match src.Type with
              | Type.List _ -> iterate "List"
-             | Type.Array(_, ArrayKind.ResizeArray) -> visit foreachLoops e
+             // a ResizeArray is a struct of its data and its length: ResizeArrayOps compiles this `iterate` before the array handler sees it
+             | Type.Array(_, ArrayKind.ResizeArray) -> iterate "Array"
              | Type.Array _ -> iterate "Array"
              // a seq is a list here
              | Type.DeclaredType(ent, [ _ ]) when ent.FullName = "System.Collections.Generic.IEnumerable`1" -> iterate "Seq"
