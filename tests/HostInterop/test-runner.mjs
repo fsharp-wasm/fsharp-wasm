@@ -21,6 +21,8 @@ const imports = {
     names: () => ["a", "bb", "ccc"],
     withNames: (cb) => cb(["a", "bb", "ccc"]),
     isEven: (n) => n % 2 === 0,
+    eachRect: (n, f) => { for (let i = 0; i < n; i++) f(i, i, 2 * i, 10, 2, i % 2 === 1); },
+    eachEight: (f) => f(1, 2, 3, 4, 5, 6, 7, 8),
     report: (s) => { reported = s; },
   },
 };
@@ -44,6 +46,7 @@ check("closure with a result and two arguments", 12.5, exp.testFold());
 check("string array result", 6, exp.testNames());
 check("callback receiving a string array", 301, exp.testWithNames());
 check("bool result", 1, exp.testBool());
+check("callbacks with six and with eight arguments", 6911, exp.testWideCallbacks());
 
 // callbacks the host fires later, with strings and mixed arguments
 exp.testRegister();

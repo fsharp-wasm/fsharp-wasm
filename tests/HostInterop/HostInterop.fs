@@ -33,6 +33,12 @@ let names () : string array = nativeOnly
 [<Import("withNames", "host.js")>]
 let withNames (cb: string array -> unit) : unit = nativeOnly
 
+[<Import("eachRect", "host.js")>]
+let eachRect (n: int) (f: int -> float -> float -> float -> float -> bool -> unit) : unit = nativeOnly
+
+[<Import("eachEight", "host.js")>]
+let eachEight (f: int -> int -> int -> int -> int -> int -> int -> int -> unit) : unit = nativeOnly
+
 [<Import("report", "host.js")>]
 let report (s: string) : unit = nativeOnly
 
@@ -80,6 +86,16 @@ let testWithNames () : int =
     let mutable n = 0
     withNames (fun xs -> n <- xs.Length * 100 + xs.[0].Length)
     n   // 3 names, first "a" → 301
+
+/// A callback with six arguments (an id, four floats and a bool: what measuring the drop slots of a page delivers), then the widest one the ABI carries (eight).
+let testWideCallbacks () : int =
+    let mutable area = 0.0
+    let mutable nests = 0
+    eachRect 3 (fun id x y w h n -> area <- area + float id * w * h + x + y; if n then nests <- nests + 1)
+    let mutable digits = 0
+    eachEight (fun a b c d e f g h -> digits <- a * 10000000 + b * 1000000 + c * 100000 + d * 10000 + e * 1000 + f * 100 + g * 10 + h)
+    int area * 100 + nests * 10 + (if digits = 12345678 then 1 else 0)
+    // ids 0..2, x = id, y = 2 id, w = 10, h = 2: area = (0 + 1 + 2) * 20 + (0 + 1 + 2) + (0 + 2 + 4) = 69; odd ids nest: 1 → 6900 + 10 + 1
 
 /// Registers a closure with the host `n` times; each is dropped by the host right away.
 let testChurn (n: int) : int =

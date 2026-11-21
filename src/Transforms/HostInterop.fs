@@ -9,7 +9,7 @@
 ///   `string array` result →  `externref` JS array, read element-wise through `fsharp:host.arrLen / arrGet`.
 ///   function-typed arg    →  the closure is registered in a table (`$cb_clos`) and the host receives a JS function
 ///                            (`fsharp:host.callback(id)`) that calls back through the single export
-///                            `__cb(id, a0..a3) → externref`.  One trampoline per distinct callback signature unboxes the
+///                            `__cb(id, a0..an) → externref`.  One trampoline per distinct callback signature unboxes the
 ///                            `externref` arguments (`fsharp:host.x2i / x2f`, strings via the builtins), applies the closure
 ///                            and boxes the result (`i2x / f2x`).
 ///
@@ -23,8 +23,10 @@ module Lc = WasmGc.Runtime.Locals
 
 let private hostModule = "fsharp:host"
 let private jsStringModule = "wasm:js-string"
-/// A callback takes at most this many JS arguments (`float -> float -> int -> unit` has three).
-let private maxCallbackArgs = 4
+/// A callback takes at most this many JS arguments (`float -> float -> int -> unit` has three); what a page measures for a drop target is six.
+let private maxCallbackArgs = 8
+/// `__cb` is at least this wide, so that the modules that never needed more keep the export they had; it grows to the widest callback in use.
+let private minCbWidth = 4
 
 let private i32 (n: int) = WExpr.Const(WConst.I32 n)
 let private nullOf (t: WType) = WExpr.Const(WConst.Null t)
@@ -303,7 +305,7 @@ let private callsIn (funcs: WFuncDecl list) : (string * WExpr list) list =
 
 /// Add the exports the HOST needs, for what the functions that are kept actually do — a runtime library declares
 /// hundreds of externs, an app uses a few, and a module that uses none must not need any of this:
-///   `__cb(id, a0..a3) → externref`  the single way JS calls a registered closure (only the signatures in use),
+///   `__cb(id, a0..an) → externref`  the single way JS calls a registered closure (only the signatures in use),
 ///   `__str_len` / `__str_at`        how JS reads the opaque string `printfn` hands it.
 /// Returns true when it added functions (the caller then assembles the module again).
 let finalize (ctx: Ctx) (kept: WFuncDecl list) : bool =
@@ -325,7 +327,8 @@ let finalize (ctx: Ctx) (kept: WFuncDecl list) : bool =
         |> List.distinct |> List.sort
     if not used.IsEmpty && not (hasFunc ctx "__cb") then
         let closArr, sigArr = closureArray ctx, sigArray ctx
-        let args = [ for i in 0 .. maxCallbackArgs - 1 -> $"$a{i}", WType.Externref ]
+        let width = used |> List.fold (fun w k -> max w (snd ctx.CallbackTramps[k])) minCbWidth
+        let args = [ for i in 0 .. width - 1 -> $"$a{i}", WType.Externref ]
         let sigv = local "$sig" WType.I32
         let clo = local "$clo" closureSelfTy
         let dispatch =

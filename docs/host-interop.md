@@ -14,7 +14,7 @@ let jsSubscribe (topic: string) (cb: string -> unit) : unit = nativeOnly
 | `int`, `bool`, `char`, `float`, `float32`, handles | a number | passed as is |
 | `string` (argument or result) | a JS string | the engine's [JS String Builtins](https://github.com/WebAssembly/js-string-builtins): `fromCharCodeArray`, `intoCharCodeArray`, `length`. Our strings are `i32` arrays, the builtins read `i16` arrays, so each direction is one bulk call plus one copy loop (`$host_strToHost` / `$host_strFromHost`). A JS `null` / `undefined` arrives as `""`. |
 | `string array` (result, or a callback parameter) | a JS array | read through `fsharp:host.arrLen` / `arrGet` |
-| function argument (`'a -> 'b`, up to four arguments) | a JS function | the closure is stored in a table; JS gets `fsharp:host.callback(id)`, a function that calls the single export `__cb(id, a0 … a3)`; when that JS function is garbage collected the host calls `__cbFree(id)` and the slot is reused; one trampoline per signature unboxes the arguments (`x2i`, `x2f`, strings) and boxes the result (`i2x`, `f2x`) |
+| function argument (`'a -> 'b`, up to eight arguments) | a JS function | the closure is stored in a table; JS gets `fsharp:host.callback(id)`, a function that calls the single export `__cb(id, a0 … an)` (four arguments wide, or as wide as the widest callback the program passes); when that JS function is garbage collected the host calls `__cbFree(id)` and the slot is reused; one trampoline per signature unboxes the arguments (`x2i`, `x2f`, strings) and boxes the result (`i2x`, `f2x`) |
 | unit | dropped (argument) / `undefined` (result) | |
 
 ## What the host provides

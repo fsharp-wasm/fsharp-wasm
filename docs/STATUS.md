@@ -86,6 +86,10 @@ FableNormalize left it alone for a ResizeArray (lists, arrays and seqs became an
 (`use`, `(x :> IDisposable).Dispose()` and a builder's `Using` ran no cleanup): Fable calls all three `disposeSafe`, which calls the `Dispose` slot of the class's vtable now, nothing for null; `use` of a type that is not
 sealed is `if (x :? IDisposable) then x.Dispose()` in F#, and that type test on an interface was the constant false: it tests the box of the interface and the classes that implement it.
 
+Closed on 2026-11-21 (found by the newsletter designer, which measures the drop targets of a page through `measureSlots (cb: float -> float -> float -> float -> float -> float -> unit)`): a callback handed to
+the host took at most four arguments (`WGC011`), the width of the export `__cb`. It takes eight now, and `__cb` is as wide as the widest callback the program passes (four at least, so a module that never needed more
+keeps its export). The suite `tests/HostInterop` passes a callback with six and one with eight arguments (it failed to compile before).
+
 Measured on 2026-11-21 (693 QuickTests pass, in all three modes): what a stack of DSLs needs from the compiler. User-defined computation expression builders
 (`result` and `option` with `Bind`/`Return`/`ReturnFrom`, a view DSL with `Yield`/`Zero`/`Delay`/`Combine`/`For`/`Run` in which attributes and children are yielded
 and elements nest by calling another builder), builders with `inline` members and `InlineIfLambda`, `[<CustomOperation>]` (a query-like DSL), list, array and seq
