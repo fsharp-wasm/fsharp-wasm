@@ -43,7 +43,7 @@ case "$WHAT" in
   newsletter)
     NL="${FSHARP_NEWSLETTER_DIR:-$ROOT/../fsharp-wasm-newsletter}"
     need "$NL/tests/Newsletter.WasmTests" fsharp-wasm-newsletter "$NL" FSHARP_NEWSLETTER_DIR
-    [ -d "$NL/lib/runtime/src" ] && [ -d "$NL/lib/fsharp-wasm-core/FSharp.Wasm.Core" ] && [ -d "$NL/lib/wasmecto/src" ] \
+    [ -d "$NL/lib/runtime/src" ] && [ -d "$NL/lib/fsharp-wasm-core/FSharp.Wasm.Core" ] && [ -d "$NL/lib/graphics/src" ] && [ -d "$NL/lib/wasmecto/src" ] \
       || { echo "the submodules of $NL are empty: git submodule update --init" >&2; exit 2; }
     source "$NL/build/env.sh"                 # FSHARP_WASM_CORE_DIR = its lib/fsharp-wasm-core
     dotnet build "$FSHARP_WASM_CORE_DIR/FSharp.Wasm.Core/FSharp.Wasm.Core.fsproj" -c Release --nologo -v q > /dev/null

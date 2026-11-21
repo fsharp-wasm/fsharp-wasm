@@ -205,7 +205,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: fsharp-wasm/fsharp-wasm-core
-          ref: 645a99fccc5382c12cd0bb68f6b75dbb234b0e37
+          ref: 37d93f7dc4dee2016863745cab7647da9c07543e
           path: .deps/fsharp-wasm-core
           submodules: true
 
@@ -221,7 +221,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: fsharp-wasm/fsharp-wasm-newsletter
-          ref: 9a9cb001acd29567010b872143297af420638cc4
+          ref: 8a53eaf0d776951e96657a386b6529702514ad2d
           path: .deps/fsharp-wasm-newsletter
           submodules: true
 
