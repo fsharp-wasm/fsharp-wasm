@@ -205,11 +205,11 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: fsharp-wasm/fsharp-wasm-core
-          ref: 52afb741ce65cb5690030549aa0a7b7e7bb1203c
+          ref: 645a99fccc5382c12cd0bb68f6b75dbb234b0e37
           path: .deps/fsharp-wasm-core
           submodules: true
 
-      - name: Dogfood - FSharp.Wasm.Data and FSharp.Wasm.Ui
+      - name: Dogfood - FSharp.Wasm.Data, FSharp.Wasm.Ui and FSharp.Wasm.Edit
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}

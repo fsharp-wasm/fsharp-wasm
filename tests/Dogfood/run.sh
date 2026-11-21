@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Real programs as a gate: the compiler compiles the test suites of the platform's own libraries and the newsletter designer, and runs them.
 #
-#   tests/Dogfood/run.sh core-libs     FSharp.Wasm.Data and FSharp.Wasm.Ui (JSON, typed CSS/HTML, the email grid), as a Wasmecto project
+#   tests/Dogfood/run.sh core-libs     FSharp.Wasm.Data, FSharp.Wasm.Ui and FSharp.Wasm.Edit (JSON, typed CSS/HTML, the email grid, edit operations), as a Wasmecto project
 #   tests/Dogfood/run.sh newsletter    the newsletter library's suite, and the designer module (it must compile, validate and keep its exports)
 #   tests/Dogfood/run.sh widget-editor the widget editor of fsharp-wasm-ide: the whole FSharp.Graphics stack, as a module that must keep its exports
 #
@@ -34,7 +34,7 @@ case "$WHAT" in
     [ -d "$CORE/lib/wasmecto/src" ] || { echo "$CORE/lib/wasmecto is empty: git submodule update --init lib/wasmecto" >&2; exit 2; }
     export FSHARP_WASM_CORE_DIR="$CORE"       # Wasmecto finds the base library here
     dotnet build "$CORE/FSharp.Wasm.Core/FSharp.Wasm.Core.fsproj" -c Release --nologo -v q > /dev/null
-    echo "==> Compiling the suites of FSharp.Wasm.Data and FSharp.Wasm.Ui..."
+    echo "==> Compiling the suites of FSharp.Wasm.Data, FSharp.Wasm.Ui and FSharp.Wasm.Edit..."
     compile "$CORE/tests/FSharp.Wasm.Libs.WasmTests" "$OUT"
     validate "$OUT/WasmTests.wasm"
     echo "==> Running WasmTests.wasm in Node..."
