@@ -3893,16 +3893,18 @@ let testGenericUnionAtReferenceType () : int =
 // ── Computation expressions and DSL shapes ───────────────────────────────────────────────────────────────────────────────────────────
 // What a stack of DSLs needs from the compiler: user-defined builders (Bind/Return/Delay/Combine/For/Run), inlined builders, custom operations,
 // comprehensions and statically resolved members.  Each is a program of the kind a library would write; the expected value is what .NET computes.
+// The builders are local to the tests: the .NET side of the Differential suite calls the functions by reflection, before the file's own initialisation
+// has run, so a module-level `let b = Builder()` is still null there (it is not in the module).
 
 type CeResultBuilder() =
     member _.Bind(r: Result<'a, 'e>, f: 'a -> Result<'b, 'e>) : Result<'b, 'e> = match r with Ok v -> f v | Error e -> Error e
     member _.Return(v: 'a) : Result<'a, 'e> = Ok v
     member _.ReturnFrom(r: Result<'a, 'e>) : Result<'a, 'e> = r
-let ceResult = CeResultBuilder()
 let ceParse (s: string) : Result<int, string> = if s = "x" then Error "bad" else Ok s.Length
 
 /// a result builder: let! chains and a short circuit.  3 * 8 + 19 = 43, an Error stops the chain (+1000 would show it did not)
 let testCeResult () : int =
+    let ceResult = CeResultBuilder()
     let ok =
         ceResult {
             let! a = ceParse "abc"
@@ -3918,11 +3920,11 @@ let testCeResult () : int =
 type CeOptionBuilder() =
     member _.Bind(o: 'a option, f: 'a -> 'b option) : 'b option = match o with Some v -> f v | None -> None
     member _.Return(v: 'a) : 'a option = Some v
-let ceOption = CeOptionBuilder()
 let ceHalf (n: int) : int option = if n % 2 = 0 then Some (n / 2) else None
 
 /// an option builder; a None on the way gives None.  4 + 2 + 1 = 7
 let testCeOption () : int =
+    let ceOption = CeOptionBuilder()
     let ok =
         ceOption {
             let! a = ceHalf 8
@@ -3937,10 +3939,10 @@ let testCeOption () : int =
 type CePipe() =
     member inline _.Bind(x: int, [<InlineIfLambda>] f: int -> int) : int = f (x + 1)
     member inline _.Return(x: int) : int = x * 2
-let cePipe = CePipe()
 
 /// a builder with inline members and InlineIfLambda, the zero-cost shape: a = 5, b = 8, (5 + 8 + 2) * 2 = 30
 let testCeInlineBuilder () : int =
+    let cePipe = CePipe()
     cePipe {
         let! a = 4
         let! b = a + 2
@@ -3963,10 +3965,10 @@ type CeRangeBuilder() =
         let mutable n = 0
         for _ in q.CeMin .. q.CeStep .. q.CeMax do n <- n + 1
         n
-let ceRange = CeRangeBuilder()
 
 /// custom operations: a query-like DSL with named clauses.  1 4 7 10 = 4 values, 0 2 .. 14 = 8 values
 let testCeCustomOperations () : int =
+    let ceRange = CeRangeBuilder()
     let a = ceRange { from 1; upTo 10; by 3 }
     let b = ceRange { from 0; upTo 14; by 2 }
     a + b
@@ -3984,8 +3986,6 @@ type CeElBuilder(tag: string) =
     member _.Run(items: CeItem list) : CeNode =
         CeEl(tag, [ for i in items do match i with CeAttr (k, v) -> yield (k, v) | _ -> () ],
                   [ for i in items do match i with CeChild n -> yield n | _ -> () ])
-let ceDiv = CeElBuilder "div"
-let ceLi = CeElBuilder "li"
 let ceCls (v: string) : CeItem = CeAttr ("class", v)
 let rec ceCount (n: CeNode) : int =
     match n with
@@ -3995,6 +3995,8 @@ let rec ceCount (n: CeNode) : int =
 /// a view DSL as a computation expression: attributes and children are yielded, `for` repeats a child, elements nest by calling another builder.
 /// 100 + 1000 + (100 + 2) + (100 + 1) + (100 + 1) = 1404
 let testCeViewDsl () : int =
+    let ceDiv = CeElBuilder "div"
+    let ceLi = CeElBuilder "li"
     let n =
         ceDiv {
             ceCls "box"
