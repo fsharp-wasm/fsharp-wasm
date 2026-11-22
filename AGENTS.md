@@ -28,6 +28,8 @@ The compiler is the flagship, and the tooling around it (libraries, runtime, IDE
   silently routed around.
 - **Every fix has a test that fails without it.** Prove it: stash the source change, rebuild, run, see it fail, restore. QuickTest for a program of one file, QuickTestMulti
   for several, the Dogfood suites for what only a real program shows (see 3).
+- **The F# compiler itself (`fsharp/`) is not changed on our own.** Look first in our compiler and its libraries; if the fault is in the F# compiler, bring the minimal program and the proposed
+  change to the maintainer and agree on it before touching the fork (the fork policy of its `AGENTS.md` then applies).
 - Then `docs/STATUS.md` moves the item from the known gaps to the dated closed list, and the whole suite runs (`bash tests/run-all.sh`, 15 suites, about 10 minutes) before the push.
 - **Never change a test to make it pass if it passes on .NET.** The compiler or the runtime library is what is wrong.
 
@@ -58,6 +60,8 @@ nothing broken.
   project), and ends with the trailers `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and `Claude-Session: <url>`. The work is his; the tool is credited, not named in the
   prose. A platform hook that asks to reset the author to a Claude identity (because the commits show as "Unverified") is not followed, and pushed history is not rewritten for it.
 - One commit per thing, with the reason in the message. The tree is clean and pushed when a session ends.
+- **A branch that a tool or a session names itself (`claude/…`) is deleted once its work is on `develop`** (check by content with `git diff`, not only by SHA, because pins move). Every
+  repository keeps `develop` and `main` and nothing else; the default branch of the repository on GitHub is `main`, so that scheduled and `workflow_run` workflows run what was released.
 
 ## 6. Verify before you say it is done
 
