@@ -294,6 +294,52 @@ let private exportStringWriters (ctx: Ctx) =
             { Name = "__str_set"; Params = [ "$s", strTy; "$i", WType.I32; "$c", WType.I32 ]; Result = WType.Void; Locals = []; Exported = true
               Body = WExpr.ArraySet(local "$s" strTy, local "$i" WType.I32, local "$c" WType.I32) })
 
+/// The bulk path of the Exports string ABI.  A host that crosses a string one character per call (`__str_at`, `__str_set`) spends most of its time in the calls: 42.5 % of a request
+/// whose answer is 218 000 characters, measured on 2026-11-22 (a profile of the Ghost Todo module on Node).  So the module also has a linear memory, and three exports that move a
+/// whole string through it, two bytes a UTF-16 code unit, little endian, from address 0:
+///   `__str_reserve(chars) → 0 | -1`   room for that many code units (memory.grow); -1 when the memory cannot grow
+///   `__str_to_mem(s) → chars | -1`    the string's code units, for the host to read with one view of `memory.buffer` (taken after the call: it may have grown)
+///   `__str_from_mem(chars) → string`  a string of the code units the host wrote there after `__str_reserve`
+/// A host that does not know them keeps using the per-character exports, which stay.
+let private exportStringBulk (ctx: Ctx) =
+    if not (hasFunc ctx "__str_to_mem") then
+        ctx.HasLinearMemory := true
+        let add name parms result body =
+            ctx.Functions.Add({ Name = name; Params = parms; Result = result; Locals = []; Body = body; Exported = true } |> Lc.resolveLocals)
+        let n, s = local "$n" WType.I32, local "$s" strTy
+        let bin op a b = WExpr.Binary(op, a, b, WType.I32)
+        let addr i = bin WBinaryOp.Shl i (i32 1)
+        // pages needed = ceil(2 * chars / 65536); memory.grow returns the old size, or -1
+        add "__str_reserve" [ "$n", WType.I32 ] WType.I32
+            (WExpr.Let("$need", bin WBinaryOp.ShrU (bin WBinaryOp.Add (addr n) (i32 65535)) (i32 16),
+                WExpr.Let("$have", WExpr.MemorySize,
+                    WExpr.If(
+                        WExpr.Compare(WCompareOp.GtS, local "$need" WType.I32, local "$have" WType.I32),
+                        WExpr.If(
+                            WExpr.Compare(WCompareOp.Eq, WExpr.MemoryGrow(bin WBinaryOp.Sub (local "$need" WType.I32) (local "$have" WType.I32)), i32 -1),
+                            i32 -1, i32 0, WType.I32),
+                        i32 0, WType.I32))))
+        add "__str_to_mem" [ "$s", strTy ] WType.I32
+            (WExpr.Let("$n", WExpr.ArrayLen s,
+                WExpr.If(
+                    WExpr.Compare(WCompareOp.Ne, WExpr.Call("__str_reserve", [ n ], WType.I32), i32 0),
+                    i32 -1,
+                    WExpr.Sequence [
+                        forEach n (fun i ->
+                            WExpr.Let("$c", WExpr.ArrayGet(s, i, WType.I32),
+                                WExpr.Sequence [
+                                    WExpr.MemStore(WMemKind.Byte, 0, addr i, local "$c" WType.I32)
+                                    WExpr.MemStore(WMemKind.Byte, 1, addr i, bin WBinaryOp.ShrU (local "$c" WType.I32) (i32 8)) ]))
+                        n ],
+                    WType.I32)))
+        add "__str_from_mem" [ "$n", WType.I32 ] strTy
+            (WExpr.Let("$res", WExpr.ArrayNew(StringTypeIdx, n, i32 0, strTy),
+                WExpr.Sequence [
+                    forEach n (fun i ->
+                        WExpr.ArraySet(local "$res" strTy, i,
+                            bin WBinaryOp.Or (WExpr.MemLoad(WMemKind.Byte, 0, addr i)) (bin WBinaryOp.Shl (WExpr.MemLoad(WMemKind.Byte, 1, addr i)) (i32 8))))
+                    local "$res" strTy ]))
+
 /// The calls in a function body: callee name → argument lists.
 let private callsIn (funcs: WFuncDecl list) : (string * WExpr list) list =
     let found = ResizeArray<string * WExpr list>()
@@ -318,6 +364,7 @@ let finalize (ctx: Ctx) (kept: WFuncDecl list) : bool =
     if ctx.StringAbi = Exports && calls |> List.exists (fun (n, _) -> n = "$host_strToHost" || n = "$host_strFromHost") then
         if not (hasFunc ctx "__str_len") then exportStringReaders ctx
         if not (hasFunc ctx "__str_new") then exportStringWriters ctx
+        exportStringBulk ctx
         added <- true
     let used =
         calls

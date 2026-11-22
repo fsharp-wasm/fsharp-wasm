@@ -1088,7 +1088,9 @@ let moduleToWat (wmod: WModule) : string =
     if wmod.HasLinearMemory then
         sb.AppendLine("  ;; ── Linear memory ──────────────────────────────────") |> ignore
         sb.AppendLine("  (memory 1)") |> ignore
-        sb.AppendLine("  (export \"memory\" (memory 0))") |> ignore
+        // the module's own export list names it when the front end built the module (printing it twice is a duplicate export): this is for a module that does not
+        if not (wmod.Exports |> List.exists (fun e -> e.Kind = ExportMemory)) then
+            sb.AppendLine("  (export \"memory\" (memory 0))") |> ignore
 
     // ── Functions ─────────────────────────────────────────
     if not wmod.Functions.IsEmpty then

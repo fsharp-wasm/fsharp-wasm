@@ -13,6 +13,10 @@ let hostLength (s: string) : int = nativeOnly
 [<Import("hostUpper", "host")>]
 let hostUpper (s: string) : string = nativeOnly
 
+/// The host's copy of a string, character for character (it reads it and builds the copy through the exports).
+[<Import("hostEcho", "host")>]
+let hostEcho (s: string) : string = nativeOnly
+
 /// The host's answer for a string it does not know: null / undefined, which arrives as "".
 [<Import("hostNothing", "host")>]
 let hostNothing () : string = nativeOnly
@@ -36,3 +40,17 @@ let longString () : int =
     let sb = System.Text.StringBuilder()
     for i in 0 .. 9999 do sb.Append(char (97 + i % 26)) |> ignore
     hostLength (sb.ToString())
+
+/// A string through the host and back, character for character: lone surrogates, the empty string, and one of 70 000 characters (more than the 32 768 that one page of memory holds,
+/// so that a host that moves the string through the module's memory makes it grow).
+[<CompiledName("echoes")>]
+let echoes () : int =
+    let lone = (System.Text.StringBuilder().Append('\uD800').Append('x').Append('\uDC00')).ToString()
+    let sb = System.Text.StringBuilder()
+    for i in 0 .. 69999 do sb.Append(char (0x20 + (i * 7) % 0xFFE0)) |> ignore
+    let big = sb.ToString()
+    let back = hostEcho big
+    (if hostEcho lone = lone then 1 else 0)
+    + (if back = big then 10 else 0)
+    + (if hostEcho "" = "" then 100 else 0)
+    + (if back.Length = 70000 then 1000 else 0)
