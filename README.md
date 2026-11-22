@@ -1,5 +1,9 @@
 # fsharp-wasm
 
+<!-- platform -->
+> **Part of the [fsharp-wasm platform](https://fsharp-wasm.github.io/projects/)**: the compiler. Builds on [fsharp](https://github.com/fsharp-wasm/fsharp) and [Fable](https://github.com/fsharp-wasm/fable) (our forks: the front end). Used by every other repository.
+> [All projects](https://fsharp-wasm.github.io/projects/) · [Roadmap](https://fsharp-wasm.github.io/docs/roadmap/) · [Tests](https://fsharp-wasm.github.io/tests/) · [Benchmarks](https://fsharp-wasm.github.io/benchmarks/) · [Live demos](https://fsharp-wasm.github.io/demos/)
+
 **Compile F# to WebAssembly GC: small modules that use the engine's own garbage collector.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
