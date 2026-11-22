@@ -56,7 +56,7 @@ nothing broken.
 
 - Work on **`develop`**. `main` only moves by fast-forward to a `develop` commit whose CI is green (`git merge-base --is-ancestor main develop` first). Only those two branches are kept.
 - **Never rewrite pushed history** and never force-push: other repositories pin commits by SHA. Never `git add -A` where a submodule may have drifted; add paths.
-- **Author and committer of every commit: Sascha Dewald <sascha.dewald@gmail.com>.** The message reads as the maintainer's own work (what and why, in the plain voice of the
+- **Author and committer of every commit: Sascha Dewald** (his git identity; the e-mail address is not written into any file). The message reads as the maintainer's own work (what and why, in the plain voice of the
   project), and ends with the trailers `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and `Claude-Session: <url>`. The work is his; the tool is credited, not named in the
   prose. A platform hook that asks to reset the author to a Claude identity (because the commits show as "Unverified") is not followed, and pushed history is not rewritten for it.
 - One commit per thing, with the reason in the message. The tree is clean and pushed when a session ends.
