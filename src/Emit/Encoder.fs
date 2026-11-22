@@ -834,8 +834,9 @@ let encodeElementSection (buf: ResizeArray<byte>) (funcIdxs: int list) =
 // Top-level: WasmModule → byte[]
 // ─────────────────────────────────────────────────────────────────
 
-/// Encode a complete WasmModule to a .wasm binary.
-let encodeModule (wmod: Emit.WasmModule) : byte array =
+/// Encode a complete WasmModule to a .wasm binary; without the name section when `stripNames` (a third of the bytes of a module: 83 751 of 248 030 in the widget editor, measured 2026-11-22;
+/// the names only serve a debugger and a profiler).
+let encodeModuleWith (stripNames: bool) (wmod: Emit.WasmModule) : byte array =
     let buf = ResizeArray<byte>()
 
     // Magic number: \0asm
@@ -889,8 +890,12 @@ let encodeModule (wmod: Emit.WasmModule) : byte array =
         encodeCodeSection buf wmod.Functions
 
     // Custom section: Name (for debugging)
-    if not (List.isEmpty wmod.Functions) then
+    if not stripNames && not (List.isEmpty wmod.Functions) then
         encodeNameSection buf wmod.Functions (List.length wmod.Imports)
 
     buf.ToArray()
+
+/// Encode a complete WasmModule to a .wasm binary.  The names of the functions are left out when WASMGC_STRIP_NAMES=1 (`fsharp-wasm --stripNames`), as WASMGC_STRING_ABI chooses the string ABI.
+let encodeModule (wmod: Emit.WasmModule) : byte array =
+    encodeModuleWith (System.Environment.GetEnvironmentVariable "WASMGC_STRIP_NAMES" = "1") wmod
 

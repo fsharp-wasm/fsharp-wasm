@@ -252,6 +252,18 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
                     proc.ExitCode = 0
                 with _ -> false   // wasm-tools not installed → built-in encoder (silent, expected)
 
+            // --stripNames: `wasm-tools parse` writes the name section by itself, so it is taken out again; the built-in encoder below leaves it out on its own
+            if watFirstSucceeded && System.Environment.GetEnvironmentVariable "WASMGC_STRIP_NAMES" = "1" then
+                let stripped = wasmPath + ".stripped"
+                let psi = System.Diagnostics.ProcessStartInfo("wasm-tools", "strip \"" + wasmPath + "\" -d \"^name$\" -o \"" + stripped + "\"")
+                psi.UseShellExecute       <- false
+                psi.RedirectStandardError <- true
+                use proc = System.Diagnostics.Process.Start(psi)
+                let err = proc.StandardError.ReadToEnd()
+                proc.WaitForExit()
+                if proc.ExitCode = 0 then System.IO.File.Move(stripped, wasmPath, true)
+                else eprintfn "    ⚠️  wasm-tools strip failed, the names stay in %s:\n      %s" wasmPath err
+
             if not watFirstSucceeded then
                 let lowered   = E.emitModule wasmModule
                 let bytes     = Bin.encodeModule lowered

@@ -22,6 +22,7 @@ Usage:
 Options:
   --outDir <dir>   Output directory for .wasm/.wat  (default: <projectDir>/output)
   --noCache        Force full recompile
+  --stripNames     Leave the names of the functions out of the .wasm (a third smaller; a profiler and a debugger then show indices)
   --verbose        Verbose output
   --silent         Suppress all output
   --help           Show this message
@@ -40,6 +41,9 @@ let private parseArgs argv =
         | ("--help" | "-h") :: _          -> Error "help"
         | "--outDir"  :: d :: rest         -> loop { acc with OutDir  = Some d } rest
         | "--noCache"       :: rest        -> loop { acc with NoCache = true }   rest
+        | "--stripNames"    :: rest        ->
+            System.Environment.SetEnvironmentVariable("WASMGC_STRIP_NAMES", "1")
+            loop acc rest
         | "--verbose"       :: rest        -> loop { acc with Verbose = true }   rest
         | "--silent"        :: rest        -> loop { acc with Silent  = true }   rest
         | p :: rest when not (p.StartsWith("-")) ->

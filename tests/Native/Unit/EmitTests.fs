@@ -272,6 +272,20 @@ let encoderTests = testList "Emit / binary encoder" [
         Expect.equal bytes.Length 8 "empty module = 8 bytes (magic + version, no sections)"
     }
 
+    test "stripNames leaves the name section out: smaller, the function's name is gone, the code is the same" {
+        let wm = Emit.emitModule (moduleWith [func "someDistinctiveFunctionName" [] WType.I32 (WExpr.Const(WConst.I32 1))])
+        let named = Encoder.encodeModuleWith false wm
+        let stripped = Encoder.encodeModuleWith true wm
+        let contains (bytes: byte array) (word: string) =
+            let w = System.Text.Encoding.UTF8.GetBytes word
+            seq { 0 .. bytes.Length - w.Length } |> Seq.exists (fun i -> Seq.forall (fun j -> bytes.[i + j] = w.[j]) { 0 .. w.Length - 1 })
+        Expect.isTrue (contains named "someDistinctiveFunctionName") "the name is in the binary by default"
+        Expect.isTrue (contains named "name") "and so is the name section"
+        Expect.isFalse (contains stripped "someDistinctiveFunctionName") "stripped: the function's name is gone"
+        Expect.isLessThan stripped.Length named.Length "stripped: smaller"
+        Expect.equal stripped.[0..7] named.[0..7] "stripped: the same magic and version"
+    }
+
     test "encoded binary is different for different function bodies" {
         let m1 = moduleWith [func "f" [] WType.I32 (WExpr.Const(WConst.I32 1))]
         let m2 = moduleWith [func "f" [] WType.I32 (WExpr.Const(WConst.I32 2))]

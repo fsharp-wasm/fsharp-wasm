@@ -107,6 +107,10 @@ string through it (UTF-16 code units from address 0, the memory grows on demand)
 duplicate export, which no module had hit until now. Measured on Node 22, median per request, the same module compiled before and after, host core of fsharp-wasm-edge: the state of 5 000 todos 20.6 ms to 6.2 ms, the state of 100 todos 399 µs
 to 59 µs, a toggle of a todo in a list of 100 666 µs to 138 µs, a poll with nothing new 23 µs to 9.7 µs; against hand-written JavaScript the module is 10 times slower now where it was 18 times (state of 5 000).
 
+Added on 2026-11-22 (the size of the shipped modules): `fsharp-wasm --stripNames` (or `WASMGC_STRIP_NAMES=1`) leaves the name section out of the .wasm. In the widget editor the names are 83 751 of 248 030 bytes: stripped, 164 275 bytes
+(gzip -9: 86 481 to 58 492 bytes), and the module validates; in a small test module 39 637 to 18 312 bytes. A profiler and a debugger then see function indices instead of names, so the default stays with names and a build that ships a module opts in.
+`tools/wasm-size/breakdown.mjs <module.wasm>` shows where the bytes of a module are (sections, and the code by the module of the program each function comes from).
+
 Closed on 2026-11-22 (699 QuickTests pass; found by compiling the canvas client of the Ghost Todo of fsharp-wasm-backend, whose shadow of the server's list does `Result.map` into another type): `Result.map` and
 `Result.bind` whose function changes the type of the Ok value (`Result<Todo list,E>` to `Result<Shadow,E>`) built the Ok case of the *input's* instantiation of the union and returned the input's Error object as
 the output's. Every instantiation of a union is its own set of structs, so the module did not validate (`expected (ref null $type), found (ref (exact $type))`). The Ok is built in the output's struct and an
