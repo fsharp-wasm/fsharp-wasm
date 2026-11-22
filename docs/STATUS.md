@@ -98,6 +98,12 @@ Closed on 2026-11-21 (698 QuickTests pass; found by the widget editor of fsharp-
 list) compared the elements as references, and the module did not validate (`expected ref but found i32`). The elements of a packed array are read as i32, as every other read of it does, and compared as numbers
 (`makeArrayEqualsFunc`).
 
+Closed on 2026-11-22 (699 QuickTests pass; found by compiling the canvas client of the Ghost Todo of fsharp-wasm-backend, whose shadow of the server's list does `Result.map` into another type): `Result.map` and
+`Result.bind` whose function changes the type of the Ok value (`Result<Todo list,E>` to `Result<Shadow,E>`) built the Ok case of the *input's* instantiation of the union and returned the input's Error object as
+the output's. Every instantiation of a union is its own set of structs, so the module did not validate (`expected (ref null $type), found (ref (exact $type))`). The Ok is built in the output's struct and an
+Error is rebuilt in it (`tryResultInline`: the case structs follow the base, Ok at +1 and Error at +2); a result that keeps its type still returns the Error value as it is. The call is not inlined when the
+error type is unit (the struct has no payload field).
+
 Measured on 2026-11-21 (693 QuickTests pass, in all three modes): what a stack of DSLs needs from the compiler. User-defined computation expression builders
 (`result` and `option` with `Bind`/`Return`/`ReturnFrom`, a view DSL with `Yield`/`Zero`/`Delay`/`Combine`/`For`/`Run` in which attributes and children are yielded
 and elements nest by calling another builder), builders with `inline` members and `InlineIfLambda`, `[<CustomOperation>]` (a query-like DSL), list, array and seq

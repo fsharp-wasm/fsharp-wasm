@@ -141,47 +141,61 @@ let tryResultInline
             $"{e.FullName}<{argKeys}>"
         | _ -> ""
 
-    /// Shared skeleton: bind result → test Ok tag (tag == 0) → dispatch.
-    let resultBranch (wResult: WExpr) (okCase: WExpr -> WExpr) =
+    /// Shared skeleton: bind result → test Ok tag (tag == 0) → Ok branch, Error branch.
+    let resultBranch (wResult: WExpr) (okCase: WExpr -> WExpr) (errCase: WExpr -> WExpr) =
         wasm {
             let! res = wResult
             let isOk = eq (WExpr.TagOf res) i32Zero
-            return makeIf isOk (okCase res) res ty
+            return makeIf isOk (okCase res) (errCase res) ty
         }
 
-    /// Result.bind / Result.mapError — extract Ok payload, run body, return wBody directly.
-    /// wBody must itself produce a Result (bind) or the same Error type (mapError).
-    let withBindCase (resultArg: Fable.Expr) (farg: Fable.Ident) fbody =
-        let instKey = resultInstKey resultArg.Type
-        match ctx.GenericDuRegistry.TryGetValue(instKey) with
-        | true, _ ->
-            match ctx.GenericDuRegistry.TryGetValue($"{instKey}#0") with
-            | true, okCaseIdx ->
-                let innerT = mapTypeKnown ctx farg.Type
-                let okRef  = WType.Ref(okCaseIdx, false)
-                let wBody  = transform (ctx.WithLocal(farg.Name, innerT)) fbody
-                Some(resultBranch (transform ctx resultArg) (fun res ->
-                    let innerVal = structGet (cast res okRef) 1 innerT
-                    WExpr.Let(farg.Name, innerVal, wBody)))
+    /// The Error branch of map and bind: `Error e → Error e`.  Every instantiation of the union is its own set of structs: when the result keeps its type
+    /// (`Result<int,string>` → `Result<int,string>`) the Error value is returned as it is; when the Ok type changes (`Result<A,E>` → `Result<B,E>`) the value is
+    /// not one of the output's type, so an Error of the output instantiation is built holding the same payload (the case structs follow the base: Ok at +1, Error at +2,
+    /// see registerGenericUnion).  None when that cannot be done here (the error type is unit: the struct has no payload field), and the call is not inlined.
+    let errorBranch (resultArg: Fable.Expr) : (WExpr -> WExpr) option =
+        match resultArg.Type, ty with
+        | Type.DeclaredType(_, [ _; errArg ]), WType.Ref(outBase, _) ->
+            match ctx.GenericDuRegistry.TryGetValue(resultInstKey resultArg.Type) with
+            | true, inBase when inBase = outBase -> Some id
+            | true, inBase ->
+                let errT = mapTypeKnown ctx errArg
+                if errT = WType.Void then None
+                else Some(fun res -> WExpr.StructNew(outBase + 2, [ i32One; structGet (cast res (WType.Ref(inBase + 2, false))) 1 errT ], ty))
             | _ -> None
         | _ -> None
 
-    /// Result.map — extract Ok payload, apply f, RE-WRAP in Ok(0, f(x)).
-    /// wBody is the NEW inner value — must be boxed back into Ok variant.
-    let withMapCase (resultArg: Fable.Expr) (farg: Fable.Ident) fbody =
+    /// Result.bind — extract Ok payload, run body, return wBody directly.  wBody itself produces the output Result.
+    let withBindCase (resultArg: Fable.Expr) (farg: Fable.Ident) fbody =
         let instKey = resultInstKey resultArg.Type
-        match ctx.GenericDuRegistry.TryGetValue(instKey) with
-        | true, _ ->
+        match ctx.GenericDuRegistry.TryGetValue(instKey), errorBranch resultArg with
+        | (true, _), Some errCase ->
             match ctx.GenericDuRegistry.TryGetValue($"{instKey}#0") with
             | true, okCaseIdx ->
                 let innerT = mapTypeKnown ctx farg.Type
                 let okRef  = WType.Ref(okCaseIdx, false)
                 let wBody  = transform (ctx.WithLocal(farg.Name, innerT)) fbody
-                // Critical: wrap the transformed value back in Ok(tag=0, newValue)
+                Some(resultBranch (transform ctx resultArg) (fun res ->
+                    let innerVal = structGet (cast res okRef) 1 innerT
+                    WExpr.Let(farg.Name, innerVal, wBody)) errCase)
+            | _ -> None
+        | _ -> None
+
+    /// Result.map — extract Ok payload, apply f, RE-WRAP in Ok(0, f(x)) of the OUTPUT instantiation: its Ok struct is at the output's base + 1, which is not the input's
+    /// when f changes the type of the value (`Result<Todo list,E>` → `Result<Shadow,E>`: the input's struct has a list field, and a Shadow is not one).
+    let withMapCase (resultArg: Fable.Expr) (farg: Fable.Ident) fbody =
+        let instKey = resultInstKey resultArg.Type
+        match ctx.GenericDuRegistry.TryGetValue(instKey), errorBranch resultArg, ty with
+        | (true, _), Some errCase, WType.Ref(outBase, _) ->
+            match ctx.GenericDuRegistry.TryGetValue($"{instKey}#0") with
+            | true, okCaseIdx ->
+                let innerT = mapTypeKnown ctx farg.Type
+                let okRef  = WType.Ref(okCaseIdx, false)
+                let wBody  = transform (ctx.WithLocal(farg.Name, innerT)) fbody
                 Some(resultBranch (transform ctx resultArg) (fun res ->
                     let innerVal = structGet (cast res okRef) 1 innerT
                     WExpr.Let(farg.Name, innerVal,
-                        WExpr.StructNew(okCaseIdx, [i32Zero; wBody], ty))))
+                        WExpr.StructNew(outBase + 1, [i32Zero; wBody], ty))) errCase)
             | _ -> None
         | _ -> None
 

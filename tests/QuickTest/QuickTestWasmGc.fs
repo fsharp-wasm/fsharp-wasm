@@ -4127,3 +4127,22 @@ let testPackedArrayEquality () : int =
     let z = { Bits = [| 1uy; 3uy |]; Flags = a }
     (if a = b then 1 else 0) + (if a <> c then 10 else 0) + (if x = y then 100 else 0) + (if x <> z then 1000 else 0)
     + (if [ [| 1uy |]; [| 2uy |] ] = [ [| 1uy |]; [| 2uy |] ] then 10000 else 0)
+
+// Result.map and Result.bind whose function changes the type of the Ok value: the output is another instantiation of Result, with structs of its own,
+// so the Ok must be built in the output's struct and an Error must be rebuilt in it (the input's Error object is not a value of the output's type).
+type MappedDegrees = { Degrees: int }
+type MappedReading = { Label: string; Value: MappedDegrees }
+
+let testResultMapBindChangeTheType () : int =
+    let parse (s: string) : Result<int list, string> = if s = "" then Error "empty" else Ok [ s.Length; 2 ]
+    let toDegrees (r: Result<int list, string>) : Result<MappedDegrees, string> = r |> Result.map (fun xs -> { Degrees = List.sum xs })
+    let toReading (r: Result<int list, string>) : Result<MappedReading, string> =
+        r |> Result.bind (fun xs -> if List.isEmpty xs then Error "none" else Ok { Label = "x"; Value = { Degrees = List.head xs } })
+    let sameType (r: Result<int list, string>) : Result<int list, string> = r |> Result.map (fun xs -> 7 :: xs)
+    let a = match toDegrees (parse "abc") with Ok d -> d.Degrees | Error _ -> -1           // 3 + 2
+    let b = match toDegrees (parse "") with Ok _ -> -1 | Error e -> e.Length                // "empty"
+    let c = match toReading (parse "abcd") with Ok r -> r.Value.Degrees | Error _ -> -1     // 4
+    let d = match toReading (parse "") with Ok _ -> -1 | Error e -> e.Length                // "empty"
+    let e = match sameType (parse "abc") with Ok xs -> List.length xs | Error _ -> -1       // 3
+    let f = match sameType (parse "") with Ok _ -> -1 | Error s -> s.Length                 // "empty"
+    a * 100000 + b * 10000 + c * 1000 + d * 100 + e * 10 + f

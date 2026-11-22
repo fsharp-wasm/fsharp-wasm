@@ -926,6 +926,7 @@ check("for ... in over a ResizeArray (ints, strings, nested, empty)", 652, exp.t
 check("IDisposable: use, an explicit Dispose, as the interface, a builder's Using", 7 + 1001 + 1111 * 100, exp.testDispose())
 check("Seq functions over a string (forall, exists, filter, map, sum)", 1 + 10 + 300 + 382000, exp.testSeqOverString())
 check("structural equality of bool[] and byte[] (alone, in a record, in a list)", 11111, exp.testPackedArrayEquality())
+check("Result.map and Result.bind that change the type of the Ok value (Ok, Error, and a map that keeps it)", 554535, exp.testResultMapBindChangeTheType())
 check("Array.concat of a list and of an array of arrays", 6101354, exp.testArrayConcat());
 check("List.concat and List.collect", 366, exp.testListConcat());
 check("System.Array.IndexOf with start and count", 303020, exp.testArrayIndexOf());
