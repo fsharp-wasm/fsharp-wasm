@@ -844,6 +844,8 @@ check("Queue wraps and grows → 638",                           638, exp.testQu
 check("Queue of records → 72",                                 72, exp.testQueueOfRecords());
 check("record with list field → 5",                           5, exp.testRecordListField());
 check("ResizeArray(seq) copies the elements", 48, exp.testResizeArrayFromList());
+check("ResizeArray(other ResizeArray) is a copy", 3419, exp.testResizeArrayCopyOfResizeArray());
+check("ResizeArray(list value) copies the elements", 38, exp.testResizeArrayCopyOfListValue());
 check("ResizeArray(capacity) is empty", 13, exp.testResizeArrayCapacityCtor());
 check("ResizeArray Sort + ToArray", 3123, exp.testResizeArraySortToArray());
 check("ResizeArray Sort(Comparison)", 9741, exp.testResizeArraySortComparison());

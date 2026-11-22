@@ -1368,5 +1368,12 @@ let private transformCallCore
 let transformCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (callee: Expr) (info: CallInfo) (typ: Type) : WExpr =
     match callee with
     | Import _ when info.ThisArg.IsNone -> trySeqFusionInline eval ctx (Call(callee, info, typ, None))
+    // `ResizeArray<T>(source)` with a source that is not a literal (a variable, a call, another ResizeArray): the frontend emits the JS `Array.from(source)`.  It is what the
+    // `NewArray ArrayFrom` node already is (a copy of a list, seq, array or ResizeArray), so it is compiled as that, and the source is compiled once.
+    | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Array" }, GetKind.FieldGet fi, _, _) when fi.Name = "from" && info.ThisArg.IsNone ->
+        match typ, info.Args with
+        | Type.Array(elemType, ArrayKind.ResizeArray), [ source ] ->
+            Some(eval ctx (Fable.Expr.Value(Fable.ValueKind.NewArray(Fable.NewArrayKind.ArrayFrom source, elemType, ArrayKind.ResizeArray), None)))
+        | _ -> None
     | _ -> None
     |> Option.defaultWith (fun () -> transformCallCore ctx eval callee info typ)

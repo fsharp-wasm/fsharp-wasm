@@ -3243,6 +3243,21 @@ let testResizeArrayFromList () : int =
     let r = ResizeArray<int>([ 5; 6; 7; 8 ])
     r.Count * 10 + r.[3] - 0                                  // 48
 
+/// ResizeArray(other ResizeArray) is a copy: Fable emits the JS `Array.from(source)` for a source that is not a literal
+let testResizeArrayCopyOfResizeArray () : int =
+    let a = ResizeArray<int>()
+    a.Add 1; a.Add 2; a.Add 3
+    let b = ResizeArray<int>(a)
+    b.Add 4
+    b.[0] <- 9
+    a.Count * 1000 + b.Count * 100 + a.[0] * 10 + b.[0]       // 3419
+
+/// ResizeArray(list) where the list is a value, not a literal
+let testResizeArrayCopyOfListValue () : int =
+    let xs = [ 5; 6; 7 ] |> List.map (fun x -> x + 1)
+    let r = ResizeArray<int>(xs)
+    r.Count * 10 + r.[2]                                      // 38
+
 /// ResizeArray(capacity) is empty
 let testResizeArrayCapacityCtor () : int =
     let r = ResizeArray<int>(64)

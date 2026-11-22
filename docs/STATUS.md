@@ -7,7 +7,7 @@
 
 | Suite | What it checks | Result | In CI |
 | --- | --- | --- | --- |
-| QuickTest | language features, collections, strings, closures, numerics, arrays (CI runs it three times: default, unpacked `bool[]`/`byte[]`, with the inlining pass) | 675 passed | yes |
+| QuickTest | language features, collections, strings, closures, numerics, arrays (CI runs it three times: default, unpacked `bool[]`/`byte[]`, with the inlining pass) | 701 passed (recorded 2026-11-22) | yes |
 | QuickTestMulti | the same, one compilation per domain (17 domains) | 17/17 domains passed | yes |
 | Differential: .NET against wasm | generated inputs through the same F# functions on .NET and as wasm | 392 functions, 183 012 calls: 179 115 identical, 0 disagreements, 3 896 where both sides fail, 1 known difference | yes |
 | Showcase | classic algorithms and small programs end to end | 26 passed | yes |
@@ -20,9 +20,9 @@
 | Component linking | two modules compiled apart and linked at run time | 22 passed | yes |
 | Wasmecto tests (`tests/Wasm`) | a test project written with the Wasmecto framework, compiled to WebAssembly and run in Node: language core, collections, closures, a compiler pipeline smoke test | 81 passed | yes |
 | Wasmecto's own tests | the test framework's own tests (`Math`, `Dictionary`, `Stack`, `StringBuilder`), compiled against the whole base library and run in Node | 36 passed | yes |
-| Dogfood: core libraries (`tests/Dogfood/run.sh core-libs`) | the suites of FSharp.Wasm.Data (JSON, numbers), FSharp.Wasm.Ui (typed CSS and HTML, the email grid) and FSharp.Wasm.Edit (operations on a document, history), compiled from fsharp-wasm-core and run in Node | 45 passed (recorded 2026-11-21) | yes |
-| Dogfood: newsletter (`tests/Dogfood/run.sh newsletter`) | the newsletter library's suite, and the designer module (an Elmish program on the HTML DSL, with dragging of blocks on `FSharp.Graphics.Interact`) compiled, validated, and checked for its `start` export | 61 passed, designer 379 155 bytes (2026-11-21) | yes |
-| Dogfood: widget editor (`tests/Dogfood/run.sh widget-editor`) | the widget editor of fsharp-wasm-ide (the whole FSharp.Graphics stack: Widgets, Scene, Tea, Canvas) compiled as one module, validated, and checked for the exports `runtime/gfx.js` calls | 168 957 bytes, exports present (2026-11-20) | yes |
+| Dogfood: core libraries (`tests/Dogfood/run.sh core-libs`) | the suites of FSharp.Wasm.Data (JSON, numbers), FSharp.Wasm.Ui (typed CSS and HTML, the email grid) and FSharp.Wasm.Edit (operations on a document, history), compiled from fsharp-wasm-core and run in Node | 49 passed (recorded 2026-11-22) | yes |
+| Dogfood: newsletter (`tests/Dogfood/run.sh newsletter`) | the newsletter library's suite, and the designer module (an Elmish program on the HTML DSL, with dragging of blocks on `FSharp.Graphics.Interact`) compiled, validated, and checked for its `start` export | 82 passed, designer 460 356 bytes (2026-11-22) | yes |
+| Dogfood: widget editor (`tests/Dogfood/run.sh widget-editor`) | the widget editor of fsharp-wasm-ide (the whole FSharp.Graphics stack: Widgets, Scene, Tea, Canvas) compiled as one module, validated, and checked for the exports `runtime/gfx.js` calls | 259 095 bytes, exports present (2026-11-22) | yes |
 
 `bash tests/run-all.sh` runs every suite, keeps going after a failure and prints one table (`--list`, `--only a,b`). The differential run, the closure
 fuzz and the pass tests' random programs add several hundred thousand generated cases to the named tests and checks in the table.
@@ -122,6 +122,8 @@ Measured on 2026-11-21 (693 QuickTests pass, in all three modes): what a stack o
 and elements nest by calling another builder), builders with `inline` members and `InlineIfLambda`, `[<CustomOperation>]` (a query-like DSL), list, array and seq
 comprehensions with guards, and statically resolved member constraints (`inline` numeric helpers) all compile and give what .NET gives (seven QuickTests, `ce:`).
 The same probes confirmed two gaps that were already listed (`for … in` over a `ResizeArray`, a `seq { yield …; yield … }` nothing fuses) and found one new one (`IDisposable.Dispose`, above).
+
+Closed on 2026-11-22 (701 QuickTests pass; found by compiling the widget editor with the canvas host that redraws only what changed, whose comparison of two frames copies a stack with `ResizeArray<State>(stack)`): `ResizeArray<T>(source)` where the source is not a literal (another ResizeArray, a list or array that is a value, the result of a call). The frontend emits the JS `Array.from(source)` for it, which the backend had no meaning for (`WGC009: Call through a callee that is not a function value: member 'from' of Any`); only a literal (`ResizeArray [ 1; 2 ]`) and the `NewArray ArrayFrom` node were compiled. `transformCall` compiles that call as the node it is a copy of (`ResizeArrayOps.ofSource`), the source once. Two QuickTests (a copy of a ResizeArray that is then changed, a copy of a list value).
 
 ## Source layout
 
