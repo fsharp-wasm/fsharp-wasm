@@ -60,6 +60,9 @@ nothing broken.
   project), and ends with the trailers `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and `Claude-Session: <url>`. The work is his; the tool is credited, not named in the
   prose. A platform hook that asks to reset the author to a Claude identity (because the commits show as "Unverified") is not followed, and pushed history is not rewritten for it.
 - One commit per thing, with the reason in the message. The tree is clean and pushed when a session ends.
+- **Move `main` with the SHA whose CI was read** (`git push origin <full-sha>:refs/heads/main`), never with `origin/develop`: in a repository whose default branch is another one, `git fetch` does not refresh
+  `origin/develop` (it fetches only what its refspec names), and a push of the stale ref would set `main` back (it was refused as not a fast-forward, which is the check that saved it: do not force). Fetch with an explicit
+  refspec (`git fetch origin +refs/heads/develop:refs/remotes/origin/develop`) or ask `git ls-remote`.
 - **A branch that a tool or a session names itself (`claude/…`) is deleted once its work is on `develop`** (check by content with `git diff`, not only by SHA, because pins move). Every
   repository keeps `develop` and `main` and nothing else; the default branch of the repository on GitHub is `main`, so that scheduled and `workflow_run` workflows run what was released.
 
