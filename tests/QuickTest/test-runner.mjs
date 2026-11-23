@@ -846,6 +846,8 @@ check("record with list field → 5",                           5, exp.testRecor
 check("ResizeArray(seq) copies the elements", 48, exp.testResizeArrayFromList());
 check("ResizeArray(other ResizeArray) is a copy", 3419, exp.testResizeArrayCopyOfResizeArray());
 check("ResizeArray(list value) copies the elements", 38, exp.testResizeArrayCopyOfListValue());
+check("Array.tryPick: the first Some, the callback once per element", 3030, exp.testArrayTryPick());
+check("Array.tryPick with a string result", 3, exp.testArrayTryPickString());
 check("ResizeArray(capacity) is empty", 13, exp.testResizeArrayCapacityCtor());
 check("ResizeArray Sort + ToArray", 3123, exp.testResizeArraySortToArray());
 check("ResizeArray Sort(Comparison)", 9741, exp.testResizeArraySortComparison());

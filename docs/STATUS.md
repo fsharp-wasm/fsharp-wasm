@@ -7,7 +7,7 @@
 
 | Suite | What it checks | Result | In CI |
 | --- | --- | --- | --- |
-| QuickTest | language features, collections, strings, closures, numerics, arrays (CI runs it three times: default, unpacked `bool[]`/`byte[]`, with the inlining pass) | 701 passed (recorded 2026-11-22) | yes |
+| QuickTest | language features, collections, strings, closures, numerics, arrays (CI runs it three times: default, unpacked `bool[]`/`byte[]`, with the inlining pass) | 703 passed (recorded 2026-11-23) | yes |
 | QuickTestMulti | the same, one compilation per domain (17 domains) | 17/17 domains passed | yes |
 | Differential: .NET against wasm | generated inputs through the same F# functions on .NET and as wasm | 392 functions, 183 012 calls: 179 115 identical, 0 disagreements, 3 896 where both sides fail, 1 known difference | yes |
 | Showcase | classic algorithms and small programs end to end | 26 passed | yes |
@@ -124,6 +124,8 @@ comprehensions with guards, and statically resolved member constraints (`inline`
 The same probes confirmed two gaps that were already listed (`for … in` over a `ResizeArray`, a `seq { yield …; yield … }` nothing fuses) and found one new one (`IDisposable.Dispose`, above).
 
 Closed on 2026-11-22 (701 QuickTests pass; found by compiling the widget editor with the canvas host that redraws only what changed, whose comparison of two frames copies a stack with `ResizeArray<State>(stack)`): `ResizeArray<T>(source)` where the source is not a literal (another ResizeArray, a list or array that is a value, the result of a call). The frontend emits the JS `Array.from(source)` for it, which the backend had no meaning for (`WGC009: Call through a callee that is not a function value: member 'from' of Any`); only a literal (`ResizeArray [ 1; 2 ]`) and the `NewArray ArrayFrom` node were compiled. `transformCall` compiles that call as the node it is a copy of (`ResizeArrayOps.ofSource`), the source once. Two QuickTests (a copy of a ResizeArray that is then changed, a copy of a list value).
+
+Closed on 2026-11-23 (703 QuickTests pass; found by compiling `Hit.Dispatcher.Cursor` of fsharp-wasm-graphics into the widget editor, which takes the cursor of the innermost region with `Array.tryPick`): `Array.tryPick` (`Unhandled import call 'tryPick'`, then WGC008: only `List.tryPick` was compiled).  `arrayPick` in `Patterns/ArrayOps.fs` next to `arraySearch`, and the mapping in `ArrayReplacements`: the callback runs once per element up to the first `Some` and its result is kept (an option is a nullable reference here, None is the null).  Two QuickTests (integers, with the number of calls counted; strings).  `Array.pick` (the unwrapped value, raising when nothing is found) is not mapped yet.
 
 ## Source layout
 

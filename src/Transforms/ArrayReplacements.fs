@@ -424,6 +424,19 @@ let tryArrayInline
                     Some(arraySearch (LabelGen "atry") a (transform ctx arrArg) optT found (fun _ e -> some e) none)
             | None -> None
         | _ -> None
+    // ── Array.tryPick: the first `Some` the callback returns (once per element, the result is kept) ──
+    | "tryPick" ->
+        match fableArgs with
+        | [ UnaryLambda(farg, fbody); arrArg ] ->
+            match arrElemT arrArg.Type with
+            | Some elemFableT ->
+                let elemT = mapTypeKnown ctx elemFableT
+                let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
+                let wBody = transform (ctx.WithLocal(farg.Name, elemT)) fbody
+                let resTy = exprWType wBody
+                Some(arrayPick (LabelGen "apick") a (transform ctx arrArg) resTy (fun elem -> WExpr.Let(farg.Name, elem, wBody)) (WExpr.Const(WConst.Null resTy)))
+            | None -> None
+        | _ -> None
     | "tryItem" | "tryLast" ->
         match fableArgs, wArgs with
         | (arrArg :: _), _ ->

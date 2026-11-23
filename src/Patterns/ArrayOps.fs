@@ -232,6 +232,32 @@ let arraySearch
     }
 
 
+/// The first non-null result of `f` over the elements, or `onNone` (Array.tryPick: an option is a nullable reference here, None is the null).  `f` is applied once per element and its
+/// result is kept, not computed again to be returned.
+let arrayPick
+        (gen    : LabelGen)
+        (a      : ArrayShape)
+        (arr    : WExpr)
+        (resTy  : WType)
+        (f      : WExpr -> WExpr)   // elem -> the option the callback returns
+        (onNone : WExpr)
+        : WExpr =
+    wasm {
+        let! arrRef = arr
+        let src = WArray.wrap a.ElemTy arrRef
+        let! n  = src.Len
+        let! i  = mut (i32Const 0)
+        return! Wasm.labeledBlock gen "pick" resTy (fun ctrl -> wasm {
+            while (i.Val <. n) do
+                let! picked = f src.[i.Val]
+                if (refIsNotNull picked) then
+                    do! ctrl.BreakWith picked
+                do! i <== (i.Val +. i32Const 1)
+            return onNone
+        })
+    }
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // arraySortWith — shared BCL helper call (not inlined)
 // ─────────────────────────────────────────────────────────────────────────────

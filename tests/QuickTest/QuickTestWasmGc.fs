@@ -3258,6 +3258,21 @@ let testResizeArrayCopyOfListValue () : int =
     let r = ResizeArray<int>(xs)
     r.Count * 10 + r.[2]                                      // 38
 
+/// Array.tryPick: the first Some the callback returns, and the callback runs once per element up to it (3 of 4), nothing found is None: 30 * 100 + 3 * 10 + 0
+let testArrayTryPick () : int =
+    let a = [| 1; 2; 3; 4 |]
+    let calls = ref 0
+    let found = a |> Array.tryPick (fun x -> calls.Value <- calls.Value + 1; if x > 2 then Some (x * 10) else None)
+    let none = a |> Array.tryPick (fun x -> if x > 9 then Some x else None)
+    (match found with Some v -> v | None -> -1) * 100 + calls.Value * 10 + (match none with Some _ -> 1 | None -> 0)     // 3030
+
+/// Array.tryPick over strings, with a string as its result (a reference type in the option)
+let testArrayTryPickString () : int =
+    let names = [| "a"; "bb"; "ccc" |]
+    match names |> Array.tryPick (fun s -> if s.Length = 2 then Some (s + "!") else None) with
+    | Some s -> s.Length                                      // 3
+    | None -> 0
+
 /// ResizeArray(capacity) is empty
 let testResizeArrayCapacityCtor () : int =
     let r = ResizeArray<int>(64)
