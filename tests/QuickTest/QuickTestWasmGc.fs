@@ -4176,3 +4176,28 @@ let testResultMapBindChangeTheType () : int =
     let e = match sameType (parse "abc") with Ok xs -> List.length xs | Error _ -> -1       // 3
     let f = match sameType (parse "") with Ok _ -> -1 | Error s -> s.Length                 // "empty"
     a * 100000 + b * 10000 + c * 1000 + d * 100 + e * 10 + f
+
+// A seq that is a value (the result of a function, an argument, `Seq.delay` of a `seq { }`, `Seq.singleton`, `Seq.empty`, `Seq.append`): a seq is a strict list, so each is built by
+// one loop where it is made.  They used to compile only where a consumer read them on the spot.
+let seqEvens (n: int) : seq<int> = seq { for i in 1 .. n do if i % 2 = 0 then yield i }
+let seqSumOf (xs: seq<int>) : int = xs |> Seq.sum
+
+let testSeqAsValue () : int =
+    let a = seqEvens 10 |> Seq.sum                                                     // 30
+    let b = seqSumOf (seqEvens 6)                                                      // 12
+    let c = Seq.delay (fun () -> seq { yield 1; yield 2; yield 3 }) |> Seq.length      // 3
+    let one : seq<int> = Seq.singleton 7
+    let none : seq<int> = Seq.empty
+    let d = Seq.length one * 10 + Seq.length none + Seq.sum one                        // 17
+    let e = Seq.append (seqEvens 4) (Seq.singleton 100) |> Seq.sum                     // 106
+    (if a = 30 then 1 else 0) + (if b = 12 then 10 else 0) + (if c = 3 then 100 else 0) + (if d = 17 then 1000 else 0) + (if e = 106 then 10000 else 0)
+
+// Seq.zip walks two sequences together and ends with the shorter (as .NET's does): lists, arrays, a list with an array, seq values, an empty one
+let testSeqZip () : int =
+    let a = Seq.zip [ 1; 2; 3 ] [ 10; 20; 30; 40 ] |> Seq.sumBy (fun (x, y) -> x * y)                       // 140
+    let b = Seq.zip [| 1; 2; 3 |] [| 4; 5; 6 |] |> Seq.map (fun (x, y) -> x + y) |> Seq.sum                 // 21
+    let c = Seq.zip [ 1; 2; 3 ] [| "a"; "bb" |] |> Seq.map (fun (n, s) -> n + s.Length) |> Seq.sum          // (1 + 1) + (2 + 2) = 6
+    let d = Seq.zip (seqEvens 8) [ "x"; "y"; "z"; "w"; "v" ] |> Seq.length                                   // 4
+    let e = Seq.zip ([] : int list) [ 1; 2 ] |> Seq.length                                                   // 0
+    let f = Seq.zip [ 1; 2 ] [ "p"; "q" ] |> Seq.toList |> List.map (fun (n, s) -> s + string n) |> String.concat ","   // p1,q2
+    (if a = 140 then 1 else 0) + (if b = 21 then 10 else 0) + (if c = 6 then 100 else 0) + (if d = 4 then 1000 else 0) + (if e = 0 then 10000 else 0) + (if f = "p1,q2" then 100000 else 0)

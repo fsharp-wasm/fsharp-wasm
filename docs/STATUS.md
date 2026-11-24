@@ -7,7 +7,7 @@
 
 | Suite | What it checks | Result | In CI |
 | --- | --- | --- | --- |
-| QuickTest | language features, collections, strings, closures, numerics, arrays (CI runs it three times: default, unpacked `bool[]`/`byte[]`, with the inlining pass) | 703 passed (recorded 2026-11-23) | yes |
+| QuickTest | language features, collections, strings, closures, numerics, arrays (CI runs it three times: default, unpacked `bool[]`/`byte[]`, with the inlining pass) | 705 passed (recorded 2026-11-24) | yes |
 | QuickTestMulti | the same, one compilation per domain (17 domains) | 17/17 domains passed | yes |
 | Differential: .NET against wasm | generated inputs through the same F# functions on .NET and as wasm | 392 functions, 183 012 calls: 179 115 identical, 0 disagreements, 3 896 where both sides fail, 1 known difference | yes |
 | Showcase | classic algorithms and small programs end to end | 26 passed | yes |
@@ -20,9 +20,9 @@
 | Component linking | two modules compiled apart and linked at run time | 22 passed | yes |
 | Wasmecto tests (`tests/Wasm`) | a test project written with the Wasmecto framework, compiled to WebAssembly and run in Node: language core, collections, closures, a compiler pipeline smoke test | 81 passed | yes |
 | Wasmecto's own tests | the test framework's own tests (`Math`, `Dictionary`, `Stack`, `StringBuilder`), compiled against the whole base library and run in Node | 36 passed | yes |
-| Dogfood: core libraries (`tests/Dogfood/run.sh core-libs`) | the suites of FSharp.Wasm.Data (JSON, numbers), FSharp.Wasm.Ui (typed CSS and HTML, the email grid) and FSharp.Wasm.Edit (operations on a document, history), compiled from fsharp-wasm-core and run in Node | 49 passed (recorded 2026-11-22) | yes |
-| Dogfood: newsletter (`tests/Dogfood/run.sh newsletter`) | the newsletter library's suite, and the designer module (an Elmish program on the HTML DSL, with dragging of blocks on `FSharp.Graphics.Interact`) compiled, validated, and checked for its `start` export | 82 passed, designer 460 356 bytes (2026-11-22) | yes |
-| Dogfood: widget editor (`tests/Dogfood/run.sh widget-editor`) | the widget editor of fsharp-wasm-ide (the whole FSharp.Graphics stack: Widgets, Scene, Tea, Canvas) compiled as one module, validated, and checked for the exports `runtime/gfx.js` calls | 259 095 bytes, exports present (2026-11-22) | yes |
+| Dogfood: core libraries (`tests/Dogfood/run.sh core-libs`) | the suites of FSharp.Wasm.Data (JSON, numbers), FSharp.Wasm.Ui (typed CSS and HTML, the email grid) and FSharp.Wasm.Edit (operations on a document, history), FSharp.Wasm.Icons and FSharp.Wasm.Frame (hierarchies and the cube of a pivot table), compiled from fsharp-wasm-core and run in Node | 61 passed (recorded 2026-11-24) | yes |
+| Dogfood: newsletter (`tests/Dogfood/run.sh newsletter`) | the newsletter library's suite, and the designer module (an Elmish program on the HTML DSL, with dragging of blocks on `FSharp.Graphics.Interact`) compiled, validated, and checked for its `start` export | 86 passed, designer 464 181 bytes (2026-11-24) | yes |
+| Dogfood: widget editor (`tests/Dogfood/run.sh widget-editor`) | the widget editor of fsharp-wasm-ide (the whole FSharp.Graphics stack: Widgets, Scene, Tea, Canvas) compiled as one module, validated, and checked for the exports `runtime/gfx.js` calls | 268 774 bytes, exports present (2026-11-24) | yes |
 
 `bash tests/run-all.sh` runs every suite, keeps going after a failure and prints one table (`--list`, `--only a,b`). The differential run, the closure
 fuzz and the pass tests' random programs add several hundred thousand generated cases to the named tests and checks in the table.
@@ -46,7 +46,9 @@ fuzz and the pass tests' random programs add several hundred thousand generated 
 Measured while writing tests; each is a program that does not compile or a method that is not mapped yet:
 
 - `System.Array.Reverse`, `Sort`, `Clear` and `Resize` (the front end rejects the static methods: use `Array.rev`, `Array.sort`, `Array.fill`), `System.Array.CopyTo`
-- a `seq { yield …; yield … }` that no consumer fuses (`Seq.delay` is not compiled)
+- a `seq` is a **strict list** here, not a lazy `IEnumerable`: a `seq { }` is built where it is made (by one loop) and not where it is read, so a sequence that is infinite (`Seq.initInfinite`, `Seq.unfold` without an end) or that has effects whose time matters does not behave as in .NET. The lazy sequence (state machines, `IEnumerator`) is the roadmap's "Sequence Expressions and Lazy Evaluation"
+- multi-dimensional arrays (`Array2D.zeroCreate`, `a.[i, j]`) are rejected by the front end for this target: `let a = Array2D.zeroCreate<float> 3 4` fails with "Array2DModule.ZeroCreate is not supported" (found by FSharp.Wasm.Frame's tests; the library keeps flat arrays)
+- `Array.sortWith` is an insertion sort, O(n²) (`ArraySort.fs`): sorting 100 000 elements is far too slow; `List.sortBy` and `Array.sort` are not affected
 - `sprintf "%A"` / `%O` of a record, union, list or tuple (a compile error, not a wrong output); dictionary literals (`dict [ … ]`); comparer constructor overloads
 - `StringBuilder.AppendFormat` with a format that is not a literal or has specifiers (`{0:N2}`): reported as unsupported
 - a local function that is generic in its type arguments and whose only evidence of them is its use (`let bind r = match r with Ok v -> Ok (v + 1) | Error e -> Error e`, applied to a `Result<int, string>`) is compiled for `int`: annotate its parameter
@@ -56,6 +58,11 @@ Measured while writing tests; each is a program that does not compile or a metho
 - exceptions as values: an `exn` stored in a list or a record is typed as an integer (`[ System.Exception "x" ]` does not validate); `System.ArgumentException("x")` (a constructor that delegates to the primary one) leaves its second field out; a derived class that adds a field writes it to the base class's field (`inherit EqBase(name)` with an own `size`)
 - two modules with the same name in different namespaces (`Browser.Css` of the runtime and a `Css` of another library) share one set of function names (`Css_color`): the first definition wins and a call to the other does not validate; name the modules differently
 - an exception with a payload cannot be caught by type: `try … with MyError m -> …` receives no value (the JSON parser of fsharp-wasm-newsletter records its first error instead)
+
+Closed on 2026-11-24 (705 QuickTests pass; found while writing FSharp.Wasm.Frame of fsharp-wasm-core and the accounting grid): a `seq` that is a value — the result of a function (`let evens n : seq<int> = seq { … }`), an argument, `Seq.delay`
+of a `seq { }`, `Seq.singleton`, `Seq.empty`, `Seq.append` — compiled only where a consumer read it on the spot (`Unhandled import call 'delay'`, `'rangeDouble'`), and `Seq.singleton` compiled to nothing. A seq is a strict list, so such a value is what `Seq.toList` of it is, and
+fusion builds it with one loop (`trySeqFusionInline`); a seq-typed source that no stage explains (a parameter, the result of a function) is read as the list it is. `Seq.zip` walks two lists (or seqs) together and ends with the shorter, as .NET's does (`ListOps`, the case of `List.zip`
+that always did). Two new QuickTests (`testSeqAsValue`, `testSeqZip`) do not compile without the change. The remaining difference from .NET is laziness, listed in the known gaps.
 
 Closed on 2026-11-16, each with tests whose expected values are what .NET computes: ranges with a step in `for`, `seq` and `Seq.iter`; array and string slices
 (`a.[1..3]`, `s.[..2]`, `a.[2..]`, clamped like F#); `Array.concat`, `List.concat`; `System.Array.IndexOf`; `StringBuilder.AppendLine`,

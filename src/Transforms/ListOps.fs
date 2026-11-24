@@ -20,6 +20,13 @@ open WasmGc.Util.FableQuery
 // Shared: lambda / type guards using DSL
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The element type of a list, or of a `seq<'T>`: a seq is a strict list here, so what is written for lists serves both.
+let private listOrSeqElem (t: Fable.Type) : Fable.Type option =
+    match t with
+    | Fable.Type.List e -> Some e
+    | Fable.Type.DeclaredType(ent, [ e ]) when ent.FullName = "System.Collections.Generic.IEnumerable`1" -> Some e
+    | _ -> None
+
 /// Extract list element type and cons-struct index from a Fable.Expr argument.
 let private listInfo ctx (arg: Fable.Expr) =
     match arg.Type with
@@ -227,10 +234,11 @@ let tryListTakeSkipSortInline
                     listFold gen s innerList acc s.BaseTy
                         (fun acc2 elem -> s.Cons elem acc2))
         Some(listRevInPlace gen s revResult)
-    // ── List.zip xs ys ─────────────────────────────────────────────
+    // ── List.zip xs ys, Seq.zip xs ys ──────────────────────────────
+    // both walk the two lists together and stop at the end of the shorter one (what Seq.zip does; List.zip raises for lists of different lengths in .NET, and this has never)
     | "zip", (xsArg :: ysArg :: _) ->
-        let xsElemFableT = match xsArg.Type with | Fable.Type.List t -> Some t | _ -> None
-        let ysElemFableT = match ysArg.Type with | Fable.Type.List t -> Some t | _ -> None
+        let xsElemFableT = listOrSeqElem xsArg.Type
+        let ysElemFableT = listOrSeqElem ysArg.Type
         match xsElemFableT, ysElemFableT with
         | None, _ | _, None -> None
         | Some xElemFT, Some yElemFT ->

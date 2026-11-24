@@ -945,6 +945,10 @@ check("-7.5 % 2.0 = -1.5 (the sign of the dividend)", -150, exp.testFloatModulus
 check("370.5 % 360.0 = 10.5", 105, exp.testFloatModulusWrap());
 check("EndsWith with a suffix that also occurs earlier", 15, exp.testEndsWithRepeated());
 
+console.log("\n─── Seq as a value, and Seq.zip ───\n");
+check("a seq that is a value: the result of a function, an argument, delay, singleton, empty, append", 11111, exp.testSeqAsValue());
+check("Seq.zip: lists of different lengths, arrays, a list with an array, seq values, an empty one", 111111, exp.testSeqZip());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

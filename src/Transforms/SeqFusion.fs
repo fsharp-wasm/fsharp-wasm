@@ -69,6 +69,12 @@ let private isProducer (e: Fable.Expr) =
     | StreamCall(_, ("map" | "filter" | "where"), [ UnaryLambda _; _ ]) -> true      // a stage of a chain
     | _ -> false
 
+/// The element type of a `seq<'T>` (what a parameter or a result says): a seq is a strict list at run time.
+let private seqElemType (t: Fable.Type) : Fable.Type option =
+    match t with
+    | Type.DeclaredType(ent, [ e ]) when ent.FullName = "System.Collections.Generic.IEnumerable`1" -> Some e
+    | _ -> None
+
 let private isInt32 (t: Fable.Type) = match t with Type.Number(NumberKind.Int32, _) -> true | _ -> false
 
 let private i64 (e: WExpr) = WExpr.Unary(WUnaryOp.ExtendI32S, e, WType.I64)
@@ -137,7 +143,8 @@ let rec private fuse (transform: TransformFn) (ctx: Ctx) (yieldTo: Yield) (e: Fa
         Some(range transform ctx yieldTo start step stop)
     | src ->
         match src.Type with
-        | Type.List _ ->
+        // a list, or a `seq<'T>` that no stage above explains (a parameter, the result of a function, `Seq.zip`): at run time both are a list
+        | Type.List _ | Type.DeclaredType _ when (match src.Type with Type.List _ -> true | t -> (seqElemType t).IsSome) ->
             tryListTypeInfo ctx src
             |> Option.map (fun (elemWT, consIdx) ->
                 listIter (LabelGen "fz") (mkListShape elemWT consIdx) (transform ctx src) yieldTo)
@@ -205,6 +212,8 @@ let trySeqFusionInline (transform: TransformFn) (ctx: Ctx) (call: Fable.Expr) : 
             |> Option.map (fun body -> WExpr.LetMut(acc, init, WExpr.Sequence [ body; accGet ]))
         let numeric (t: Fable.Type) = match mapTypeKnown ctx t with WType.I32 | WType.I64 | WType.F32 | WType.F64 as w -> Some w | _ -> None
         match stem, selector, args, call.Type with
+        // a `seq` that is a value (the result of a function, an argument, `Seq.delay` of a `seq { }`): a seq is a strict list, so it is what `Seq.toList` of it is, built by one loop
+        | "Seq", ("delay" | "singleton" | "empty" | "append" | "collect"), _, resultT when (seqElemType resultT).IsSome -> toList (seqElemType resultT).Value call
         // stages that materialise their result
         | ("List" | "Array"), ("map" | "filter" | "where"), [ UnaryLambda(_, f); src ], Type.List t when isProducer src && isPure f -> toList t call
         | ("List" | "Array"), ("map" | "filter" | "where"), [ UnaryLambda(_, f); src ], Type.Array(t, _) when isProducer src && isPure f -> toArray t call
