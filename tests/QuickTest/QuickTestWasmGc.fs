@@ -4201,3 +4201,17 @@ let testSeqZip () : int =
     let e = Seq.zip ([] : int list) [ 1; 2 ] |> Seq.length                                                   // 0
     let f = Seq.zip [ 1; 2 ] [ "p"; "q" ] |> Seq.toList |> List.map (fun (n, s) -> s + string n) |> String.concat ","   // p1,q2
     (if a = 140 then 1 else 0) + (if b = 21 then 10 else 0) + (if c = 6 then 100 else 0) + (if d = 4 then 1000 else 0) + (if e = 0 then 10000 else 0) + (if f = "p1,q2" then 100000 else 0)
+
+// Option.toList / Option.toArray of an option of any type: the base library's `toArray` is compiled for `int`, so an option of a string, a closure or a record gave a module that did not validate
+type OptBox = { N: int }
+
+let testOptionToList () : int =
+    let a = Option.toList (Some 5) |> List.sum                                                     // 5
+    let b = Option.toList (None : int option) |> List.length                                       // 0
+    let c = Option.toList (Some "abc") |> List.map (fun s -> s.Length) |> List.sum                 // 3
+    let d = Option.toList (None : string option) |> List.length                                    // 0
+    let e = Option.toList (Some (fun x -> x + 1)) |> List.map (fun f -> f 41) |> List.sum          // 42
+    let f = Option.toArray (Some { N = 7 }) |> Array.sumBy (fun r -> r.N)                          // 7
+    let g = Option.toArray (None : OptBox option) |> Array.length                                  // 0
+    let h = [ Some 1; None; Some 3 ] |> List.collect Option.toList |> List.sum                     // 4
+    (if a = 5 then 1 else 0) + (if b = 0 then 10 else 0) + (if c = 3 then 100 else 0) + (if d = 0 then 1000 else 0) + (if e = 42 then 10000 else 0) + (if f = 7 then 100000 else 0) + (if g = 0 then 1000000 else 0) + (if h = 4 then 10000000 else 0)

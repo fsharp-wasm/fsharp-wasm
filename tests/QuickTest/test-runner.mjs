@@ -949,6 +949,8 @@ console.log("\n─── Seq as a value, and Seq.zip ───\n");
 check("a seq that is a value: the result of a function, an argument, delay, singleton, empty, append", 11111, exp.testSeqAsValue());
 check("Seq.zip: lists of different lengths, arrays, a list with an array, seq values, an empty one", 111111, exp.testSeqZip());
 
+check("Option.toList / toArray of an int, a string, a closure and a record option, Some and None", 11111111, exp.testOptionToList());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

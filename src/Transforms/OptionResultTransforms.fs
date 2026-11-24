@@ -110,6 +110,22 @@ let tryOptionInline
                     makeIf wPred opt none ty)))
         | _ -> None
 
+    // Option.toArray (and through it Option.toList) — [||] for None, [| x |] for Some x.  The base library's `toArray` is one function compiled for `int`:
+    // an option of a string, a closure or a record has another representation, and a call that handed it one did not validate.
+    | "toArray", [optArg] ->
+        match optArg.Type with
+        | Type.Option(elemT, _) ->
+            let wOpt = transform ctx optArg
+            match exprWType wOpt with
+            | WType.Ref(optIdx, _) ->
+                let innerT = mapTypeKnown ctx elemT
+                let arrTy = WType.Ref(getOrAddArrayTypeFor ctx elemT innerT, false)
+                let arrIdx = match arrTy with WType.Ref(i, _) -> i | _ -> 0
+                Some(optBranch wOpt arrTy (arrayNewFixed arrIdx [] arrTy)
+                        (fun opt -> arrayNewFixed arrIdx [ unwrapSome opt optIdx innerT ] arrTy))
+            | _ -> None
+        | _ -> None
+
     // Option.defaultWith — None → thunk (), Some x → x
     // Fable emits:  LibCall "Option" "defaultArgWith" [opt; thunk]  (reversed order)
     | "defaultArgWith", [optArg; UnaryLambda(_, fbody)] ->

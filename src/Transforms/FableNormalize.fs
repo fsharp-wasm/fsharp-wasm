@@ -404,6 +404,18 @@ module FableNormalize =
     // Entry points
     // ─────────────────────────────────────────────────────────────────
 
+    /// `Option.toList o` reaches the backend as `List.ofArray (Option.toArray o)`, and Fable types that inner call as an array of the
+    /// whole result (`int list array` for an `int option`).  The array a call of `Option.toArray` gives is of the option's element
+    /// type, whoever calls it; the conversion to a list reads the element type off the array it is given.
+    let private optionToArrayType (e: Expr) : Expr =
+        match e with
+        | Call(Import({ Selector = "toArray"; Path = path } as imp, importType, importRange), ({ Args = [ arg ] } as info), Type.Array(_, kind), range)
+            when System.IO.Path.GetFileNameWithoutExtension path = "Option" ->
+            match arg.Type with
+            | Type.Option(elemT, _) -> Call(Import(imp, importType, importRange), info, Type.Array(elemT, kind), range)
+            | _ -> e
+        | _ -> e
+
     /// Normalise one function body. `paramNames` are bound by the caller (function arguments).
     let normalizeBody (paramNames: string list) (body: Expr) : Expr =
         let namer = UniqueNamer.Create(collectNames paramNames body, paramNames)
@@ -413,6 +425,7 @@ module FableNormalize =
         |> visitFromInsideOut beta
         |> inlinePure
         |> unalias
+        |> visitFromInsideOut optionToArrayType
 
     /// Apply `f paramNames body` to every function body of a declaration.
     let rec private mapBodies (f: string list -> Expr -> Expr) (decl: Declaration) : Declaration =
