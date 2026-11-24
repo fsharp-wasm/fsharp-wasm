@@ -94,7 +94,8 @@ expressions where they make writing and reading simpler, and fast (the generated
 ## 10. Licences
 
 Our own repositories are Apache-2.0; the forks keep the licence of their upstream. Anything taken in (an icon set, a CSS framework, a grid) must be compatible with Apache-2.0 (MIT, ISC,
-Apache-2.0, BSD), with its notice in `NOTICE` and the text in `licenses/`.
+Apache-2.0, BSD), with its notice in `NOTICE` and the text in `licenses/`. **Fonts** may be under the SIL Open Font License 1.1 (a font is a file the page serves, not code that is linked; the OFL allows use,
+embedding and redistribution with the font): the licence text goes in `licenses/`, the notice (name, copyright) in `NOTICE`, and the font is not sold on its own or renamed in a way the OFL forbids.
 
 ## 11. Documentation
 
