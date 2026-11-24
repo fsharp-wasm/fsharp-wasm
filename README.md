@@ -256,6 +256,15 @@ to support the development of F# on WebAssembly, please consider sponsoring the 
 Sponsorship supports the work across the organisation's repositories: the compiler and its tests, the base library and the hosts, the documentation,
 and the benchmarks and test infrastructure that let anyone check what is claimed.
 
+## Contributing
+
+Welcome. [CONTRIBUTING](https://github.com/fsharp-wasm/.github/blob/develop/CONTRIBUTING.md) is the organisation's guide and [AGENTS.md](AGENTS.md) says how the platform is worked on (the compiler comes first: a fault found here
+is fixed in the compiler, not worked around here).
+
+- **Run the tests:** `bash tests/run-all.sh` (all suites, about ten minutes); `bash tests/QuickTest/run.sh` for the main regression suite. [CONTRIBUTING.md](CONTRIBUTING.md) has the build.
+- **A good first contribution:** A program that does not compile, with its F# source, is the best report; each gap in [docs/STATUS.md](docs/STATUS.md) is a task. Issues labelled [`good first issue`](https://github.com/fsharp-wasm/fsharp-wasm/labels/good%20first%20issue) are the places to start.
+- **A change** goes to `develop` as a pull request, with a test that fails without it. Open an issue first for anything larger than a fix.
+
 ## License
 
 [Apache License 2.0](LICENSE) — Copyright 2025–2026 The fsharp-wasm contributors; see [NOTICE](NOTICE). The two forks it is built on, Fable and the F# compiler, keep their MIT License.
