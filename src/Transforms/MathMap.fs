@@ -121,8 +121,11 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) (unsigned: b
     // Transcendentals: software implementations in FSharp.Wasm.Core/Math/MathHelpers.fs (repository fsharp-wasm-core).
     // Emitted as plain calls; if MathHelpers.fs is not part of the compiled project the module
     // fails WAT/WASM validation (unknown function) instead of silently computing wrong values.
-    | ("exp" | "asin" | "acos" | "atan" | "atan2" | "sinh" | "cosh" | "tanh"), _, WType.F64 ->
-        WExpr.Call("MathHelpers_" + name, wArgs, WType.F64)
+    | ("exp" | "asin" | "acos" | "atan" | "atan2" | "sinh" | "cosh" | "tanh"), _, (WType.F64 | WType.F32) ->
+        let call args = WExpr.Call("MathHelpers_" + name, args, WType.F64)
+        // MathF: the double helper on the promoted arguments, its result demoted (as sin, cos and log do in TransformDispatch)
+        if ty = WType.F32 then WExpr.Unary(WUnaryOp.DemoteF64, call (wArgs |> List.map (fun a -> WExpr.Unary(WUnaryOp.PromoteF32, a, WType.F64))), WType.F32)
+        else call wArgs
     | _ ->
         // Never fabricate a value: a silent 0.0 is indistinguishable from a real result.
         eprintfn "[WasmGc] ERROR: unhandled Math call '%s' — emitting a trap (throws at runtime)" name

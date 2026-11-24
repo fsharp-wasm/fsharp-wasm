@@ -951,6 +951,8 @@ check("Seq.zip: lists of different lengths, arrays, a list with an array, seq va
 
 check("Option.toList / toArray of an int, a string, a closure and a record option, Some and None", 11111111, exp.testOptionToList());
 
+check("Math and MathF: asin, acos, atan, sinh, cosh, tanh agree with the exact values (double 1e-9, float 1e-6)", 4095, exp.testMathTranscendentals());
+
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -21,6 +21,8 @@
     <Compile Include="$(FSharpWasmCoreDir)/Collections/Map.fs" />
     <Compile Include="$(FSharpWasmCoreDir)/Collections/Set.fs" />
     <Compile Include="$(FSharpWasmCoreDir)/Collections/System.Collections.Generic.fs" />
+    <!-- the software transcendentals (asin, acos, atan, sinh, cosh, tanh) that the backend calls -->
+    <Compile Include="$(FSharpWasmCoreDir)/Math/MathHelpers.fs" />
     <Compile Include="QuickTestWasmGc.fs" />
   </ItemGroup>
 

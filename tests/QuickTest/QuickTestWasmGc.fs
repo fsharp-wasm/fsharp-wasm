@@ -4215,3 +4215,22 @@ let testOptionToList () : int =
     let g = Option.toArray (None : OptBox option) |> Array.length                                  // 0
     let h = [ Some 1; None; Some 3 ] |> List.collect Option.toList |> List.sum                     // 4
     (if a = 5 then 1 else 0) + (if b = 0 then 10 else 0) + (if c = 3 then 100 else 0) + (if d = 0 then 1000 else 0) + (if e = 42 then 10000 else 0) + (if f = 7 then 100000 else 0) + (if g = 0 then 1000000 else 0) + (if h = 4 then 10000000 else 0)
+
+// The inverse trigonometric and hyperbolic functions, for float and float32 (MathF): the float32 ones were a trap at run time ("unhandled Math call 'asin'")
+let private near (tolerance: float) (expected: float) (actual: float) : bool = abs (actual - expected) <= tolerance
+
+let testMathTranscendentals () : int =
+    let d = [ near 1e-9 0.5235987755982989 (System.Math.Asin 0.5)
+              near 1e-9 1.0471975511965979 (System.Math.Acos 0.5)
+              near 1e-9 0.7853981633974483 (System.Math.Atan 1.0)
+              near 1e-9 1.1752011936438014 (System.Math.Sinh 1.0)
+              near 1e-9 1.5430806348152437 (System.Math.Cosh 1.0)
+              near 1e-9 0.46211715726000974 (System.Math.Tanh 0.5) ]
+    let f = [ near 1e-6 0.5235987755982989 (float (System.MathF.Asin 0.5f))
+              near 1e-6 1.0471975511965979 (float (System.MathF.Acos 0.5f))
+              near 1e-6 0.7853981633974483 (float (System.MathF.Atan 1.0f))
+              near 1e-6 1.1752011936438014 (float (System.MathF.Sinh 1.0f))
+              near 1e-6 1.5430806348152437 (float (System.MathF.Cosh 1.0f))
+              near 1e-6 0.46211715726000974 (float (System.MathF.Tanh 0.5f)) ]
+    let bits (xs: bool list) = xs |> List.fold (fun acc ok -> acc * 2 + (if ok then 1 else 0)) 0
+    bits d * 64 + bits f                                              // 63 * 64 + 63 = 4095
