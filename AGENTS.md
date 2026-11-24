@@ -7,7 +7,7 @@ same commit as the work, so that the next session starts from it.
 The repositories (all under github.com/fsharp-wasm): **fsharp-wasm** (the compiler: F# to WebAssembly GC; the flagship), fsharp-wasm-core (the base library and the
 standard libraries: `FSharp.Wasm.Core`, `Data`, `Ui`, `Edit`), fsharp-wasm-graphics (scene graph, widgets), fsharp-glyph-aura (text shaping), fsharp-wasm-runtime
 (the browser runtime), fsharp-wasm-ide (the widget editor), fsharp-wasm-newsletter (the newsletter designer), fsharp-wasm-backend (server layer, Ghost / GGBP),
-fsharp-wasm-edge (the JS host and the platform adapters), fsharp-wasmecto (the test framework), fsharp-wasm.github.io (the site). The forks `fsharp` and `Fable`
+fsharp-wasm-edge (the JS host and the platform adapters), fsharp-wasm-accounting (the accounting grid), fsharp-wasm-sci (scientific computing; no code yet), fsharp-wasm-embedded (the universal shell: desktop and mobile hosts; the device probe), fsharp-wasm-mobile (the device APIs for iOS and Android, television later), fsharp-wasmecto (the test framework), fsharp-wasm.github.io (the site), `.github` (the organisation's defaults: profile, contributing, templates, owner scripts). The forks `fsharp` and `Fable`
 have their own rules (fork policy in the AGENTS.md of the Fable fork).
 
 ## 1. Talking to the maintainer

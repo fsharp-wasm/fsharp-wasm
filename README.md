@@ -112,19 +112,22 @@ at another checkout of fsharp-wasm-core.
 
 ### 2. Build
 
+The backend is built on a patched F# compiler (`vendor/fsharp`), which is built once; the steps, with the versions, are in [CONTRIBUTING.md](CONTRIBUTING.md):
+
 ```bash
-dotnet build src/Fable.WasmGc.fsproj
+(cd vendor/fsharp && mkdir -p artifacts && ./build/build.sh -c Release)
+export FSHARP_COMPILER="$PWD/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll"
+dotnet build src/WasmGc.fsproj -c Release
+dotnet build tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj -c Release
 ```
 
-This builds:
-- The WasmGC backend (`Fable.WasmGc.fsproj`)
-- All required Fable projects from `vendor/Fable` (`Fable.Compiler`, `Fable.Transforms`, …)
+This builds the WasmGC backend (`src/WasmGc.fsproj`, with the Fable projects of `vendor/Fable` it stands on) and the command-line tool.
 
 ### 3. Run tests
 
 ```bash
 bash tests/run-all.sh              # every suite, one summary table (--list, --only quicktest,showcase, --fail-fast)
-bash tests/QuickTest/run.sh        # the main regression suite: 675 tests
+bash tests/QuickTest/run.sh        # the main regression suite (706 tests on 2026-11-24)
 bash tests/Showcase/run.sh         # 26 end-to-end programs
 cd examples/component-embed && bash run.sh      # 39 checks
 cd examples/component-linking && bash run.sh    # 22 checks
@@ -213,7 +216,7 @@ src/
 └── Pipeline.fs                   # project → IR → .wat / .wasm → WIT
 
 core/                            # submodule: fsharp-wasm-core — FSharp.Wasm.Core, the F# base library
-tests/                            # twelve suites, run together by tests/run-all.sh
+tests/                            # the suites, run together by tests/run-all.sh
 examples/                         # Component model demos
 docs/                             # Documentation
 vendor/Fable/                     # Fable 5 with WasmGC patches

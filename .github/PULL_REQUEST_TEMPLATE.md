@@ -1,25 +1,15 @@
-## Description
+## What and why
 
-Brief description of what this PR does.
-
-## Changes
-
-- 
-- 
-- 
+What does this change, and why? (The reason matters more than the diff.)
 
 ## Testing
 
-- [ ] All QuickTests pass (`cd tests/QuickTest && bash run.sh`)
-- [ ] All Showcase tests pass (`cd tests/Showcase && bash run.sh`)
-- [ ] Component examples pass (`cd examples/component-embed && bash run.sh`)
-- [ ] Component linking passes (`cd examples/component-linking && bash run.sh`)
-- [ ] New tests added for new features (if applicable)
+- [ ] A test that **fails without** the change (`tests/QuickTest`, `QuickTestMulti` or a Dogfood suite), or: why there cannot be one
+- [ ] `bash tests/run-all.sh` passes (all suites)
+- [ ] `docs/STATUS.md` updated if a known gap closed or a new one was found
 
-## Related Issues
+## Related issues
 
 Fixes #
 
-## Notes
-
-Any additional context for reviewers.
+## Notes for reviewers

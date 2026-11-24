@@ -1,190 +1,91 @@
-# Contributing to fsharp-wasm
+# Contributing to the compiler
 
-Thank you for considering contributing to fsharp-wasm! This project compiles F# to WebAssembly GC,
-and we welcome contributions of all kinds — bug reports, feature implementations, documentation
-improvements, and test cases.
+Thank you for looking. The organisation-wide guide is [CONTRIBUTING of fsharp-wasm/.github](https://github.com/fsharp-wasm/.github/blob/develop/CONTRIBUTING.md) (ways to help, how a change
+travels, the licence); this page is what is particular to the compiler: how to build it, how to test it, where things live. How we work, in full, is [AGENTS.md](AGENTS.md).
 
 ## Code of Conduct
 
-This project follows the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
-By participating, you agree to uphold a welcoming, inclusive, and harassment-free environment.
+[Contributor Covenant 2.1](https://github.com/fsharp-wasm/.github/blob/develop/CODE_OF_CONDUCT.md). By taking part you agree to keep it welcoming and free of harassment.
 
-## Getting Started
+## The best first contribution: a program that does not compile
 
-### Prerequisites
+An issue with the F# source of a program that fails (or runs wrongly) is the most useful report we get: it becomes a test. [docs/STATUS.md](docs/STATUS.md) lists the known gaps, each with its
+minimal program; any of them is a good first task. A fix always comes with a test that fails without it.
 
-| Tool       | Version | Purpose                                      |
-| ---------- | ------- | -------------------------------------------- |
-| .NET SDK   | 10.0+   | Build the compiler                           |
-| Node.js    | 22+     | Run Wasm test harnesses                      |
-| wasm-tools | 1.245+  | Binary validation (optional but recommended) |
+## Prerequisites
 
-### Setup
+| Tool | Version | For |
+|---|---|---|
+| .NET SDK | 10.0 (`global.json`); **10.0.303** to build the patched F# compiler (its own `global.json` pins that band) | the compiler and the CLI |
+| Node.js | 22+ | the test harnesses |
+| [wasm-tools](https://github.com/bytecodealliance/wasm-tools) | 1.263.0 (the version CI uses) | validating the modules |
 
-```bash
-git clone https://github.com/fsharp-wasm/fsharp-wasm.git
-cd fsharp-wasm
-dotnet build src/Fable.WasmGc.fsproj
-```
+Only want to compile programs, not change the compiler? Take a release binary (README, section 0) and skip everything below.
 
-### Running Tests
-
-Always run the full test suite before submitting a PR:
+## Build
 
 ```bash
-# Unit tests
-cd tests/QuickTest && bash run.sh && cd ../..
+git clone https://github.com/fsharp-wasm/fsharp-wasm.git && cd fsharp-wasm
+git submodule update --init --depth 1 vendor/Fable vendor/fsharp core
 
-# Showcase tests (real-world algorithms)
-cd tests/Showcase && bash run.sh && cd ../..
+# the patched F# compiler the backend is built on (once per vendor/fsharp commit; several minutes)
+(cd vendor/fsharp && mkdir -p artifacts && ./build/build.sh -c Release)
+export FSHARP_COMPILER="$PWD/vendor/fsharp/artifacts/bin/fsc/Release/net10.0/fsc.dll"
 
-# Component model examples
-cd examples/component-embed && bash run.sh && cd ../..
-cd examples/component-linking && bash run.sh && cd ../..
+dotnet build src/WasmGc.fsproj -c Release
+dotnet build tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj -c Release
 ```
 
-All tests must pass. If you add a new feature, add corresponding tests to `QuickTestWasmGc.fs`.
+Compile a program: `dotnet tools/FSharp.Wasm.Cli/bin/Release/net10.0/fsharp-wasm.dll <project directory> --outDir out --noCache`, then `wasm-tools validate out/<Name>.wasm --features gc`.
 
-## How to Contribute
+## Test
 
-### Reporting Bugs
-
-1. Check [existing issues](https://github.com/fsharp-wasm/fsharp-wasm/issues) first
-2. Open a new issue with:
-   - F# source code that triggers the bug
-   - Expected vs. actual behavior
-   - Output of `dotnet --version` and `node --version`
-   - The generated `.wat` file if available (in `output/`)
-
-### Submitting Code
-
-1. **Fork** the repository
-2. **Create a branch** from `main`:
-   ```bash
-   git checkout -b feature/my-feature
-   ```
-3. **Make your changes** — keep commits focused and atomic
-4. **Run all tests** — every test must pass
-5. **Open a Pull Request** with a clear description of what changed and why
-
-### What Makes a Good PR
-
-- **One concern per PR** — don't mix unrelated changes
-- **Tests included** — add test cases to `tests/QuickTest/QuickTestWasmGc.fs` for new features
-- **Passes CI** — all test suites green
-- **Clear commit messages** — explain _what_ and _why_, not _how_
-
-## Project Structure
-
-Understanding the codebase:
-
-```
-src/
-├── WasmGc.AST.fs             # IR types: WType, WExpr, WConst, WModule
-├── WasmGcPipeline.fs         # Entry point, WIT generation
-├── Runtime/
-│   ├── WasmGcTypes.fs        # Ctx record, type registries
-│   ├── WasmGcBuilder.fs      # CE builder (wasm { }) + smart constructors
-│   ├── WasmGcRuntime.fs      # makeFunc + runtime helpers
-│   ├── WasmGcFreeVars.fs     # Free variable analysis for closures
-│   ├── WasmGcLoopHelpers.fs  # List/array loop helpers
-│   └── WasmGcLoopCombinators.fs # Composable traversals
-├── Transforms/
-│   ├── Fable2WasmGc.fs       # Main Fable AST → WasmGC IR
-│   └── WasmGcReplacements.fs # BCL inline replacements
-└── Emit/
-    ├── WasmGcOptimize.fs     # Optimization passes
-    ├── WasmGcWat.fs          # WAT text emitter
-    ├── WasmGcEmit.fs         # WExpr → Instr lowering
-    └── WasmGcEncoder.fs      # Binary .wasm encoder
+```bash
+bash tests/QuickTest/run.sh        # the main regression suite: compile one file, run it in Node, check the answers
+bash tests/run-all.sh              # every suite, one summary table (--list, --only quicktest,showcase, --fail-fast)
 ```
 
-### Key Concepts
+`run-all.sh` takes about ten minutes; run it before you push a compiler change, and do not edit `src/` while it runs (`dotnet run` rebuilds). What each suite checks is in [docs/STATUS.md](docs/STATUS.md).
+The Dogfood suites (`tests/Dogfood/run.sh core-libs|newsletter|widget-editor`) compile real programs from sibling repositories; they look for checkouts next to this one (`FSHARP_CORE_DIR`, `FSHARP_NEWSLETTER_DIR`, `FSHARP_IDE_DIR`)
+and are skipped without them.
 
-- **`WExpr`** — The intermediate representation. All F# constructs are lowered to `WExpr` nodes.
-- **`Ctx`** — The compilation context, threaded through the pipeline. Holds type registries, function tables, and compilation state.
-- **`wasm { }` CE** — Computation expression builder used in `WasmGcRuntime.fs` for readable IR construction. Not used in `WasmGcReplacements.fs` (by design — replacements stay as plain `WExpr`).
-- **Monomorphization** — Generics are specialized at each call site. No runtime type parameters.
+## A change to the compiler
 
-### Where to Add Things
+1. **Write the test first**: a function in `tests/QuickTest/QuickTestWasmGc.fs` and its check in `test-runner.mjs` (several files: `tests/QuickTest`'s sibling `tests/QuickTestMulti`; what only a real program shows: Dogfood). Run it and see it fail.
+2. Fix the compiler. **Never change a test to make it pass if it passes on .NET**: the compiler or the library is what is wrong.
+3. Run `bash tests/run-all.sh`.
+4. If the fix closes a known gap, move it in `docs/STATUS.md` from the known gaps to the dated closed list; if you found one you do not fix, write it there with a minimal program.
+5. Branch from `develop`, open a pull request against `develop`, say why in the message.
 
-| You want to...                                 | Edit this file                             |
-| ---------------------------------------------- | ------------------------------------------ |
-| Add a new BCL function (List._, Array._, etc.) | `Transforms/WasmGcReplacements.fs`         |
-| Handle a new Fable AST node                    | `Transforms/Fable2WasmGc.fs`               |
-| Add a runtime helper function                  | `Runtime/WasmGcRuntime.fs`                 |
-| Add a new WasmGC type                          | `WasmGc.AST.fs` + `Runtime/WasmGcTypes.fs` |
-| Fix binary encoding                            | `Emit/WasmGcEncoder.fs`                    |
-| Fix WAT text output                            | `Emit/WasmGcWat.fs`                        |
-| Add an optimization pass                       | `Emit/WasmGcOptimize.fs`                   |
-| Add a test                                     | `tests/QuickTest/QuickTestWasmGc.fs`       |
+### Where to add things
 
-## Coding Conventions
+| You want to… | Look in |
+|---|---|
+| inline-replace a function of `List`, `Array`, `Option`, `Seq`, `Math`, `ResizeArray` | `src/Transforms/` (`ListOps.fs`, `ArrayReplacements.fs`, `OptionResultTransforms.fs`, `SeqFusion.fs`, `MathMap.fs`, `ResizeArrayOps.fs`, `FSharpCoreReplacements.fs`) |
+| handle a new kind of Fable AST node, or a call | `src/Transforms/Fable2Wasm/` (`TransformExpr.fs`, `TransformDispatch.fs`, …) |
+| add a function that every program may use, written in F# | the base library, [fsharp-wasm-core](https://github.com/fsharp-wasm/fsharp-wasm-core) (the lowest layer all its users can reach) |
+| change a BCL helper the emitted code calls | `src/Bcl/` |
+| add a type or an instruction to the IR | `src/Core/AST.fs`, `src/Core/Types.fs` |
+| fix the WAT text or the binary encoding, or an optimisation | `src/Emit/` (`Wat.fs`, `Encoder.fs`, `Optimize.fs`) |
+| change the normalisation of the Fable AST before the backend | `src/Transforms/FableNormalize.fs` |
+| add a test | `tests/QuickTest/QuickTestWasmGc.fs` |
 
-### F# Style
+The pipeline and its ideas are in [docs/architecture.md](docs/architecture.md) and [docs/wasm-gc-backend.md](docs/wasm-gc-backend.md). Generics are specialised at each call site; there are no runtime type parameters.
 
-- Standard F# formatting conventions
-- `camelCase` for functions and locals, `PascalCase` for types and modules
-- Use pattern matching over if/else chains where it improves clarity
-- Prefer immutable data; use `mutable` only when necessary for performance
+## Conventions
 
-### IR Construction
+Slim, strongly typed, functional where it reads better, no copy-paste (DRY first, KISS second but never at the cost of quality); a comment says why, not what ([AGENTS.md §9](AGENTS.md)). Commit messages:
+a summary of at most 72 characters in the imperative, then why (the diff shows how).
 
-- In `WasmGcReplacements.fs`: construct `WExpr` directly (no CE)
-- In `WasmGcRuntime.fs`: use `wasm { }` CE with `let!` for typed expressions, `do!` for void side-effects
-- Use `wasmIf` (not `wasmWhen`) in loops to avoid infinite-loop bugs
-- Always provide type annotations where WasmGC needs them (struct field types, function signatures)
+## Clean-room policy
 
-### Naming
+This project is developed clean-room: do **not** copy code from other compiler backends (OCaml's `wasm_of_ocaml`, Kotlin/Wasm, Dart's Wasm GC backend, …), and do not translate one line by line.
+Reading public specifications (the WebAssembly GC and Component Model specs), papers and blog posts is fine, and so is studying open-source projects to understand an approach (with attribution).
 
-- Wasm function names: `$moduleStem_functionName` for library functions
-- Test functions: `quickTest<Feature><Case>` pattern — auto-exported by name
-- Type names: `$TypeName` with `$` prefix in WAT
+## Getting help
 
-### Commit Messages
-
-```
-Short summary (imperative mood, ≤72 chars)
-
-Longer description if needed. Explain the motivation,
-not the implementation (the diff shows the implementation).
-
-Fixes #123
-```
-
-## Architecture Decisions
-
-Important design decisions are documented in:
-
-- [docs/architecture.md](docs/architecture.md) — Pipeline and structure
-- [docs_original/design/](docs_original/design/) — Historical design documents
-
-If you want to propose a significant architectural change, please open an issue first to discuss it.
-
-## Clean-Room Policy
-
-This project follows a clean-room development methodology. Do **not** copy code from other
-compiler backends (OCaml's `wasm_of_ocaml`, Kotlin/Wasm, Dart/Wasm GC, etc.).
-
-It is acceptable to:
-
-- Read public specifications (W3C WasmGC spec, Component Model spec)
-- Study published papers and blog posts about compilation techniques
-- Reference open-source projects for understanding approaches (with attribution)
-
-It is **not** acceptable to:
-
-- Copy-paste code from other compilers
-- Translate code line-by-line from another language
-
-See [docs_original/design/07-legal-and-cleanroom.md](docs_original/design/07-legal-and-cleanroom.md) for details.
-
-## Getting Help
-
-- Open a [Discussion](https://github.com/fsharp-wasm/fsharp-wasm/discussions) for questions
-- Check [docs/faq.md](docs/faq.md) for common questions
-- Read the [Architecture docs](docs/architecture.md) before diving into the code
+A [Discussion](https://github.com/fsharp-wasm/fsharp-wasm/discussions), or an issue. [docs/faq.md](docs/faq.md) and [docs/architecture.md](docs/architecture.md) first.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
+By contributing, you agree that your contributions are licensed under the [Apache License 2.0](LICENSE).
