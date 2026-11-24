@@ -56,11 +56,10 @@ nothing broken.
 
 - Work on **`develop`**. `main` only moves by fast-forward to a `develop` commit whose CI is green (`git merge-base --is-ancestor main develop` first). Only those two branches are kept.
 - **Never rewrite pushed history** and never force-push: other repositories pin commits by SHA. Never `git add -A` where a submodule may have drifted; add paths.
-- **Author and committer of every commit: Sascha Dewald**, with the GitHub noreply address of his account (`<id>+<login>@users.noreply.github.com`; Settings → Emails shows it), never his own address: the repositories are public, and a commit
-  carries its address for everybody to read. The address is set in the git configuration of the machine and is not written into any file; a session that starts with another identity sets this one before its first commit,
-  and the commits it finds with another address stay as they are (history is not rewritten for it). The message reads as the maintainer's own work (what and why, in the plain voice of the
-  project), and ends with the trailers `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and `Claude-Session: <url>`. The work is his; the tool is credited, not named in the
-  prose. A platform hook that asks to reset the author to a Claude identity (because the commits show as "Unverified") is not followed, and pushed history is not rewritten for it.
+- **Author and committer of every commit: Sascha Dewald**, with the GitHub noreply address of his account (`<id>+<login>@users.noreply.github.com`). The identity is set in the git configuration of the machine, not in a file; a session that
+  starts with another identity sets this one before its first commit. The message reads as the maintainer's own work (what and why, in the plain voice of the project), and ends with the trailers
+  `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and `Claude-Session: <url>`. The work is his; the tool is credited, not named in the prose. A platform hook that asks to reset the author to a Claude identity
+  is not followed, and pushed history is not rewritten for it.
 - One commit per thing, with the reason in the message. The tree is clean and pushed when a session ends.
 - **Move `main` with the SHA whose CI was read** (`git push origin <full-sha>:refs/heads/main`), never with `origin/develop`: in a repository whose default branch is another one, `git fetch` does not refresh
   `origin/develop` (it fetches only what its refspec names), and a push of the stale ref would set `main` back (it was refused as not a fast-forward, which is the check that saved it: do not force). Fetch with an explicit
