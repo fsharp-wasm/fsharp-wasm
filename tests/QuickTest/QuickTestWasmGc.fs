@@ -4325,6 +4325,33 @@ type PointShape =
     | Dot
     | Circle of float
 
+// A local `let rec` function handed to a list function inside its own body (`cs |> List.sumBy size`): it is a closure that refers to itself
+type RoseTree =
+    | Leaf
+    | Branch of RoseTree list
+    | Wrapped of RoseTree
+
+let testLocalRecAsValue () : int =
+    let rec size (t: RoseTree) : int =
+        match t with
+        | Leaf -> 1
+        | Branch cs -> cs |> List.sumBy size
+        | Wrapped c -> size c
+    let a = size (Branch [ Leaf; Branch [ Leaf; Leaf ]; Wrapped Leaf ]) = 4
+    let rec depth (t: RoseTree) : int =
+        match t with
+        | Leaf -> 0
+        | Branch cs -> 1 + (cs |> List.map depth |> List.fold max 0)
+        | Wrapped c -> 1 + depth c
+    let b = depth (Branch [ Leaf; Branch [ Wrapped Leaf ] ]) = 3
+    // the same with a named function for the other list functions that inline a lambda
+    let weight (x: int) : int = x * 3
+    let c = [ 1; 2; 3 ] |> List.sumBy weight = 18
+    let d = [ 5; 9; 2 ] |> List.maxBy weight = 9 && [ 5; 9; 2 ] |> List.minBy weight = 2
+    let step (x: int) (acc: int) : int = acc * 10 + x
+    let e = List.foldBack step [ 1; 2; 3 ] 0 = 321
+    (if a then 1 else 0) + (if b then 10 else 0) + (if c then 100 else 0) + (if d then 1000 else 0) + (if e then 10000 else 0)    // 11111
+
 // Char.IsControl: the control characters of Unicode (U+0000..U+001F, U+007F..U+009F), which the toolkit's text field has to tell from text (unhandled import call 'isControl')
 let testCharIsControl () : int =
     let a = System.Char.IsControl '\n' && System.Char.IsControl '\t' && System.Char.IsControl '\000'

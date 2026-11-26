@@ -359,8 +359,7 @@ let tryListFoldBackInline
         (fableArgs: Fable.Expr list)
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
-    | "foldBack", [(Fable.Expr.Lambda(farg, Fable.Expr.Lambda(sacc, fbody, _), _)
-                 | Fable.Expr.Delegate([farg; sacc], fbody, _, _)); listArg; initArg] ->
+    | "foldBack", [BinaryLambda(farg, sacc, fbody); listArg; initArg] ->
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s       = mkListShape elemT consIdx
@@ -385,7 +384,7 @@ let tryListSumByInline
         (fableArgs: Fable.Expr list)
         (resultFableType: Fable.Type) : WExpr option =
     match selector, fableArgs with
-    | "sumBy", ((Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)) :: listArg :: _) ->
+    | "sumBy", (UnaryLambda(farg, fbody) :: listArg :: _) ->
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->
             let s       = mkListShape elemT consIdx
@@ -406,8 +405,7 @@ let tryListMinMaxByInline
         (selector: string)
         (fableArgs: Fable.Expr list) : WExpr option =
     match selector, fableArgs with
-    | (("minBy" | "maxBy") as sel),
-      ((Fable.Expr.Lambda(farg, fbody, _) | Fable.Expr.Delegate([farg], fbody, _, _)) :: listArg :: _) ->
+    | (("minBy" | "maxBy") as sel), (UnaryLambda(farg, fbody) :: listArg :: _) ->
         let isMin = sel = "minBy"
         match tryListTypeInfo ctx listArg with
         | Some(elemT, consIdx) ->

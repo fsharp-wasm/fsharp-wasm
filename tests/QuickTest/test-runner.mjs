@@ -958,6 +958,7 @@ check("Trim, TrimStart and TrimEnd with a character", 111111, exp.testTrimChars(
 check("an array pattern over an array of unions ([| A x |], [| A x; A y |], another case, empty)", 1172, exp.testArrayPatternOfUnions());
 check("string and ToString() of a union case without fields", 11111, exp.testUnionToString());
 check("Char.IsControl: U+0000..U+001F and U+007F..U+009F", 11111, exp.testCharIsControl());
+check("a local let rec function used as a value in its own body (List.sumBy size, List.map depth), and List.sumBy / maxBy / minBy / foldBack with a named function", 11111, exp.testLocalRecAsValue());
 check("a record with fields of a class type that start as null, are set, and are copied with null", 11111, exp.testRecordFieldNull());
 
 console.log(`\n────────────────────────────────────────────────`);
