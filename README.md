@@ -277,6 +277,9 @@ and the benchmarks and test infrastructure that let anyone check what is claimed
 1. **10 sponsors:** incorporating the organisation, and live deployments of the edge host on Cloudflare, Vercel and Netlify.
 2. **$2 500 a month:** the Component Model work (WIT interfaces to Rust crates) and the native desktop shell.
 3. **$5 000 a month and up:** focused work on the device APIs for iOS and Android and on the accessible GUI framework.
+4. **$7 500:** dashboards and SCADA (instruments, process diagrams, alarms, gateways for OPC UA, MQTT and Modbus).
+5. **$10 000:** data science and simulation (tables, tensors, the table operations of the data graph, the science libraries).
+6. **$12 500 and up:** the editors, WasmOS as processes, and the documentation with a generated API reference.
 
 ## Contributing
 
