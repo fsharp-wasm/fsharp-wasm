@@ -177,10 +177,20 @@ let rec processDecl (ctx: Ctx) (decl: Declaration) : Ctx =
             // element type, …), and those must not take the index the registry already hands out
             ctx.TypeDefs.Add({ Name = classDecl.Entity.FullName; Def = WTypeDef.Struct([], None) })
             let ctx' = ctx.WithTypeEntry(classDecl.Entity.FullName, typeIdx)
+            // A field of a class type may be null (`{ Next = null }`, a collection that is made later): it is stored nullable, as the fields of a class are, and read back as the type the program
+            // declared.  Records, unions, structs and interfaces cannot be null, so their fields stay as they are.
+            let admitsNull (t: Fable.Type) =
+                match t with
+                | Fable.Type.DeclaredType(entRef, _) ->
+                    let e = ctx'.Compiler.GetEntity(entRef)
+                    not (e.IsFSharpRecord || e.IsFSharpUnion || e.IsFSharpExceptionDeclaration || e.IsValueType || e.IsInterface || e.IsMeasure || e.IsFSharpAbbreviation || e.IsFSharpModule)
+                | Fable.Type.Array _ -> true      // arrays and ResizeArray<T>
+                | _ -> false
             let fields =
                 ent.FSharpFields
                 |> List.map (fun f ->
-                    { Name = f.Name; Type = mapTypeKnown ctx' f.FieldType; Mutable = f.IsMutable })
+                    let ty = match mapTypeKnown ctx' f.FieldType with WType.Ref(i, false) when admitsNull f.FieldType -> WType.Ref(i, true) | t -> t
+                    { Name = f.Name; Type = ty; Mutable = f.IsMutable })
             ctx.TypeDefs.[typeIdx] <- { Name = classDecl.Entity.FullName; Def = WTypeDef.Struct(fields, None) }
             let ctx'' =
                 (ctx', classDecl.AttachedMembers)

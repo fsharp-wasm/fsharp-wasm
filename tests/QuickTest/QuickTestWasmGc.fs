@@ -4292,3 +4292,25 @@ let private patHead (a: PatV[]) : int =
 let testArrayPatternOfUnions () : int =
     patHead [| PN 2.0 |] + patHead [| PN 3.0; PN 4.0 |] * 10 + (if patHead [| PT "a" |] = -1 then 100 else 0) + (if patHead [||] = -1 then 1000 else 0)    // 2 + 70 + 100 + 1000
 
+
+// A record whose field is of a class type that is null at first: `{ Reading = null }` stored a null in a field the record had declared non-null (the module did not validate: "expected (ref $T), found (ref null $T)")
+[<AllowNullLiteral>]
+type NullLink(value: int) =
+    member _.Value = value
+
+type NullHolder =
+    { Id: int
+      mutable Items: System.Collections.Generic.List<int>
+      mutable Link: NullLink
+      Name: string }
+
+let testRecordFieldNull () : int =
+    let h = { Id = 1; Items = null; Link = null; Name = "a" }
+    let before = (if isNull h.Items then 1 else 0) + (if isNull h.Link then 10 else 0)
+    h.Items <- System.Collections.Generic.List<int>()
+    h.Items.Add 7
+    h.Items.Add 8
+    h.Link <- NullLink(5)
+    let after = (if not (isNull h.Items) && h.Items.Count = 2 then 100 else 0) + (if not (isNull h.Link) && h.Link.Value = 5 then 1000 else 0)
+    let copy = { h with Link = null }
+    before + after + (if isNull copy.Link && copy.Items.Count = 2 then 10000 else 0)    // 11111

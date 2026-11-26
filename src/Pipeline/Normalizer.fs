@@ -139,7 +139,11 @@ let rec normalizeExpr (expr: WExpr) : WExpr =
         WExpr.Cast(normalizeExpr obj, ty)
 
     | WExpr.RefIsNull(obj) ->
-        WExpr.RefIsNull(normalizeExpr obj)
+        // a field that is stored nullable is read back through a cast to the non-null type the program declared; `isNull` of it is the test of the field itself
+        // (the cast of a null would trap, and an `isNull` never fails)
+        match normalizeExpr obj with
+        | WExpr.Cast(inner, WType.Ref(_, false)) when (match WasmGc.Runtime.Types.exprWType inner with WType.Ref(_, true) -> true | _ -> false) -> WExpr.RefIsNull inner
+        | n -> WExpr.RefIsNull n
 
     | WExpr.RefTest(obj, typeIdx) ->
         WExpr.RefTest(normalizeExpr obj, typeIdx)

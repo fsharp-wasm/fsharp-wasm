@@ -956,6 +956,7 @@ check("Double.IsNaN, IsInfinity, IsPositiveInfinity and IsNegativeInfinity, for 
 check("a list / array comprehension over a HashSet and a Dictionary (with a TryGetValue match inside, and nested)", 1111, exp.testComprehensionOverCollections());
 check("Trim, TrimStart and TrimEnd with a character", 111111, exp.testTrimChars());
 check("an array pattern over an array of unions ([| A x |], [| A x; A y |], another case, empty)", 1172, exp.testArrayPatternOfUnions());
+check("a record with fields of a class type that start as null, are set, and are copied with null", 11111, exp.testRecordFieldNull());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);
