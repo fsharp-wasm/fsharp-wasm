@@ -173,6 +173,18 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
         run: cd examples/component-linking && bash run.sh
 
+      # Get Started: the starter that `dotnet new fsharp-wasm` makes is compiled by the CLI built here and run by Node, so that the first
+      # thing a newcomer does cannot be broken without this job saying so.
+      - name: Get Started (examples/hello-wasm)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: |
+          dotnet run -c Release --project tools/FSharp.Wasm.Cli -- examples/hello-wasm --outDir examples/hello-wasm/out --noCache
+          wasm-tools validate examples/hello-wasm/out/Hello.wasm --features gc
+          cd examples/hello-wasm && node run.mjs | tee run.txt
+          grep -q "fibonacci 10          = 55" run.txt && grep -q "sum of odd squares 9  = 165" run.txt
+
       # Wasmecto, the test framework compiled to WasmGC, and the project written with it (tests/Wasm, run in Node).
       # fsharp-wasmecto is pinned to a commit, like the repositories the backend CI checks out.
       - name: Check out fsharp-wasmecto

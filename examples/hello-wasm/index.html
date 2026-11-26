@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hello, WebAssembly GC</title>
+  <style>body { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem } code { background: #f2f2f6; padding: .1em .3em; border-radius: 4px }</style>
+</head>
+<body>
+  <h1>Hello, WebAssembly GC</h1>
+  <p>F# compiled to <code>out/Hello.wasm</code>, run by this page. Open the DevTools to see the module: it is a few hundred bytes.</p>
+  <ul id="results"></ul>
+  <script type="module">
+    const { instance } = await WebAssembly.instantiateStreaming(fetch("out/Hello.wasm"), {});
+    const { fibonacci, isPrime, sumOfSquaresOfOdds } = instance.exports;
+    const rows = [
+      ["fibonacci 10", fibonacci(10)],
+      ["isPrime 97", Boolean(isPrime(97))],
+      ["isPrime 100", Boolean(isPrime(100))],
+      ["sum of the squares of the odd numbers up to 9", sumOfSquaresOfOdds(9)],
+    ];
+    document.getElementById("results").innerHTML = rows.map(([k, v]) => `<li>${k} = <b>${v}</b></li>`).join("");
+  </script>
+</body>
+</html>

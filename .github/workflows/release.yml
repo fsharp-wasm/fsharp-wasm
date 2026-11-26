@@ -72,6 +72,8 @@ jobs:
         run: |
           dotnet pack src/WasmGc.fsproj -c Release -p:Version=${{ steps.version.outputs.value }} -o publish/nuget
           dotnet pack tools/FSharp.Wasm.Cli/FSharp.Wasm.Cli.fsproj -c Release -p:Version=${{ steps.version.outputs.value }} -o publish/nuget
+          # the dotnet new template (examples/hello-wasm is its content)
+          dotnet pack tools/FSharp.Wasm.Templates/FSharp.Wasm.Templates.csproj -c Release -p:Version=${{ steps.version.outputs.value }} -o publish/nuget
 
       - name: Self-contained CLI binaries (with FSharp.Wasm.Core beside them)
         env:
@@ -101,6 +103,23 @@ jobs:
           "$d/fsharp-wasm" tests/QuickTest --outDir tests/QuickTest/output --noCache
           wasm-tools validate tests/QuickTest/output/QuickTestWasmGc.wasm --features gc
           node tests/QuickTest/test-runner.mjs
+
+      # Get Started as a stranger does it: the packed tool and the packed template installed from the files that would be published, into an empty HOME and
+      # NuGet cache, a project made with `dotnet new`, compiled, validated and run by Node.  A tag whose packages cannot do that publishes nothing.
+      - name: Smoke test of the tool and the template (Get Started)
+        run: |
+          set -e
+          export HOME="$RUNNER_TEMP/stranger" NUGET_PACKAGES="$RUNNER_TEMP/stranger-nuget" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          unset FSHARP_COMPILER
+          mkdir -p "$HOME" "$RUNNER_TEMP/stranger-work"; cd "$RUNNER_TEMP/stranger-work"
+          dotnet tool install FSharp.Wasm.Cli --tool-path "$RUNNER_TEMP/stranger-tools" --add-source "$GITHUB_WORKSPACE/publish/nuget" --version "${{ steps.version.outputs.value }}"
+          dotnet new install "$GITHUB_WORKSPACE/publish/nuget/FSharp.Wasm.Templates.${{ steps.version.outputs.value }}.nupkg"
+          dotnet new fsharp-wasm -n hello
+          cd hello
+          "$RUNNER_TEMP/stranger-tools/fsharp-wasm" . --outDir out
+          wasm-tools validate out/hello.wasm --features gc
+          node run.mjs | tee run.txt
+          grep -q "fibonacci 10          = 55" run.txt
 
       - name: Publish to NuGet.org
         if: github.ref_type == 'tag' && env.NUGET_API_KEY != ''

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The `dotnet new` templates of fsharp-wasm: `dotnet new install FSharp.Wasm.Templates`, then `dotnet new fsharp-wasm -n hello`.
+       The content is examples/hello-wasm itself (one copy: what the template makes is what CI compiles and runs). -->
+  <PropertyGroup>
+    <PackageType>Template</PackageType>
+    <PackageId>FSharp.Wasm.Templates</PackageId>
+    <Title>F# to WebAssembly GC: templates</Title>
+    <Description>dotnet new templates for fsharp-wasm: an F# file compiled to a WebAssembly GC module, run by Node and by a web page.</Description>
+    <Authors>fsharp-wasm</Authors>
+    <PackageTags>fsharp;webassembly;wasm;wasmgc;template</PackageTags>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://fsharp-wasm.github.io</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/fsharp-wasm/fsharp-wasm</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <NoWarn>$(NoWarn);NU5128;NU5110;NU5111</NoWarn>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="../../examples/hello-wasm/**/*"
+             Exclude="../../examples/hello-wasm/bin/**;../../examples/hello-wasm/obj/**;../../examples/hello-wasm/out/**"
+             PackagePath="content/hello-wasm/%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

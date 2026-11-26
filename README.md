@@ -82,7 +82,20 @@ Programs that do not compile yet, measured while writing tests (the full, dated 
 
 ## Quick Start
 
-### Prerequisites
+Four commands, with the [.NET 10 SDK](https://dotnet.microsoft.com/download) and [Node.js 22+](https://nodejs.org/) installed:
+
+```bash
+dotnet tool install -g FSharp.Wasm.Cli --prerelease     # the compiler, once
+dotnet new install FSharp.Wasm.Templates                # the starter, once
+dotnet new fsharp-wasm -n hello && cd hello             # hello.fs, run.mjs (Node), index.html (a web page)
+fsharp-wasm . --outDir out && node run.mjs              # hello.fs -> out/hello.wasm (a few hundred bytes), run by Node
+```
+
+The starter is [`examples/hello-wasm`](examples/hello-wasm); CI compiles and runs it on every push, and the release workflow runs the whole path above, from the packed tool and the packed
+template into an empty HOME, before it publishes anything. Without the .NET tool: `curl -fsSL https://raw.githubusercontent.com/fsharp-wasm/fsharp-wasm/main/scripts/install.sh | sh`
+installs a release binary (Linux, macOS; checked against `SHA256SUMS`).
+
+### Prerequisites (to build the compiler yourself)
 
 - [.NET SDK 10.0+](https://dotnet.microsoft.com/download) (see `global.json`)
 - [Node.js 22+](https://nodejs.org/) (for running tests)
@@ -147,7 +160,8 @@ Pushing a `v*` tag runs `.github/workflows/release.yml` and publishes GitHub Rel
 - a `Fable.WasmGc-net10.0.zip` build of the backend DLLs
 - a `Fable.WasmGc` NuGet package (`.nupkg`)
 
-NuGet upload is wired into the release workflow and stays skipped until the `NUGET_API_KEY` secret is configured.
+The release workflow also packs the compiler as a .NET tool (`FSharp.Wasm.Cli`) and the `dotnet new` template (`FSharp.Wasm.Templates`), proves both from an empty HOME and NuGet cache (install,
+`dotnet new`, compile, validate, run on Node), and only then publishes. NuGet upload is wired in and stays skipped until the `NUGET_API_KEY` secret is configured.
 
 ### Compile Your Own F# Project
 
