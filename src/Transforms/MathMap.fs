@@ -118,6 +118,20 @@ let dispatchMathCall (name: string) (wArgs: WExpr list) (ty: WType) (unsigned: b
                 (i32Const 1)
                 (wasmIf (ltS tmp (i32Const 0)) (i32Const (-1)) (i32Const 0))
         }
+    // Double.IsNaN / IsInfinity / IsPositiveInfinity / IsNegativeInfinity (float and float32): comparisons on the value, no helper.  NaN is the one value that is not equal to itself.
+    | ("isNaN" | "isInfinity" | "isPositiveInfinity" | "isNegativeInfinity"), [arg], _
+        when (match exprWType arg with WType.F64 | WType.F32 -> true | _ -> false) ->
+        let t = exprWType arg
+        let infinity (v: float) = if t = WType.F32 then WExpr.Const(WConst.F32(float32 v)) else WExpr.Const(WConst.F64 v)
+        wasm {
+            let! x = arg
+            return
+                match name with
+                | "isNaN" -> WExpr.Compare(WCompareOp.Ne, x, x)
+                | "isPositiveInfinity" -> WExpr.Compare(WCompareOp.Eq, x, infinity System.Double.PositiveInfinity)
+                | "isNegativeInfinity" -> WExpr.Compare(WCompareOp.Eq, x, infinity System.Double.NegativeInfinity)
+                | _ -> WExpr.Compare(WCompareOp.Eq, WExpr.Unary(WUnaryOp.Abs, x, t), infinity System.Double.PositiveInfinity)
+        }
     // Transcendentals: software implementations in FSharp.Wasm.Core/Math/MathHelpers.fs (repository fsharp-wasm-core).
     // Emitted as plain calls; if MathHelpers.fs is not part of the compiled project the module
     // fails WAT/WASM validation (unknown function) instead of silently computing wrong values.

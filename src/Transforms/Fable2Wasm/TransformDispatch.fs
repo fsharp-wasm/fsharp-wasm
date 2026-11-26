@@ -458,7 +458,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
 
     // Math helpers imported from fable-library/Double.js, Util.js etc.
     // Route these through dispatchMathCall so they get proper WasmIR.
-    | ("abs" | "min" | "max" | "clamp" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest"), _, _ ->
+    | ("abs" | "min" | "max" | "clamp" | "round" | "sign" | "sqrt" | "floor" | "ceiling" | "ceil" | "trunc" | "truncate" | "nearest" | "isInfinity" | "isPositiveInfinity" | "isNegativeInfinity"), _, _ ->
         // Fable's `sign` library function is int-typed, so it wraps a float argument in a cast to int32; a float
         // must keep its value (sign 0.5 = 1)
         let wArgs =
@@ -1230,6 +1230,9 @@ let private transformCallCore
             WExpr.Unary(WUnaryOp.Clz, List.head wArgs, WType.I32)
         | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Math" }, GetKind.FieldGet fi, _, _) ->
             dispatchMathCall fi.Name wArgs ty (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type))
+        // Double.IsNaN is `Number.isNaN` in Fable's output
+        | Fable.Expr.Get(Fable.Expr.IdentExpr { Name = "Number" }, GetKind.FieldGet fi, _, _) when fi.Name = "isNaN" ->
+            dispatchMathCall fi.Name wArgs ty false
         // ── String instance methods: indexOf, startsWith, endsWith, substring ──────
         // These come as Get(strExpr, FieldGet "indexOf") callee with args=[needle].
         // We intercept before the general FieldGet handler.

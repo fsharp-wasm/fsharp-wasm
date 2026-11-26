@@ -4234,3 +4234,19 @@ let testMathTranscendentals () : int =
               near 1e-6 0.46211715726000974 (float (System.MathF.Tanh 0.5f)) ]
     let bits (xs: bool list) = xs |> List.fold (fun acc ok -> acc * 2 + (if ok then 1 else 0)) 0
     bits d * 64 + bits f                                              // 63 * 64 + 63 = 4095
+
+// Double.IsNaN, IsInfinity, IsPositiveInfinity and IsNegativeInfinity, for float and float32: they were "member 'isNaN' of Any" and an unhandled import, and the module did not compile
+let testFloatPredicates () : int =
+    let nan' = System.Double.NaN
+    let inf = System.Double.PositiveInfinity
+    let d = [ System.Double.IsNaN nan'; not (System.Double.IsNaN 1.5); not (System.Double.IsNaN inf)
+              System.Double.IsInfinity inf; System.Double.IsInfinity (-inf); not (System.Double.IsInfinity 1.0e300); not (System.Double.IsInfinity nan')
+              System.Double.IsPositiveInfinity inf; not (System.Double.IsPositiveInfinity (-inf))
+              System.Double.IsNegativeInfinity (-inf); not (System.Double.IsNegativeInfinity inf) ]
+    let nanf = System.Single.NaN
+    let inff = System.Single.PositiveInfinity
+    let f = [ System.Single.IsNaN nanf; not (System.Single.IsNaN 1.5f)
+              System.Single.IsInfinity inff; System.Single.IsInfinity (-inff); not (System.Single.IsInfinity 1.0e30f)
+              System.Single.IsPositiveInfinity inff; System.Single.IsNegativeInfinity (-inff); not (System.Single.IsNegativeInfinity inff) ]
+    let bits (xs: bool list) = xs |> List.fold (fun acc ok -> acc * 2 + (if ok then 1 else 0)) 0
+    bits d * 256 + bits f                                             // 2047 * 256 + 255 = 524287
