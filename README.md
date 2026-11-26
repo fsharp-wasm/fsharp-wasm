@@ -1,5 +1,9 @@
 # fsharp-wasm
 
+<!-- status -->
+[![CI](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml) · [Status of every repository](https://fsharp-wasm.github.io/status/)
+<!-- /status -->
+
 <!-- platform -->
 > **Part of the [fsharp-wasm platform](https://fsharp-wasm.github.io/projects/)**: the compiler. Builds on [fsharp](https://github.com/fsharp-wasm/fsharp) and [Fable](https://github.com/fsharp-wasm/fable) (our forks: the front end). Used by every other repository.
 > [All projects](https://fsharp-wasm.github.io/projects/) · [Roadmap](https://fsharp-wasm.github.io/docs/roadmap/) · [Tests](https://fsharp-wasm.github.io/tests/) · [Benchmarks](https://fsharp-wasm.github.io/benchmarks/) · [Live demos](https://fsharp-wasm.github.io/demos/)
@@ -7,9 +11,8 @@
 **Compile F# to WebAssembly GC: small modules that use the engine's own garbage collector.**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml/badge.svg)](https://github.com/fsharp-wasm/fsharp-wasm/actions/workflows/ci.yml)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
-[![WasmGC](https://img.shields.io/badge/WebAssembly-GC-654FF0)](https://github.com/nickhutchinson/nickhutchinson.github.io/blob/master/nickhutchinson.github.io/nickhutchinson.github.io)
+[![WasmGC](https://img.shields.io/badge/WebAssembly-GC-654FF0)](https://github.com/WebAssembly/gc)
 
 > A standalone WasmGC backend for the [Fable](https://fable.io) F# compiler.
 > Produces `.wasm` binaries that run on any WasmGC-capable runtime — browsers, Node.js, Wasmtime, WasmEdge.
