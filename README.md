@@ -266,9 +266,14 @@ fsharp-wasm is developed as an open-source project by the [fsharp-wasm organisat
 to support the development of F# on WebAssembly, please consider sponsoring the organisation:
 
 - [GitHub Sponsors: fsharp-wasm](https://github.com/sponsors/fsharp-wasm)
+- [Tiers, goals and the way for companies](https://fsharp-wasm.github.io/sponsor/): what each amount gets you, and what the money unlocks (set 2026-11-26)
 
 Sponsorship supports the work across the organisation's repositories: the compiler and its tests, the base library and the hosts, the documentation,
-and the benchmarks and test infrastructure that let anyone check what is claimed.
+and the benchmarks and test infrastructure that let anyone check what is claimed. The goals, in steps:
+
+1. **10 sponsors:** incorporating the organisation, and live deployments of the edge host on Cloudflare, Vercel and Netlify.
+2. **$2 500 a month:** the Component Model work (WIT interfaces to Rust crates) and the native desktop shell.
+3. **$5 000 a month and up:** focused work on the device APIs for iOS and Android and on the accessible GUI framework.
 
 ## Contributing
 
