@@ -78,6 +78,32 @@ let tryListTakeSkipSortInline
             }
             Some(listRevInPlace gen s revCollect)
         | None -> None
+    // ── List.skipWhile / List.takeWhile ────────────────────────────
+    // The predicate is asked only of an element that exists (the test of the end of the list comes first), once per element.  takeWhile collects reversed and turns the result.
+    | ("skipWhile" | "takeWhile"), UnaryLambda(farg, fbody) :: listArg :: _ ->
+        match listInfo ctx listArg with
+        | Some(elemT, consIdx) ->
+            let s       = mkListShape elemT consIdx
+            let wPred   = transform (ctx.WithLocal(farg.Name, elemT)) fbody
+            let goesOn (cur: WExpr) = wasmIf (refIsNotNull cur) (WExpr.Let(farg.Name, s.Head cur, wPred)) (i32Const 0)
+            if selector = "skipWhile" then
+                Some(wasm {
+                    let! ptr = mutTy s.BaseTy (transform ctx listArg)
+                    while! (goesOn ptr.Val) do
+                        do! ptr.Set(s.Tail ptr.Val)
+                    return ptr.Val
+                })
+            else
+                let revCollect = wasm {
+                    let! ptr = mutTy s.BaseTy (transform ctx listArg)
+                    let! acc = mutTy s.BaseTy s.Nil
+                    while! (goesOn ptr.Val) do
+                        do! acc.Set(s.Cons (s.Head ptr.Val) acc.Val)
+                        do! ptr.Set(s.Tail ptr.Val)
+                    return acc.Val
+                }
+                Some(listRevInPlace (LabelGen "tkw") s revCollect)
+        | None -> None
     // ── List.sortBy / List.sortByDescending ────────────────────────
     // A stable merge sort of the elements by a key array, as Array.sortBy does: the ordering is the comparer Fable passes
     // (numbers, strings, structural), applied to the key (the projection, evaluated once per element); Descending swaps

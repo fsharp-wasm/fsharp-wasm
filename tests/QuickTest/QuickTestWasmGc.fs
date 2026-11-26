@@ -716,6 +716,18 @@ let testListFoldBack () : int =
 let testListFoldBackOrder () : int =
     List.foldBack (fun x acc -> x - acc) [1; 2; 3] 0
 
+/// Test: List.skipWhile / List.takeWhile (found by the keyboard drag of FSharp.Graphics.Interact, which skips the slots before the one a drop started at): the predicate is
+/// asked of existing elements only, an element that fails ends it, nothing is skipped or taken from an empty list or when it never or always holds, and it can capture.
+let testListSkipTakeWhile () : int =
+    let xs = [ 1; 2; 3; 10; 4; 5 ]
+    let limit = 10
+    let words = [ "a"; "bb"; "ccc"; "d" ]
+    (if List.skipWhile (fun x -> x < limit) xs = [ 10; 4; 5 ] then 10000 else 0)
+    + (if List.takeWhile (fun x -> x < limit) xs = [ 1; 2; 3 ] then 1000 else 0)
+    + (if List.skipWhile (fun x -> x < 100) xs = [] && List.takeWhile (fun x -> x < 0) xs = [] then 100 else 0)
+    + (if List.skipWhile (fun x -> x > 0) ([]: int list) = [] && List.takeWhile (fun x -> x > 0) xs = xs then 10 else 0)
+    + (if List.skipWhile (fun (s: string) -> s.Length < 3) words = [ "ccc"; "d" ] && List.takeWhile (fun (s: string) -> s.Length < 3) words = [ "a"; "bb" ] then 1 else 0)
+
 /// Test: List.sumBy (fun x -> x * x) [1;2;3;4] = 1+4+9+16 = 30
 let testListSumBy () : int =
     List.sumBy (fun x -> x * x) [1; 2; 3; 4]

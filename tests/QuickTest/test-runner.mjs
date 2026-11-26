@@ -254,6 +254,7 @@ check("listChooseSum: choose (*10 when >2) [1..4] sum = 70", 70, exp.testListCho
 // ─── List.foldBack / sumBy / minBy / maxBy ────────────────────────────────────
 check("listFoldBack: foldBack (::) [1;2;3] [].Length = 3", 3, exp.testListFoldBack(),);
 check("listFoldBackOrder: foldBack (x-acc) [1;2;3] 0 = 2", 2, exp.testListFoldBackOrder(),);
+check("List.skipWhile and takeWhile: ends at the first element that fails, empty, never, always, captured, strings", 11111, exp.testListSkipTakeWhile());
 check("listSumBy: sumBy (x*x) [1;2;3;4] = 30", 30, exp.testListSumBy());
 check("listMinBy: minBy (x%3) [4;2;7;1;6] = 6", 6, exp.testListMinBy());
 check("listMaxBy: maxBy (x%5) [3;8;1;6;4] = 4", 4, exp.testListMaxBy());
