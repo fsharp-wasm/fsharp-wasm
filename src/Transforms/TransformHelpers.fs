@@ -113,6 +113,23 @@ let formatField (ctx: Ctx) (spec: FormatSpec) (unsigned: bool) (wv: WExpr) : WEx
         let numeric = match spec.Conv with 's' | 'c' | 'b' | 'A' | 'O' -> 0 | _ -> 16
         WExpr.Call(ctx.UseHelper "$fmtPad", [ s; WExpr.Const(WConst.I32 spec.Width); WExpr.Const(WConst.I32(spec.Flags ||| numeric)) ], WType.Ref(StringTypeIdx, false))
 
+/// `string u` / `u.ToString()` of a union: the name of its case, as .NET prints it.  The value is the tag itself for a union whose cases carry nothing, and a struct with a tag
+/// otherwise.  .NET adds the fields of a case that has some (`Circle 1.5`); that is not done here yet, so such a union is reported once (docs/STATUS.md, known gaps).
+let private unionToString (ctx: Ctx) (ent: Fable.AST.Fable.Entity) (wv: WExpr) : WExpr =
+    let strRef = WType.Ref(StringTypeIdx, false)
+    let lit (s: string) =
+        WExpr.ArrayNewFixed(StringTypeIdx, s |> Seq.map (fun c -> WExpr.Const(WConst.I32(int c))) |> Seq.toList, strRef)
+    let cases = ent.UnionCases
+    if cases |> List.exists (fun c -> not c.UnionCaseFields.IsEmpty) then
+        let msg = sprintf "string of a case of '%s' that has fields prints the name of the case only" ent.FullName
+        if not (ctx.Diagnostics.All |> Seq.exists (fun d -> d.Message = msg)) then
+            ctx.Diagnostics.Warn(WasmGc.Core.Diagnostics.Code.Unsupported, WasmGc.Core.Diagnostics.SourceLoc.Unknown, func = "<declaration>", msg = msg,
+                                 hint = "Print the fields yourself (a match on the union), or use a union whose cases carry nothing.")
+    let tag = if exprWType wv = WType.I32 then wv else WExpr.TagOf wv
+    match List.rev cases with
+    | [] -> lit ""
+    | last :: before -> WExpr.SwitchInt(tag, List.rev before |> List.mapi (fun i c -> i, lit c.Name), lit last.Name, strRef)
+
 /// `string x` / `x.ToString()` / `String(x)` for a primitive: the text .NET gives (floats approximated, see `$floatToStr`).
 let primitiveToString (ctx: Ctx) (fableType: Fable.AST.Fable.Type) (wv: WExpr) : WExpr =
     let strRef = WType.Ref(StringTypeIdx, false)
@@ -120,6 +137,8 @@ let primitiveToString (ctx: Ctx) (fableType: Fable.AST.Fable.Type) (wv: WExpr) :
         WExpr.ArrayNewFixed(StringTypeIdx, s |> Seq.map (fun c -> WExpr.Const(WConst.I32(int c))) |> Seq.toList, strRef)
     match fableType, exprWType wv with
     | Fable.AST.Fable.Type.Char, _ -> charToString wv
+    | Fable.AST.Fable.Type.DeclaredType(entRef, _), _ when (match ctx.Compiler.TryGetEntity entRef with Some e -> e.IsFSharpUnion | None -> false) ->
+        unionToString ctx (ctx.Compiler.TryGetEntity entRef).Value wv
     | Fable.AST.Fable.Type.Boolean, _ -> WExpr.If(wv, lit "True", lit "False", strRef)
     | _, WType.Ref(idx, _) when idx = StringTypeIdx -> wv
     | _, WType.Ref(idx, _) when idx = StringBuilderTypeIdx -> WExpr.Call(ctx.UseHelper "$sbToString", [ wv ], strRef)

@@ -4314,3 +4314,21 @@ let testRecordFieldNull () : int =
     let after = (if not (isNull h.Items) && h.Items.Count = 2 then 100 else 0) + (if not (isNull h.Link) && h.Link.Value = 5 then 1000 else 0)
     let copy = { h with Link = null }
     before + after + (if isNull copy.Link && copy.Items.Count = 2 then 10000 else 0)    // 11111
+
+// string / ToString() of a union case: "Raised", as .NET prints it (a case without fields; the result was a number or nothing)
+type AlarmKind =
+    | Raised
+    | Escalated
+    | Cleared
+
+type PointShape =
+    | Dot
+    | Circle of float
+
+let testUnionToString () : int =
+    let a = string Raised = "Raised"
+    let b = (Escalated).ToString() = "Escalated"
+    let c = [ Raised; Cleared ] |> List.map string |> String.concat "," = "Raised,Cleared"
+    let d = string Dot = "Dot"                          // a case without fields of a union that has others with fields
+    let e = (Cleared |> string).Length = 7
+    (if a then 1 else 0) + (if b then 10 else 0) + (if c then 100 else 0) + (if d then 1000 else 0) + (if e then 10000 else 0)    // 11111
