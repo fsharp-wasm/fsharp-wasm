@@ -953,6 +953,9 @@ check("Option.toList / toArray of an int, a string, a closure and a record optio
 
 check("Math and MathF: asin, acos, atan, sinh, cosh, tanh agree with the exact values (double 1e-9, float 1e-6)", 4095, exp.testMathTranscendentals());
 check("Double.IsNaN, IsInfinity, IsPositiveInfinity and IsNegativeInfinity, for float and float32", 524287, exp.testFloatPredicates());
+check("a list / array comprehension over a HashSet and a Dictionary (with a TryGetValue match inside, and nested)", 1111, exp.testComprehensionOverCollections());
+check("Trim, TrimStart and TrimEnd with a character", 111111, exp.testTrimChars());
+check("an array pattern over an array of unions ([| A x |], [| A x; A y |], another case, empty)", 1172, exp.testArrayPatternOfUnions());
 
 console.log(`\n────────────────────────────────────────────────`);
 console.log(`  ${pass} passed, ${fail} failed`);

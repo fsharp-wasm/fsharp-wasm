@@ -40,6 +40,9 @@ let private deps : (string * string list) list = [
     "$strTrimStart", ["$strIndexOf"]
     "$strTrimEnd",   ["$strLastIndexOf"]
     "$strTrim",      ["$strTrimStart"; "$strTrimEnd"]
+    "$strTrimChar",      []
+    "$strTrimStartChar", []
+    "$strTrimEndChar",   []
 ]
 
 /// Compute the transitive closure of used helpers under the dependency graph.
@@ -76,6 +79,9 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$strTrim",           StringHelpers.makeStrTrimHelper
         "$strTrimStart",      StringHelpers.makeStrTrimStartHelper
         "$strTrimEnd",        StringHelpers.makeStrTrimEndHelper
+        "$strTrimChar",       StringHelpers.makeStrTrimCharHelper
+        "$strTrimStartChar",  StringHelpers.makeStrTrimStartCharHelper
+        "$strTrimEndChar",    StringHelpers.makeStrTrimEndCharHelper
         "$fmtPad",            StringHelpers.makeFmtPadHelper
         "$strPadLeft",        StringHelpers.makeStrPadLeftHelper
         "$strPadRight",       StringHelpers.makeStrPadRightHelper

@@ -221,6 +221,42 @@ let makeStrTrimEndHelper () : WFuncDecl =
             wsCopy res 0 src 0 e
             res @>
 
+/// Runtime helper: $strTrimChar(s, c) → strip leading and trailing occurrences of the character c (`s.Trim('x')`).
+let makeStrTrimCharHelper () : WFuncDecl =
+    q "$strTrimChar"
+        <@ fun (src: WasmStr) (c: int) ->
+            let len = wsLen src
+            let mutable s = 0
+            let mutable e = len
+            while s < len && wsGet src s = c do s <- s + 1
+            while e > s && wsGet src (e - 1) = c do e <- e - 1
+            let resLen = e - s
+            let res = wsCreate resLen
+            wsCopy res 0 src s resLen
+            res @>
+
+/// Runtime helper: $strTrimStartChar(s, c) → strip leading occurrences of the character c.
+let makeStrTrimStartCharHelper () : WFuncDecl =
+    q "$strTrimStartChar"
+        <@ fun (src: WasmStr) (c: int) ->
+            let len = wsLen src
+            let mutable s = 0
+            while s < len && wsGet src s = c do s <- s + 1
+            let res = wsCreate (len - s)
+            wsCopy res 0 src s (len - s)
+            res @>
+
+/// Runtime helper: $strTrimEndChar(s, c) → strip trailing occurrences of the character c.
+let makeStrTrimEndCharHelper () : WFuncDecl =
+    q "$strTrimEndChar"
+        <@ fun (src: WasmStr) (c: int) ->
+            let len = wsLen src
+            let mutable e = len
+            while e > 0 && wsGet src (e - 1) = c do e <- e - 1
+            let res = wsCreate e
+            wsCopy res 0 src 0 e
+            res @>
+
 /// Runtime helper: $intToStr(n) → decimal string representation of an i32.
 let makeIntToStrHelper () : WFuncDecl =
     q "$intToStr"

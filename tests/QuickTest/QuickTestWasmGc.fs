@@ -4250,3 +4250,45 @@ let testFloatPredicates () : int =
               System.Single.IsPositiveInfinity inff; System.Single.IsNegativeInfinity (-inff); not (System.Single.IsNegativeInfinity inff) ]
     let bits (xs: bool list) = xs |> List.fold (fun acc ok -> acc * 2 + (if ok then 1 else 0)) 0
     bits d * 256 + bits f                                             // 2047 * 256 + 255 = 524287
+
+// A comprehension over a HashSet or a Dictionary, and Trim / TrimStart / TrimEnd with a character: neither compiled ("unhandled import call 'delay'", "'trimEnd'")
+let testComprehensionOverCollections () : int =
+    let h = System.Collections.Generic.HashSet<int>([ 1; 2; 3; 4 ])
+    let d = System.Collections.Generic.Dictionary<int, int>()
+    d.[1] <- 5
+    d.[2] <- 0
+    d.[3] <- 7
+    let evens = [ for x in h do if x % 2 = 0 then yield x * 10 ] |> List.sort
+    let withValue =
+        [ for f in h do
+            match d.TryGetValue f with
+            | true, s -> if s > 0 then yield f
+            | _ -> () ]
+        |> List.sort
+    let keys = [| for kv in d do if kv.Value > 0 then yield kv.Key |] |> Array.sort
+    let nested = [| for a in [ 1; 2 ] do for q in h do if q > a then yield q |]
+    (if evens = [ 20; 40 ] then 1 else 0) + (if withValue = [ 1; 3 ] then 10 else 0) + (if keys = [| 1; 3 |] then 100 else 0) + (if nested.Length = 5 then 1000 else 0)    // 1111
+
+let testTrimChars () : int =
+    let a = "12.500".TrimEnd('0') = "12.5"
+    let b = "000125".TrimStart('0') = "125"
+    let c = "xxhixx".Trim('x') = "hi"
+    let d = "000".TrimEnd('0') = ""
+    let e = "abc".TrimEnd('0') = "abc"
+    let f = "  padded ".Trim() = "padded"                                 // the ones without an argument still work
+    (if a then 1 else 0) + (if b then 10 else 0) + (if c then 100 else 0) + (if d then 1000 else 0) + (if e then 10000 else 0) + (if f then 100000 else 0)    // 111111
+
+// An array pattern over an array of unions: the test that the array is not null was a call of the union array's structural equality with a null (the module did not validate)
+type PatV =
+    | PN of float
+    | PT of string
+
+let private patHead (a: PatV[]) : int =
+    match a with
+    | [| PN x |] -> int x
+    | [| PN x; PN y |] -> int (x + y)
+    | _ -> -1
+
+let testArrayPatternOfUnions () : int =
+    patHead [| PN 2.0 |] + patHead [| PN 3.0; PN 4.0 |] * 10 + (if patHead [| PT "a" |] = -1 then 100 else 0) + (if patHead [||] = -1 then 1000 else 0)    // 2 + 70 + 100 + 1000
+

@@ -136,6 +136,14 @@ let rec private fuse (transform: TransformFn) (ctx: Ctx) (yieldTo: Yield) (e: Fa
         fuse transform ctx yieldTo thenE
         |> Option.bind (fun wt ->
             fuse transform ctx yieldTo elseE |> Option.map (fun we -> WExpr.If(transform ctx guard, wt, we, WType.Void)))
+    // a mutable local that a closure captures and something assigns lives in a shared cell, as it does in an ordinary `let` (`match d.TryGetValue k with …` in a comprehension: the out
+    // argument is `FSharpRef(fun () -> v, fun x -> v <- x)`)
+    | Let(x, value, body) when x.IsMutable && WasmGc.Runtime.FreeVars.capturedAndAssigned x.Name body ->
+        let ty = mapTypeKnown ctx x.Type
+        let cellIdx = getOrAddRefCellType ctx ty
+        let ctx' = { ctx.WithLocal(x.Name, WType.Ref(cellIdx, false)) with BoxedLocals = Map.add x.Name ty ctx.BoxedLocals }
+        fuse transform ctx' yieldTo body
+        |> Option.map (fun wb -> WExpr.Let(x.Name, WExpr.StructNew(cellIdx, [ transform ctx value ], WType.Ref(cellIdx, false)), wb))
     | Let(x, value, body) ->
         fuse transform (bound x) yieldTo body |> Option.map (fun wb -> WExpr.Let(x.Name, transform ctx value, wb))
     // the arguments say it is an int32 range; the type of the call itself is a list or a `seq<int>`, whichever the source wrote
@@ -172,6 +180,11 @@ let rec private fuse (transform: TransformFn) (ctx: Ctx) (yieldTo: Yield) (e: Fa
                     do! yieldTo (a.Get(arr, i.Val))
                     do! i.Set(add i.Val (i32Const 1))
             })
+        // a portable collection (HashSet, Dictionary, Stack, Queue) read as a seq: the cast to `seq<_>` is converted by its ToSeqList() into a list, which is walked
+        | _ when (seqElemType e.Type).IsSome ->
+            tryListTypeInfo ctx e
+            |> Option.map (fun (elemWT, consIdx) ->
+                listIter (LabelGen "fz") (mkListShape elemWT consIdx) (transform ctx e) yieldTo)
         | _ -> None
 
 /// A call whose result is a fused pipeline: the chain `[a .. b] |> List.map f |> List.filter g |> List.fold h 0`

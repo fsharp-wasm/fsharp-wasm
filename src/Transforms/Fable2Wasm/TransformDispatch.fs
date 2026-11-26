@@ -647,6 +647,13 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
         WExpr.Call(ctx.UseHelper("$strTrimStart"), [str], WType.Ref(StringTypeIdx, false))
     | ("trimEnd" | "trimRight"), [str], _ ->
         WExpr.Call(ctx.UseHelper("$strTrimEnd"), [str], WType.Ref(StringTypeIdx, false))
+    // s.Trim('x'), s.TrimStart('x'), s.TrimEnd('x'): one character to strip (a `params` array of characters is not handled)
+    | "trim", [str; ch], _ when exprWType ch = WType.I32 ->
+        WExpr.Call(ctx.UseHelper("$strTrimChar"), [str; ch], WType.Ref(StringTypeIdx, false))
+    | ("trimStart" | "trimLeft"), [str; ch], _ when exprWType ch = WType.I32 ->
+        WExpr.Call(ctx.UseHelper("$strTrimStartChar"), [str; ch], WType.Ref(StringTypeIdx, false))
+    | ("trimEnd" | "trimRight"), [str; ch], _ when exprWType ch = WType.I32 ->
+        WExpr.Call(ctx.UseHelper("$strTrimEndChar"), [str; ch], WType.Ref(StringTypeIdx, false))
     // String.contains(str, needle) → $strIndexOf >= 0
     | "contains", [str; needle], _ ->
         WExpr.Compare(WCompareOp.GeS, WExpr.Call(ctx.UseHelper("$strIndexOf"), [str; needle], WType.I32), i32Zero)

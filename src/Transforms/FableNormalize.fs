@@ -450,20 +450,8 @@ module FableNormalize =
     /// Fable's own transforms.
     let finishDeclaration (decl: Declaration) : Declaration = mapBodies (fun _ -> inlineStreams >> foreachLoops >> inlineStreams >> scalarTuples) decl
 
-    /// Is the mutable local `name` both assigned and used inside a closure within `body`?  Such a variable cannot live in
-    /// a wasm local (the closure would capture a copy): F# gives it a shared cell, so does the backend.
-    let capturedAndAssigned (name: string) (body: Expr) : bool =
-        let assigned, captured = ref false, ref false
-        body
-        |> visitFromInsideOut (fun x ->
-            (match x with
-             | Expr.Set(IdentExpr i, ValueSet, _, _, _) when i.Name = name -> assigned.Value <- true
-             | Expr.Lambda _ | Expr.Delegate _ | Expr.ObjectExpr _
-                 when (WasmGc.Runtime.FreeVars.collectFreeVars Set.empty x).Contains name -> captured.Value <- true
-             | _ -> ())
-            x)
-        |> ignore
-        assigned.Value && captured.Value
+    /// Is the mutable local `name` both assigned and used inside a closure within `body`? (The analysis is in FreeVars, which the fusion of comprehensions needs as well.)
+    let capturedAndAssigned (name: string) (body: Expr) : bool = WasmGc.Runtime.FreeVars.capturedAndAssigned name body
 
     /// Names that are assigned (`x <- …` on an identifier) anywhere in the declaration.  A module-level value
     /// among them is a mutable variable: it lives in a wasm global instead of being recomputed at every reference.

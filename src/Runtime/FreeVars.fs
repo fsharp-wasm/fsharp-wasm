@@ -10,6 +10,7 @@ module WasmGc.Runtime.FreeVars
 
 open Fable.AST
 open Fable.AST.Fable
+open Fable.Transforms // AutoOpen `AST` module: visitFromInsideOut
 
 let private unionMany (xs: seq<Set<string>>) = Set.unionMany xs
 
@@ -128,3 +129,19 @@ let rec collectFreeVars (bound: Set<string>) (expr: Fable.Expr) : Set<string> =
         | Fable.ExtendedSet.Throw(e, _) -> goOpt e          // `raise (E msg)` captures msg
         | Fable.ExtendedSet.Curry(e, _) -> go e
         | Fable.ExtendedSet.Debugger -> Set.empty
+
+/// Is the mutable local `name` both assigned and used inside a closure within `body`?  Such a variable cannot live in a wasm local (the closure would capture a copy): F# gives it a
+/// shared cell, so does the backend (an ordinary `let`, and the `let` of a fused comprehension).
+let capturedAndAssigned (name: string) (body: Fable.Expr) : bool =
+    let assigned, captured = ref false, ref false
+    body
+    |> visitFromInsideOut (fun x ->
+        (match x with
+         | Fable.Expr.Set(Fable.Expr.IdentExpr i, Fable.SetKind.ValueSet, _, _, _) when i.Name = name -> assigned.Value <- true
+         | Fable.Expr.Lambda _ | Fable.Expr.Delegate _ | Fable.Expr.ObjectExpr _
+             when (collectFreeVars Set.empty x).Contains name -> captured.Value <- true
+         | _ -> ())
+        x)
+    |> ignore
+    assigned.Value && captured.Value
+

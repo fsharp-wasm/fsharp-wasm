@@ -460,6 +460,11 @@ and getOrAddListCompare (ctx: Ctx) : string =
 /// to reference equality).  An option is a NULLABLE reference — None is null — so both operands are bound once and
 /// compared with the null-aware `compareByWType`.
 let structuralEquals (ctx: Ctx) (a: WExpr) (b: WExpr) : WExpr =
+    let isNullConst (e: WExpr) = match e with WExpr.Const(WConst.Null _) -> true | _ -> false
+    // `x = null` / `x <> null` (what an array pattern `[| a |]` tests first): a null check, not a call of the structural equality of the type, whose parameters are not nullable
+    if isNullConst b then WExpr.RefIsNull a
+    elif isNullConst a then WExpr.RefIsNull b
+    else
     let ty = exprWType a
     match ty with
     | WType.Ref(idx, nullable) when idx <> StringTypeIdx ->
