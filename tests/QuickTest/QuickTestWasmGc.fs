@@ -716,6 +716,29 @@ let testListFoldBack () : int =
 let testListFoldBackOrder () : int =
     List.foldBack (fun x acc -> x - acc) [1; 2; 3] 0
 
+/// Test: the accuracy of Math.Sin, Cos, Tan, Atan2 and Exp (found by the arcs of FSharp.Graphics.Icons, whose points were off their circle by up to 4e-6): each value is within 1e-14
+/// (relative, to the reference of IEEE doubles computed by Python's math module on 2026-11-26) at angles in every quadrant, close to a multiple of pi/2, negative, and large.
+/// One decimal digit for each function: 11111 when all five hold.
+let testMathAccuracy () : int =
+    let near (a: float) (b: float) = abs (a - b) <= 1e-14 * (1.0 + abs b)
+    let sinOk =
+        near (System.Math.Sin(0.5)) 0.479425538604203 && near (System.Math.Sin(2.5)) 0.5984721441039565 && near (System.Math.Sin(3.14)) 0.0015926529164868282
+        && near (System.Math.Sin(-3.0)) -0.1411200080598672 && near (System.Math.Sin(100.0)) -0.5063656411097588 && near (System.Math.Sin(7.0)) 0.6569865987187891 && near (System.Math.Sin(1e-3)) 0.0009999998333333417
+    let cosOk =
+        near (System.Math.Cos(0.5)) 0.8775825618903728 && near (System.Math.Cos(2.5)) -0.8011436155469337 && near (System.Math.Cos(3.14)) -0.9999987317275395
+        && near (System.Math.Cos(-3.0)) -0.9899924966004454 && near (System.Math.Cos(100.0)) 0.8623188722876839 && near (System.Math.Cos(3.1415)) -0.9999999957076562 && near (System.Math.Cos(1.0)) 0.5403023058681398
+    let tanOk =
+        near (System.Math.Tan(0.5)) 0.5463024898437905 && near (System.Math.Tan(2.5)) -0.7470222972386603 && near (System.Math.Tan(3.0)) -0.1425465430742778
+        && near (System.Math.Tan(-1.2)) -2.5721516221263188 && near (System.Math.Tan(100.0)) -0.5872139151569291
+    let atanOk =
+        near (System.Math.Atan2(1.0, 2.0)) 0.4636476090008061 && near (System.Math.Atan2(2.0, 1.0)) 1.1071487177940904 && near (System.Math.Atan2(1.0, 1.0)) 0.7853981633974483
+        && near (System.Math.Atan2(-0.3, -1.0)) -2.8501358591119264 && near (System.Math.Atan2(5.0, -0.1)) 1.590793660768047 && near (System.Math.Atan2(-1.0, 3.0)) -0.3217505543966422
+        && near (System.Math.Atan2(0.01, 1.0)) 0.009999666686665238 && near (System.Math.Atan2(3.0, -4.0)) 2.498091544796509
+    let expOk =
+        near (System.Math.Exp(0.3)) 1.3498588075760032 && near (System.Math.Exp(1.0)) 2.718281828459045 && near (System.Math.Exp(-2.0)) 0.1353352832366127 && near (System.Math.Exp(5.5)) 244.69193226422038
+        && near (System.Math.Exp(0.01)) 1.010050167084168 && near (System.Math.Exp(10.0)) 22026.465794806718 && near (System.Math.Exp(-0.7)) 0.4965853037914095
+    (if sinOk then 10000 else 0) + (if cosOk then 1000 else 0) + (if tanOk then 100 else 0) + (if atanOk then 10 else 0) + (if expOk then 1 else 0)
+
 /// Test: List.skipWhile / List.takeWhile (found by the keyboard drag of FSharp.Graphics.Interact, which skips the slots before the one a drop started at): the predicate is
 /// asked of existing elements only, an element that fails ends it, nothing is skipped or taken from an empty list or when it never or always holds, and it can capture.
 let testListSkipTakeWhile () : int =

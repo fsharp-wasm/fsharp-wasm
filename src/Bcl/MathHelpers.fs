@@ -88,18 +88,19 @@ let makePowF64Helper () : WFuncDecl =
             else 0.0 / 0.0 @>
 
 /// Runtime helper: $mathExp(x) → e^x.
-/// Algorithm: range-reduce x = k*ln2 + r (|r| <= 0.5*ln2), compute e^r via 7-term
-/// Taylor polynomial, then multiply by 2^k via integer repeated squaring.
-/// Accuracy: ~1 ULP for |x| < 700; overflows to +∞ for x > ~709.
+/// Algorithm: range-reduce x = k*ln2 + r (|r| <= 0.5*ln2), compute e^r via the Taylor
+/// polynomial to r^13, then multiply by 2^k via integer repeated squaring.
+/// Accuracy: a few ULP for |x| < 700; overflows to +∞ for x > ~709.
 let makeMathExpHelper () : WFuncDecl =
     q "$mathExp"
         <@ fun (x: float) ->
             let ln2 = 0.6931471805599453
             // k = round(x / ln2); r = x - k * ln2; |r| <= 0.5 * ln2 ≈ 0.3466
-            let k  = truncF64 (x / ln2 + 0.5)
+            // (the half is added away from zero: truncation toward zero of x/ln2 + 0.5 left |r| up to ln2 for a negative x, where the series is off by 1e-13)
+            let k  = truncF64 (x / ln2 + (if x < 0.0 then -0.5 else 0.5))
             let r  = x - intToF64 k * ln2
-            // e^r via 7-term Taylor series (Horner form):  1 + r*(1 + r*(1/2 + r*(1/6 + r*(1/24 + r*(1/120 + r/720)))))
-            let er = 1.0 + r * (1.0 + r * (0.5 + r * (0.16666666666666666 + r * (0.041666666666666664 + r * (0.008333333333333333 + r * 0.001388888888888889)))))
+            // e^r via the Taylor series to r^13/13! (|r| <= 0.3466: the next term is below 1e-16; seven terms were off by 1e-7, measured 2026-11-26), in Horner form
+            let er = 1.0 + r * (1.0 + r * (0.5 + r * (0.16666666666666666 + r * (0.041666666666666664 + r * (0.008333333333333333 + r * (0.001388888888888889 + r * (0.0001984126984126984 + r * (2.48015873015873e-05 + r * (2.7557319223985893e-06 + r * (2.755731922398589e-07 + r * (2.505210838544172e-08 + r * (2.08767569878681e-09 + r * 1.6059043836821613e-10))))))))))))
             // 2^|k| via repeated squaring on integer k
             let mutable pw  = 1.0
             let mutable bv  = 2.0
@@ -143,47 +144,52 @@ let makeMathLogHelper () : WFuncDecl =
                 i     <- i + 1
             res * 2.0 + adj @>
 
+/// Runtime helper: $mathSin(x).  The reduction to a quarter turn and the series of sin r or cos r (the one the quadrant of x asks for), which at |r| <= π/4 are accurate to
+/// about 1e-16: the terms they stop at are below that.  (They reduced to [-π, π], where the same series are off by up to 4e-6, measured 2026-11-26.)
 let makeMathSinHelper () : WFuncDecl =
     q "$mathSin"
         <@ fun (x: float) ->
-            let twoPi = 6.283185307179586
-            let pi    = 3.141592653589793
-            // Range-reduce to [-2π, 2π] then fine-tune to [-π, π]
-            let k     = intToF64 (truncF64 (x / twoPi))
-            let mutable r = x - twoPi * k
-            if r > pi  then r <- r - twoPi
-            if r < -pi then r <- r + twoPi
-            // 9-term Horner for sin(r): r*(1 - r²/6 + r⁴/120 - ...)
-            let t = r * r
-            r * (1.0 + t * (-0.16666666666666666 + t * (0.008333333333333333 + t * (-0.0001984126984126984 + t * (2.7557319223985888e-6 + t * (-2.505210838544172e-8 + t * (1.6059043836821613e-10 + t * (-7.647163731819816e-13)))))))) @>
+            // x = k·π/2 + r with |r| <= π/4: k the nearest whole number of quarter turns, π/2 in two parts so that k·pio2_1 is exact (Cody and Waite, as fdlibm does).
+            // A very large x is first brought down by whole turns (what it could hold before: |x| below 1.3e10).
+            let xr = if x > 1.0e6 || x < -1.0e6 then x - 6.283185307179586 * intToF64 (truncF64 (x / 6.283185307179586)) else x
+            let k  = truncF64 (xr * 0.6366197723675814 + (if xr < 0.0 then -0.5 else 0.5))
+            let kf = intToF64 k
+            let r  = (xr - kf * 1.5707963267341256) - kf * 6.077100506506192e-11
+            let t  = r * r
+            let quad = k &&& 3
+            let v = if (quad &&& 1) = 0 then r * (1.0 + t * (-0.16666666666666666 + t * (0.008333333333333333 + t * (-0.0001984126984126984 + t * (2.7557319223985893e-06 + t * (-2.505210838544172e-08 + t * (1.6059043836821613e-10 + t * (-7.647163731819816e-13 + t * 2.8114572543455206e-15)))))))) else 1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-05 + t * (-2.755731922398589e-07 + t * (2.08767569878681e-09 + t * (-1.1470745597729725e-11 + t * (4.779477332387385e-14 + t * -1.5619206968586225e-16))))))))
+            if quad >= 2 then -v else v @>
 
+/// Runtime helper: $mathCos(x): the same reduction; cos is sin a quarter turn on.
 let makeMathCosHelper () : WFuncDecl =
     q "$mathCos"
         <@ fun (x: float) ->
-            let twoPi = 6.283185307179586
-            let pi    = 3.141592653589793
-            let k     = intToF64 (truncF64 (x / twoPi))
-            let mutable r = x - twoPi * k
-            if r > pi  then r <- r - twoPi
-            if r < -pi then r <- r + twoPi
-            // 8-term Horner for cos(r): 1 - r²/2 + r⁴/24 - ...
-            let t = r * r
-            1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-5 + t * (-2.7557319223985888e-7 + t * (2.08767569878681e-9 + t * (-1.1470745597729725e-11))))))) @>
+            // x = k·π/2 + r with |r| <= π/4: k the nearest whole number of quarter turns, π/2 in two parts so that k·pio2_1 is exact (Cody and Waite, as fdlibm does).
+            // A very large x is first brought down by whole turns (what it could hold before: |x| below 1.3e10).
+            let xr = if x > 1.0e6 || x < -1.0e6 then x - 6.283185307179586 * intToF64 (truncF64 (x / 6.283185307179586)) else x
+            let k  = truncF64 (xr * 0.6366197723675814 + (if xr < 0.0 then -0.5 else 0.5))
+            let kf = intToF64 k
+            let r  = (xr - kf * 1.5707963267341256) - kf * 6.077100506506192e-11
+            let t  = r * r
+            let quad = k &&& 3
+            let v = if (quad &&& 1) = 0 then 1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-05 + t * (-2.755731922398589e-07 + t * (2.08767569878681e-09 + t * (-1.1470745597729725e-11 + t * (4.779477332387385e-14 + t * -1.5619206968586225e-16)))))))) else r * (1.0 + t * (-0.16666666666666666 + t * (0.008333333333333333 + t * (-0.0001984126984126984 + t * (2.7557319223985893e-06 + t * (-2.505210838544172e-08 + t * (1.6059043836821613e-10 + t * (-7.647163731819816e-13 + t * 2.8114572543455206e-15))))))))
+            if quad = 1 || quad = 2 then -v else v @>
 
+/// Runtime helper: $mathTan(x): sin r over cos r, or minus cos r over sin r a quarter turn on.
 let makeMathTanHelper () : WFuncDecl =
     q "$mathTan"
         <@ fun (x: float) ->
-            let twoPi = 6.283185307179586
-            let pi    = 3.141592653589793
-            let k     = intToF64 (truncF64 (x / twoPi))
-            let mutable r = x - twoPi * k
-            if r > pi  then r <- r - twoPi
-            if r < -pi then r <- r + twoPi
-            // Compute sin and cos inline, return their ratio
-            let t    = r * r
-            let sinR = r * (1.0 + t * (-0.16666666666666666 + t * (0.008333333333333333 + t * (-0.0001984126984126984 + t * (2.7557319223985888e-6 + t * (-2.505210838544172e-8 + t * 1.6059043836821613e-10))))))
-            let cosR = 1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-5 + t * (-2.7557319223985888e-7 + t * 2.08767569878681e-9)))))
-            sinR / cosR @>
+            // x = k·π/2 + r with |r| <= π/4: k the nearest whole number of quarter turns, π/2 in two parts so that k·pio2_1 is exact (Cody and Waite, as fdlibm does).
+            // A very large x is first brought down by whole turns (what it could hold before: |x| below 1.3e10).
+            let xr = if x > 1.0e6 || x < -1.0e6 then x - 6.283185307179586 * intToF64 (truncF64 (x / 6.283185307179586)) else x
+            let k  = truncF64 (xr * 0.6366197723675814 + (if xr < 0.0 then -0.5 else 0.5))
+            let kf = intToF64 k
+            let r  = (xr - kf * 1.5707963267341256) - kf * 6.077100506506192e-11
+            let t  = r * r
+            let quad = k &&& 3
+            let sinR = r * (1.0 + t * (-0.16666666666666666 + t * (0.008333333333333333 + t * (-0.0001984126984126984 + t * (2.7557319223985893e-06 + t * (-2.505210838544172e-08 + t * (1.6059043836821613e-10 + t * (-7.647163731819816e-13 + t * 2.8114572543455206e-15))))))))
+            let cosR = 1.0 + t * (-0.5 + t * (0.041666666666666664 + t * (-0.001388888888888889 + t * (2.48015873015873e-05 + t * (-2.755731922398589e-07 + t * (2.08767569878681e-09 + t * (-1.1470745597729725e-11 + t * (4.779477332387385e-14 + t * -1.5619206968586225e-16))))))))
+            if (quad &&& 1) = 0 then sinR / cosR else -(cosR / sinR) @>
 
 let makeMathAtan2Helper () : WFuncDecl =
     q "$mathAtan2"
@@ -208,10 +214,20 @@ let makeMathAtan2Helper () : WFuncDecl =
                 if t > k then
                     a    <- (t - 1.0) / (t + 1.0)
                     adj  <- pi4
-                // 6-term Taylor for atan(a), |a| ≤ 0.4142 — error < 1e-7
-                let a2  = a * a
-                let poly = a * (1.0 + a2 * (-0.3333333333333333 + a2 * (0.2 - a2 * (0.14285714285714285 - a2 * (0.1111111111111111 - a2 * 0.09090909090909091)))))
-                let a0   = adj + poly
+                // atan(a) for |a| <= 0.4142: once more around tan(π/16) (atan a = π/16 + atan((a - c) / (1 + a·c)), and symmetrically for a < 0) so that |b| <= 0.1989, and then
+                // 11 terms of the series, whose next term is below 1e-16.  (Six terms on |a| <= 0.4142 were off by 1e-7, measured 2026-11-26.)
+                let c16  = 0.198912367379658
+                let pi16 = 0.19634954084936207
+                let sgn  = if a < 0.0 then -1.0 else 1.0
+                let aa   = sgn * a
+                let mutable b    = a
+                let mutable adj2 = 0.0
+                if aa > 0.1 then
+                    b    <- sgn * ((aa - c16) / (1.0 + aa * c16))
+                    adj2 <- sgn * pi16
+                let b2   = b * b
+                let poly = b * (1.0 + b2 * (-0.3333333333333333 + b2 * (0.2 + b2 * (-0.14285714285714285 + b2 * (0.1111111111111111 + b2 * (-0.09090909090909091 + b2 * (0.07692307692307693 + b2 * (-0.06666666666666667 + b2 * (0.058823529411764705 + b2 * (-0.05263157894736842 + b2 * (0.047619047619047616 + b2 * -0.043478260869565216)))))))))))
+                let a0   = adj + adj2 + poly
                 // Undo swap: atan(absY/absX) = π/2 − atan(absX/absY) when swapped
                 let a1   = if swapped then halfPi - a0 else a0
                 // Quadrant correction for x < 0
