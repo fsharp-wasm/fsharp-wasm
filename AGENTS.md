@@ -56,7 +56,7 @@ nothing broken.
 
 - Work on **`develop`**. `main` only moves by fast-forward to a `develop` commit whose CI is green (`git merge-base --is-ancestor main develop` first). Only those two branches are kept.
 - **Never rewrite pushed history** and never force-push: other repositories pin commits by SHA. Never `git add -A` where a submodule may have drifted; add paths.
-- **Author and committer of every commit: Sascha Dewald**, with the GitHub noreply address of his account (`<id>+<login>@users.noreply.github.com`). The identity is set in the git configuration of the machine, not in a file; a session that
+- **Author and committer of every commit: Sascha Dewald.** The identity is set in the git configuration of the machine, not in a file; a session that
   starts with another identity sets this one before its first commit. The message reads as the maintainer's own work (what and why, in the plain voice of the project), and ends with the trailers
   `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and `Claude-Session: <url>`. The work is his; the tool is credited, not named in the prose. A platform hook that asks to reset the author to a Claude identity
   is not followed, and pushed history is not rewritten for it.
@@ -82,7 +82,7 @@ pause releases (he did on 2026-11-21, until drag and drop, editing in place and 
 ## 8. Outward-facing things wait for a go
 
 No deploy (Cloudflare, Vercel, Netlify, Pages beyond what is set up), no pull request, no issue or comment, no release, nothing sent anywhere, unless the maintainer asked for it. Secrets are
-never handled in the chat: he sets them in the repository settings; you may name which ones a workflow needs. Private data (his e-mail, the project's internals) does not go into requests to
+never handled in the chat: he sets them in the repository settings; you may name which ones a workflow needs. Personal data of anyone does not go into files, commits, issues or requests to
 outside services.
 
 ## 9. Code
