@@ -4325,6 +4325,15 @@ type PointShape =
     | Dot
     | Circle of float
 
+// Char.IsControl: the control characters of Unicode (U+0000..U+001F, U+007F..U+009F), which the toolkit's text field has to tell from text (unhandled import call 'isControl')
+let testCharIsControl () : int =
+    let a = System.Char.IsControl '\n' && System.Char.IsControl '\t' && System.Char.IsControl '\000'
+    let b = System.Char.IsControl '\u007F' && System.Char.IsControl '\u0080' && System.Char.IsControl '\u009F'
+    let c = not (System.Char.IsControl 'a') && not (System.Char.IsControl ' ') && not (System.Char.IsControl '\u00A0') && not (System.Char.IsControl '\u00E4')
+    let d = "a\nb" |> Seq.filter (fun ch -> not (System.Char.IsControl ch)) |> Seq.length = 2
+    let e = [ '\r'; 'x'; '\u0001' ] |> List.filter System.Char.IsControl |> List.length = 2
+    (if a then 1 else 0) + (if b then 10 else 0) + (if c then 100 else 0) + (if d then 1000 else 0) + (if e then 10000 else 0)    // 11111
+
 let testUnionToString () : int =
     let a = string Raised = "Raised"
     let b = (Escalated).ToString() = "Escalated"

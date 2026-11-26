@@ -634,6 +634,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | "isUpper",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsUpper"),        [c], WType.I32)
     | "isLower",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsLower"),        [c], WType.I32)
     | "isWhiteSpace",    [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsWhitespace"),   [c], WType.I32)
+    | "isControl",       [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charIsControl"),      [c], WType.I32)
     | "toLower",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charToLower"),        [c], WType.I32)
     | "toUpper",         [c], WType.I32 -> WExpr.Call(ctx.UseHelper("$charToUpper"),        [c], WType.I32)
     // String.toLower / toUpper / trim

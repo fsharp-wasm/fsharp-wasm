@@ -35,6 +35,12 @@ let makeCharIsWhitespaceHelper () : WFuncDecl =
         <@ fun (c: int) ->
             if c = 32 || (c >= 9 && c <= 13) then 1 else 0 @>
 
+/// Runtime helper: $charIsControl(c) → 1 for the control characters of Unicode (category Cc: U+0000..U+001F and U+007F..U+009F) else 0.
+let makeCharIsControlHelper () : WFuncDecl =
+    q "$charIsControl"
+        <@ fun (c: int) ->
+            if c < 32 || (c >= 127 && c < 160) then 1 else 0 @>
+
 /// Runtime helper: $charToLower(c) → lowercase: A-Z → a-z, others unchanged.
 let makeCharToLowerHelper () : WFuncDecl =
     q "$charToLower"

@@ -116,6 +116,7 @@ let forModule (ctx: Ctx) : (string * (unit -> WFuncDecl)) list =
         "$charIsUpper",          CharHelpers.makeCharIsUpperHelper
         "$charIsLower",          CharHelpers.makeCharIsLowerHelper
         "$charIsWhitespace",     CharHelpers.makeCharIsWhitespaceHelper
+        "$charIsControl",        CharHelpers.makeCharIsControlHelper
         "$charToLower",          CharHelpers.makeCharToLowerHelper
         "$charToUpper",          CharHelpers.makeCharToUpperHelper
         "$charIsLetterOrDigit",  CharHelpers.makeCharIsLetterOrDigitHelper
