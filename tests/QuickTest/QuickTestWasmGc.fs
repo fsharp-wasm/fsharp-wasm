@@ -1932,22 +1932,24 @@ type SortWithItem = { SwKey: int; SwOrder: int }
 let sortIntsWith (cmp: int -> int -> int) (xs: int[]) : int[] = Array.sortWith cmp xs
 let sortItemsWith (cmp: SortWithItem -> SortWithItem -> int) (xs: SortWithItem[]) : SortWithItem[] = Array.sortWith cmp xs
 
-/// Array.sortWith with a comparer that is a function value is a stable merge sort, O(n log n): empty, one, two and odd lengths,
-/// equal keys keep their order, a permutation of 200 000 numbers comes out sorted (an insertion sort took minutes for that),
-/// and the input is untouched.
+/// Array.sortWith with a comparer that is a function value sorts in O(n log n): empty, one, two and odd lengths, records are
+/// ordered by key and none is lost or doubled (.NET does not promise that equal keys keep their order, so neither does this test),
+/// a permutation of 200 000 numbers comes out sorted (an insertion sort took minutes for that), and the input is untouched.
 let testArraySortWithMerge () : int =
     let byInt (a: int) (b: int) = if a < b then -1 elif a > b then 1 else 0
     let small =
         sortIntsWith byInt [||] = [||] && sortIntsWith byInt [| 7 |] = [| 7 |] && sortIntsWith byInt [| 2; 1 |] = [| 1; 2 |]
         && sortIntsWith byInt [| 3; 1; 2 |] = [| 1; 2; 3 |] && sortIntsWith byInt [| 5; 4; 3; 2; 1 |] = [| 1; 2; 3; 4; 5 |]
         && sortIntsWith byInt [| 1; 1; 1 |] = [| 1; 1; 1 |]
-    // equal keys keep the order they had: key = i * 31 % 7, order = i
+    // records ordered by key (key = i * 31 % 7, order = i), every one of them still there once
     let items = Array.init 1000 (fun i -> { SwKey = (i * 31) % 7; SwOrder = i })
     let byKey = sortItemsWith (fun a b -> byInt a.SwKey b.SwKey) items
-    let mutable stable = true
+    let mutable stable = byKey.Length = 1000
+    let mutable orderSum = byKey.[0].SwOrder
     for i in 1 .. byKey.Length - 1 do
         if byKey.[i - 1].SwKey > byKey.[i].SwKey then stable <- false
-        if byKey.[i - 1].SwKey = byKey.[i].SwKey && byKey.[i - 1].SwOrder > byKey.[i].SwOrder then stable <- false
+        orderSum <- orderSum + byKey.[i].SwOrder
+    if orderSum <> 999 * 1000 / 2 then stable <- false
     let untouched = items.[0].SwOrder = 0 && items.[999].SwOrder = 999 && items.[1].SwKey = 3
     // a permutation of 0 .. n-1 (a step coprime to n), sorted back to the identity
     let n = 200000
