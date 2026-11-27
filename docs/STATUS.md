@@ -1,6 +1,7 @@
 # Project status
 
-> **Recorded 2026-11-16** at commit `51289ed`, with `tests/run-all.sh` and the commands in the table below.
+> **Recorded 2026-11-16** at commit `51289ed`, with `tests/run-all.sh` and the commands in the table below. **Re-recorded 2026-11-27** at commit `41f0e95`: `bash tests/run-all.sh`, 18 of 18 suites passed
+> (about 12 minutes); every row below except *String ABI*, which `run-all.sh` does not run, is from that run.
 > The CI of this repository is the live truth; this page is a dated snapshot of what it covers.
 
 ## Test results
@@ -12,7 +13,7 @@
 | Differential: .NET against wasm | generated inputs through the same F# functions on .NET and as wasm | 392 functions, 183 012 calls: 179 115 identical, 0 disagreements, 3 896 where both sides fail, 1 known difference | yes |
 | Showcase | classic algorithms and small programs end to end | 26 passed | yes |
 | String ABI (exports) | no `wasm:js-string` import, accessor exports, non-ASCII round trip, empty and null, 10 000 characters | 5 passed | yes |
-| Host interop | callbacks, strings and numbers across the boundary, 500 closures called and called again after a GC | 14 passed | yes |
+| Host interop | callbacks, strings and numbers across the boundary, 500 closures called and called again after a GC | 15 passed (2026-11-27) | yes |
 | IR pass tests | the optimiser passes, with property tests over 50 000 generated programs | 27 passed | yes |
 | Backend harness | scenarios through the binary encoder and through WAT and wasm-tools; closure fuzz | closure fuzz: 30 720 checks, 0 failures | yes |
 | BCL bootstrap | the base library's exceptions and math compiled through the backend | 11 passed | yes |
@@ -20,9 +21,10 @@
 | Component linking | two modules compiled apart and linked at run time | 22 passed | yes |
 | Wasmecto tests (`tests/Wasm`) | a test project written with the Wasmecto framework, compiled to WebAssembly and run in Node: language core, collections, closures, a compiler pipeline smoke test | 81 passed | yes |
 | Wasmecto's own tests | the test framework's own tests (`Math`, `Dictionary`, `Stack`, `StringBuilder`), compiled against the whole base library and run in Node | 36 passed | yes |
-| Dogfood: core libraries (`tests/Dogfood/run.sh core-libs`) | the suites of FSharp.Wasm.Data (JSON, numbers), FSharp.Wasm.Ui (typed CSS and HTML, the email grid) and FSharp.Wasm.Edit (operations on a document, history), FSharp.Wasm.Icons and FSharp.Wasm.Frame (hierarchies and the cube of a pivot table), compiled from fsharp-wasm-core and run in Node | 61 passed (recorded 2026-11-24) | yes |
-| Dogfood: newsletter (`tests/Dogfood/run.sh newsletter`) | the newsletter library's suite, and the designer module (an Elmish program on the HTML DSL, with dragging of blocks on `FSharp.Graphics.Interact`) compiled, validated, and checked for its `start` export | 86 passed, designer 464 181 bytes (2026-11-24) | yes |
-| Dogfood: widget editor (`tests/Dogfood/run.sh widget-editor`) | the widget editor of fsharp-wasm-ide (the whole FSharp.Graphics stack: Widgets, Scene, Tea, Canvas) compiled as one module, validated, and checked for the exports `runtime/gfx.js` calls | 268 774 bytes, exports present (2026-11-24) | yes |
+| Dogfood: core libraries (`tests/Dogfood/run.sh core-libs`) | the suites of FSharp.Wasm.Data (JSON, numbers), FSharp.Wasm.Ui (typed CSS and HTML, the email grid) and FSharp.Wasm.Edit (operations on a document, history), FSharp.Wasm.Icons and FSharp.Wasm.Frame (hierarchies and the cube of a pivot table), compiled from fsharp-wasm-core and run in Node | 176 passed (2026-11-27) | yes |
+| Dogfood: newsletter (`tests/Dogfood/run.sh newsletter`) | the newsletter library's suite, and the designer module (an Elmish program on the HTML DSL, with dragging of blocks on `FSharp.Graphics.Interact`) compiled, validated, and checked for its `start` export | 87 passed, designer 463 245 bytes (2026-11-27) | yes |
+| Dogfood: widget editor (`tests/Dogfood/run.sh widget-editor`) | the widget editor of fsharp-wasm-ide (the whole FSharp.Graphics stack: Widgets, Scene, Tea, Canvas) compiled as one module, validated, and checked for the exports `runtime/gfx.js` calls | 312 993 bytes, exports present (2026-11-27) | yes |
+| Dogfood: graphics libraries (`tests/Dogfood/run.sh graphics-libs`) | the tests of the science charts, the charts on the data graph and the diagrams of fsharp-wasm-graphics, compiled as WebAssembly and run: the same checks as under .NET | ChartsTests 169, ChartsLiveTests 37, DiagramsTests 20 checks, 0 failed (2026-11-27) | yes |
 | Dogfood: Amano.Tui (`tests/Dogfood/run.sh tui`) | the terminal UI library of the organisation: its dashboard frame is drawn under .NET and as a wasm module (an `Array2D` of cells, a dictionary of struct records, the list functions), and the number of rows and the checksums of the plain and of the coloured text must be the same | rows=14, plainSum=1276385186, ansiSum=1878545557 on both sides (2026-11-27) | yes |
 | Packages (`tests/Packages/run.sh`) | a program that uses a NuGet package: the package is packed from a fixture, restored into an empty packages folder, its sources land in `out/fable_modules/` inside the program's folder (the default of `--outDir out`), and the module runs in Node: a function whose name the front end must keep from a JavaScript global (`isFinite$`), and a type and a module of one name | 3 checks passed (recorded 2026-11-27) | yes |
 
