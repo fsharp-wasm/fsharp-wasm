@@ -16,6 +16,8 @@ have their own rules (fork policy in the AGENTS.md of the Fable fork).
 - **Claim only what was measured.** Say what was run and what came out, and what was not checked. A red check is reported with its output, a skipped step as skipped.
   No marketing words in documents (nothing is "blazing" or "production-ready" until a number says so), and dates on every measurement.
 - Ask only when the answer changes what you do next and the code, the history and a sensible default cannot answer it.
+- **Do the similar open todos in the same pass.** When one task is done and the list holds others of the same kind (the same fault in another repository, the same migration in the
+  sibling repositories, the same guard in the other workflows), do them now, say so, and close them: the maintainer does not want a list of loose ends that are one search away.
 
 ## 2. The compiler comes first
 
