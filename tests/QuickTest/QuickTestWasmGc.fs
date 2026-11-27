@@ -4611,3 +4611,17 @@ let testArray2D () : int =
     let copied = g.[0, 0] = 0 && c.[0, 0] = 99
     (if basics then 10000000 else 0) + (if zero then 1000000 else 0) + (if init then 100000 else 0) + (if iterated then 10000 else 0)
     + (if mapped then 1000 else 0) + (if strings then 100 else 0) + (if records then 10 else 0) + (if copied then 1 else 0)
+
+// ── String.Join of strings in a project that checks nulls ─────────────────
+
+/// `String.Join(sep, xs)` of a ResizeArray, a list and an array of strings.  The QuickTest project has `<Nullable>enable</Nullable>`, where the front end types the
+/// elements as `string | null`; they are still strings, and were converted as if they were numbers (an illegal cast at run time).
+let testStringJoinNullable () : int =
+    let parts = System.Collections.Generic.List<string>()
+    parts.Add "0"
+    parts.Add "31"
+    parts.Add (string 4)
+    let a = System.String.Join(";", parts) = "0;31;4"
+    let b = System.String.Join(",", [ "x"; "y" ]) = "x,y"
+    let c = System.String.Join("-", [| "p"; "q" |]) = "p-q"
+    (if a then 100 else 0) + (if b then 10 else 0) + (if c then 1 else 0)
