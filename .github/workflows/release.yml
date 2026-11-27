@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: false
+          fetch-depth: 0   # for the check that a tag is on main
 
       - name: Init submodules (vendor/Fable, vendor/fsharp, core)
         uses: ./.github/actions/init-submodules
@@ -60,10 +61,16 @@ jobs:
 
       # No FAKE here: FAKE 6 runs on net6 with FSharp.Core 8 and breaks on the runner image (see ci.yml).  The same
       # dotnet commands the build uses; the tests run in CI on the commit that is tagged.
-      - name: Version
+      - name: Version, and that a tag is a release of main
         id: version
         run: |
-          if [ "${{ github.ref_type }}" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dryrun"; fi
+          if [ "${{ github.ref_type }}" = tag ]; then
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::$GITHUB_REF_NAME is not vX.Y.Z or vX.Y.Z-suffix"; exit 1; }
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_REF_NAME is not on main: a release is tagged on main"; exit 1; }
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="0.0.0-dryrun"
+          fi
           echo "value=$v" >> "$GITHUB_OUTPUT"
 
       - name: NuGet packages
@@ -121,10 +128,15 @@ jobs:
           node run.mjs | tee run.txt
           grep -q "fibonacci 10          = 55" run.txt
 
+      # A release that publishes nothing is a failed release: without the key a tag run stops here, red, before anything is pushed or released.
+      - name: The key for nuget.org is there
+        if: github.ref_type == 'tag' && env.NUGET_API_KEY == ''
+        run: |
+          echo "::error::the secret NUGET_API_KEY is not visible to this job: an organisation secret has to be given access to fsharp-wasm (and, with the environment production, the environment has to see it)"
+          exit 1
+
       - name: Publish to NuGet.org
-        if: github.ref_type == 'tag' && env.NUGET_API_KEY != ''
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        if: github.ref_type == 'tag'
         run: |
           dotnet nuget push publish/nuget/*.nupkg \
             --source https://api.nuget.org/v3/index.json \
