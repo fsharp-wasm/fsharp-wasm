@@ -369,19 +369,26 @@ let private disposeCall (ctx: Ctx) (wObj: WExpr) : WExpr =
     | _ -> WExpr.Nop
 
 /// `Outer(0, "", Inner(0))`: the default of a struct record (the `out` variable of `TryGetValue`, a `let mutable v = Unchecked.defaultof<…>`) is written by the
-/// front end as a call of the record's own name with one value for each field, not as a record expression.
-let private recordConstructorCall (ctx: Ctx) (name: string) (info: CallInfo) (typ: Type) : (EntityRef * Type list) option =
+/// front end as a call of the record's own name with the default of each field, not as a record expression.
+let private isRecordConstructorCall (ctx: Ctx) (name: string) (info: CallInfo) (typ: Type) : bool =
     match typ with
-    | Fable.Type.DeclaredType(entRef, genArgs) when info.ThisArg.IsNone ->
+    | Fable.Type.DeclaredType(entRef, _) when info.ThisArg.IsNone ->
         match ctx.Compiler.TryGetEntity entRef with
-        | Some ent when ent.IsFSharpRecord && name = ent.CompiledName && ent.FSharpFields.Length = info.Args.Length -> Some(entRef, genArgs)
-        | _ -> None
-    | _ -> None
+        | Some ent -> ent.IsFSharpRecord && name = ent.CompiledName && ent.FSharpFields.Length = info.Args.Length
+        | None -> false
+    | _ -> false
+
+/// The record such a call makes: its fields' defaults.  A field whose default is null (a union or a class: .NET zeroes it as well) cannot be put into a record whose
+/// fields are not nullable, so the default of the whole is null then — what a cell (the `out` variable) holds until it is assigned.
+let private recordDefault (ctx: Ctx) (typ: Type) (fields: WExpr list) : WExpr =
+    match mapTypeKnown ctx typ with
+    | WType.Ref(idx, _) ->
+        if fields |> List.exists (function WExpr.Const(WConst.Null _) -> true | _ -> false) then WExpr.Const(WConst.Null(WType.Ref(idx, true)))
+        else WExpr.StructNew(idx, fields, WType.Ref(idx, false))
+    | _ -> WExpr.Nop
 
 let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: ImportInfo) (info: CallInfo) (typ: Type) (wArgs: WExpr list) : WExpr =
-    match recordConstructorCall ctx importInfo.Selector info typ with
-    | Some(entRef, genArgs) -> eval ctx (Fable.Expr.Value(Fable.ValueKind.NewRecord(info.Args, entRef, genArgs), None))
-    | None ->
+    if isRecordConstructorCall ctx importInfo.Selector info typ then recordDefault ctx typ wArgs else
     let ty = mapTypeKnown ctx typ
     let path = importInfo.Path
     let importStem = System.IO.Path.GetFileNameWithoutExtension(importInfo.Path)
@@ -403,6 +410,7 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
                 | _ -> None
             fun () -> tryBigIntInline ctx importStem sel wArgs (info.Args |> List.exists (fun a -> WasmGc.Util.FableQuery.isUnsignedInt a.Type) || WasmGc.Util.FableQuery.isUnsignedInt typ)
             fun () -> ResizeArrayOps.tryImport   eval ctx importStem sel info.Args typ
+            fun () -> Array2DOps.tryImport       eval ctx sel info.Args typ
             fun () -> tryMapInline               ctx importStem sel wArgs
             fun () -> trySetInline               ctx importStem sel wArgs
             // ── List combinators ────────────────────────────────────────────────────
@@ -1112,9 +1120,7 @@ let private transformCallCore
                 ClosureBuilder.applyClosure ctx ident.Type wClosure (info.Args |> List.map (fun a -> a.Type)) wArgs ty
             | _ ->
             // a record of this file written as a call of its name (see recordConstructorCall)
-            match recordConstructorCall ctx ident.Name info typ with
-            | Some(entRef, genArgs) -> eval ctx (Fable.Expr.Value(Fable.ValueKind.NewRecord(info.Args, entRef, genArgs), None))
-            | None ->
+            if isRecordConstructorCall ctx ident.Name info typ then recordDefault ctx typ wArgs else
             // Sprint 5: demand-driven generic specialization.
             match trySpecializeCall ctx eval ident.Name (Some ctx.Compiler.CurrentFile) info typ with
             | Some specialized -> specialized

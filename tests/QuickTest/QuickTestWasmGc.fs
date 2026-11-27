@@ -4580,3 +4580,34 @@ let testUnionToString () : int =
     let d = string Dot = "Dot"                          // a case without fields of a union that has others with fields
     let e = (Cleared |> string).Length = 7
     (if a then 1 else 0) + (if b then 10 else 0) + (if c then 100 else 0) + (if d then 1000 else 0) + (if e then 10000 else 0)    // 11111
+
+// ── Two-dimensional arrays ────────────────────────────────────────────────
+
+/// 'T[,]: Array2D.create / zeroCreate / init / length1 / length2, a.[i, j] read and written, GetLength and Length, iter / iteri / map / copy, with numbers, strings and
+/// records (a framebuffer of cells is one).  A copy is its own array.
+let testArray2D () : int =
+    let a = Array2D.create 2 3 7
+    a.[1, 2] <- 5
+    let basics = Array2D.length1 a = 2 && Array2D.length2 a = 3 && a.[1, 2] = 5 && a.[0, 0] = 7 && a.GetLength 0 = 2 && a.GetLength 1 = 3 && a.Length = 6
+    let z : int[,] = Array2D.zeroCreate 3 2
+    let zero = z.[2, 1] = 0 && Array2D.length1 z = 3
+    let g = Array2D.init 3 4 (fun i j -> i * 10 + j)
+    let init = g.[2, 3] = 23 && g.[0, 1] = 1 && g.[1, 0] = 10
+    let mutable sum = 0
+    Array2D.iter (fun x -> sum <- sum + x) g
+    let mutable weighted = 0
+    Array2D.iteri (fun i j x -> weighted <- weighted + (if i = 1 && j = 2 then x else 0)) g
+    let iterated = sum = 138 && weighted = 12
+    let m = Array2D.map (fun x -> x * 2) g
+    let mapped = m.[2, 3] = 46 && Array2D.length2 m = 4
+    let s = Array2D.create 2 2 "a"
+    s.[0, 1] <- "bc"
+    let strings = s.[0, 1] + s.[1, 0] = "bca"
+    let r = Array2D.create 2 2 { SwKey = 1; SwOrder = 2 }
+    r.[1, 1] <- { SwKey = 3; SwOrder = 4 }
+    let records = r.[1, 1].SwOrder + r.[0, 0].SwOrder = 6
+    let c = Array2D.copy g
+    c.[0, 0] <- 99
+    let copied = g.[0, 0] = 0 && c.[0, 0] = 99
+    (if basics then 10000000 else 0) + (if zero then 1000000 else 0) + (if init then 100000 else 0) + (if iterated then 10000 else 0)
+    + (if mapped then 1000 else 0) + (if strings then 100 else 0) + (if records then 10 else 0) + (if copied then 1 else 0)

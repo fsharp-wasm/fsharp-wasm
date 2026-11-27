@@ -264,6 +264,7 @@ check("the instances of a class are equal when they are the same object: Referen
 check("Option.orElse and Option.flatten: numbers, strings and records, Some and None", 11110, exp.testOptionOrElseFlatten());
 check("List.iter2 and List.iteri2: the two lists in lockstep, the index from 0, empty lists, strings and records", 11111, exp.testListIter2());
 check("a struct record as a missing value: the out variable of TryGetValue and Unchecked.defaultof, with a struct record inside", 1111, exp.testStructRecordDefault());
+check("two-dimensional arrays: create, zeroCreate, init, the indexer, lengths, GetLength, iter, iteri, map, copy; numbers, strings and records", 11111111, exp.testArray2D());
 check("List.skipWhile and takeWhile: ends at the first element that fails, empty, never, always, captured, strings", 11111, exp.testListSkipTakeWhile());
 check("List.minBy and maxBy with a tuple, a string or a record as the key: the structural comparison, the first of equal keys wins", 11111, exp.testListMinMaxByStructural());
 check("listSumBy: sumBy (x*x) [1;2;3;4] = 30", 30, exp.testListSumBy());

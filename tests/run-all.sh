@@ -33,6 +33,7 @@ SUITES=(
   "newsletter|tests/Dogfood/run.sh newsletter"
   "widget-editor|tests/Dogfood/run.sh widget-editor"
   "graphics-libs|tests/Dogfood/run.sh graphics-libs"
+  "tui|tests/Dogfood/run.sh tui"
   "packages|tests/Packages/run.sh"
 )
 

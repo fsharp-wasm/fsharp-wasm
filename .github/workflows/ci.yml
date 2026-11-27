@@ -283,3 +283,20 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
           FSHARP_GRAPHICS_DIR: ${{ github.workspace }}/.deps/fsharp-wasm-graphics
         run: bash tests/Dogfood/run.sh graphics-libs
+
+      - name: Check out Amano.Tui
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/checkout@v6
+        with:
+          repository: fsharp-wasm/Amano.Tui
+          ref: c64fbd72b4dcb2b1d45d95ee3c35154b7525b52a
+          path: .deps/Amano.Tui
+
+      # The terminal UI library as a program: its dashboard frame is drawn under .NET and as a wasm module, and the checksums of the plain and the coloured text must agree.
+      - name: Dogfood - Amano.Tui (the same frame under .NET and as WebAssembly GC)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          FSHARP_TUI_DIR: ${{ github.workspace }}/.deps/Amano.Tui
+          FSHARP_CORE_DIR: ${{ github.workspace }}/.deps/fsharp-wasm-core
+        run: bash tests/Dogfood/run.sh tui

@@ -230,6 +230,10 @@ type Ctx =
         /// ravTypeIdx: index of struct { data: (mut ref? $Arr_T); len: (mut i32) }.
         ResizeArrayRegistry: System.Collections.Generic.Dictionary<string, int * int>
 
+        /// Two-dimensional array element WType key → (arrTypeIdx, array2DTypeIdx).
+        /// array2DTypeIdx: index of struct { data: ref $Arr_T; rows: i32; cols: i32 }, the elements row by row.
+        Array2DRegistry: System.Collections.Generic.Dictionary<string, int * int>
+
         /// Monotonically increasing counter for generating globally-unique decision-tree target labels.
         /// Shared (mutable ref cell) so nested transformDecisionTree calls don't collide.
         DecisionTreeCounter: int ref
@@ -323,6 +327,7 @@ type Ctx =
             CallbackSigs = System.Collections.Generic.Dictionary<string, int>()
             CallbackTramps = new ResizeArray<string * int>()
             ResizeArrayRegistry = System.Collections.Generic.Dictionary<string, int * int>()
+            Array2DRegistry = System.Collections.Generic.Dictionary<string, int * int>()
             DecisionTreeCounter = ref 0
             TargetBase = ref 0
             HasLinearMemory = ref false
@@ -542,6 +547,26 @@ let getOrAddResizeArrayTypeFor (ctx: Ctx) (elementType: Fable.Type) (elemT: WTyp
 /// The ResizeArray type for elements that are never packed (a temporary of a library routine, where no F# type is at hand).
 let getOrAddResizeArrayType (ctx: Ctx) (elemT: WType) : int * int = getOrAddResizeArrayTypeFor ctx Fable.Type.Any elemT
 
+/// Register (if needed) the struct of a two-dimensional array (`'T[,]`) of `elemT`:
+///   struct { data: ref $Arr_T; rows: i32; cols: i32 }, the element (r, c) at `data.[r * cols + c]`.
+/// Returns (arrTypeIdx, array2DTypeIdx).  The sizes are immutable, as in .NET; the elements are the data array's.
+let getOrAddArray2DTypeFor (ctx: Ctx) (elementType: Fable.Type) (elemT: WType) : int * int =
+    let packed = (getOrAddArrayTypeFor ctx elementType elemT) <> (getOrAddArrayType ctx elemT)
+    let key = wTypeKey elemT + (if packed then "+packed" else "")
+    match ctx.Array2DRegistry.TryGetValue(key) with
+    | true, pair -> pair
+    | false, _ ->
+        let arrTypeIdx = getOrAddArrayTypeFor ctx elementType elemT
+        let idx = ctx.TypeDefs.Count
+        ctx.TypeDefs.Add({ Name = $"$Array2D_{idx}"
+                           Def = WTypeDef.Struct([
+                               { Name = "data"; Type = WType.Ref(arrTypeIdx, false); Mutable = false }
+                               { Name = "rows"; Type = WType.I32;                    Mutable = false }
+                               { Name = "cols"; Type = WType.I32;                    Mutable = false }
+                           ], None) })
+        ctx.Array2DRegistry.[key] <- (arrTypeIdx, idx)
+        (arrTypeIdx, idx)
+
 // ─────────────────────────────────────────────────────────────────
 // Closure ABI — single source of truth
 // ─────────────────────────────────────────────────────────────────
@@ -594,6 +619,11 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     // KeyValuePair<'K,'V> is a pair, like in Fable (`kv.Key` / `kv.Value` read the items; the constructor makes the tuple)
     | Fable.Type.DeclaredType(entRef, [ k; v ]) when entRef.FullName = "System.Collections.Generic.KeyValuePair`2" ->
         mapTypeKnown ctx (Fable.Type.Tuple([ k; v ], false))
+    // `'T[,]`: a struct of the data array and the two sizes (the front end types it as System.Array`2)
+    | Fable.Type.DeclaredType(entRef, [ elementType ]) when entRef.FullName = "System.Array`2" ->
+        let elemT = mapTypeKnown ctx elementType
+        let (_, idx) = getOrAddArray2DTypeFor ctx elementType elemT
+        WType.Ref(idx, false)
     // StringBuilder: always maps to the pre-registered $StringBuilder struct
     | Fable.Type.DeclaredType(entRef, _) when entRef.FullName = "System.Text.StringBuilder" ->
         WType.Ref(StringBuilderTypeIdx, false)

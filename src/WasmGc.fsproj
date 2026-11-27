@@ -125,6 +125,7 @@
     <Compile Include="Transforms/ListOps.fs" />
     <Compile Include="Transforms/ArrayReplacements.fs" />
     <Compile Include="Transforms/ResizeArrayOps.fs" />
+    <Compile Include="Transforms/Array2DOps.fs" />
     <Compile Include="Transforms/FSharpCoreReplacements.fs" />
     <Compile Include="Transforms/TransformHelpers.fs" />
     <Compile Include="Transforms/BigIntMap.fs" />

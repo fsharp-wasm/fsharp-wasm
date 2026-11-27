@@ -5,6 +5,7 @@
 #   tests/Dogfood/run.sh newsletter    the newsletter library's suite, and the designer module (it must compile, validate and keep its exports)
 #   tests/Dogfood/run.sh widget-editor the widget editor of fsharp-wasm-ide: the whole FSharp.Graphics stack, as a module that must keep its exports
 #   tests/Dogfood/run.sh graphics-libs the tests of the charts of fsharp-wasm-graphics: the science charts, the charts on the data graph and the diagrams (plain checks, run in Node)
+#   tests/Dogfood/run.sh tui           Amano.Tui, the terminal UI library: its dashboard frame is drawn under .NET and as a wasm module, and the checksums must be the same
 #
 # Why: the QuickTests are small programs written to hit one feature each.  A real program meets the combinations: since these libraries
 # compile, seven faults were found and fixed that no QuickTest had shown (equality of unions with lists, list-of-class equality, `contains`
@@ -15,11 +16,12 @@
 #   FSHARP_NEWSLETTER_DIR  fsharp-wasm-newsletter, with `git submodule update --init`           (default ../fsharp-wasm-newsletter)
 #   FSHARP_IDE_DIR         fsharp-wasm-ide, with `git submodule update --init`                  (default ../fsharp-wasm-ide)
 #   FSHARP_GRAPHICS_DIR    fsharp-wasm-graphics, with `git submodule update --init`             (default ../fsharp-wasm-graphics)
+#   FSHARP_TUI_DIR         Amano.Tui                                                            (default ../Amano.Tui)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-WHAT="${1:?usage: run.sh core-libs|newsletter|widget-editor|graphics-libs}"
+WHAT="${1:?usage: run.sh core-libs|newsletter|widget-editor|graphics-libs|tui}"
 OUT="$HERE/output/$WHAT"
 
 compile() {   # <project directory> <output directory>
@@ -81,6 +83,24 @@ case "$WHAT" in
       echo "==> Running it in Node..."
       node "$GFX/build/wasm-run.mjs" "$OUT/$1/Tests.wasm" "${2}_run" "${2}_checks" "${2}_first_failure"
     done
+    ;;
+  tui)
+    TUI="${FSHARP_TUI_DIR:-$ROOT/../Amano.Tui}"
+    CORE="${FSHARP_CORE_DIR:-$ROOT/../fsharp-wasm-core}"
+    need "$TUI/tests/Amano.Tui.Wasm" Amano.Tui "$TUI" FSHARP_TUI_DIR
+    need "$CORE/FSharp.Wasm.Core" fsharp-wasm-core "$CORE" FSHARP_CORE_DIR
+    export FSHARP_WASM_CORE_DIR="$CORE"       # the library's project file imports the portable base library from here
+    echo "==> Drawing the dashboard frame under .NET..."
+    want="$(dotnet run -c Release --project "$TUI/tests/Amano.Tui.Wasm")"
+    echo "$want"
+    echo "==> Compiling the same program..."
+    compile "$TUI/tests/Amano.Tui.Wasm" "$OUT"
+    validate "$OUT/Probe.wasm"
+    echo "==> Drawing it as WebAssembly GC in Node..."
+    got="$(node "$TUI/tests/Amano.Tui.Wasm/run.mjs" "$OUT/Probe.wasm")"
+    echo "$got"
+    [ "$got" = "$want" ] || { echo "✗ the compiled module draws another frame than .NET does" >&2; exit 1; }
+    echo "✓ the same frame under .NET and as WebAssembly GC"
     ;;
   widget-editor)
     IDE="${FSHARP_IDE_DIR:-$ROOT/../fsharp-wasm-ide}"

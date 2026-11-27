@@ -30,7 +30,7 @@ The compiler is the flagship, and the tooling around it (libraries, runtime, IDE
   for several, the Dogfood suites for what only a real program shows (see 3).
 - **The F# compiler itself (`fsharp/`) is not changed on our own.** Look first in our compiler and its libraries; if the fault is in the F# compiler, bring the minimal program and the proposed
   change to the maintainer and agree on it before touching the fork (the fork policy of its `AGENTS.md` then applies).
-- Then `docs/STATUS.md` moves the item from the known gaps to the dated closed list, and the whole suite runs (`bash tests/run-all.sh`, 17 suites, about 10 minutes) before the push.
+- Then `docs/STATUS.md` moves the item from the known gaps to the dated closed list, and the whole suite runs (`bash tests/run-all.sh`, 18 suites, about 10 minutes) before the push.
 - **Never change a test to make it pass if it passes on .NET.** The compiler or the runtime library is what is wrong.
 
 How a compiler fault is found: a minimal program outside the repository, compiled with the CLI (`dotnet tools/FSharp.Wasm.Cli/bin/Debug/net10.0/fsharp-wasm.dll <dir> --outDir out
@@ -41,7 +41,7 @@ with the file's name (a QuickTest cannot show a fault of the second kind); the D
 
 ## 3. Real programs are the gate
 
-The compiler's CI compiles sibling programs (`tests/Dogfood/run.sh core-libs | newsletter | widget-editor`) and runs them. The repositories pin each other by commit: the
+The compiler's CI compiles sibling programs (`tests/Dogfood/run.sh core-libs | newsletter | widget-editor | graphics-libs | tui`) and runs them. The repositories pin each other by commit: the
 compiler pins the siblings (CI `ref:`), the siblings pin the compiler (`COMPILER_REF`). Bump a pin in a commit of its own, library first, then its consumers, then the compiler's pins
 of them. A program that stops compiling is a finding for the compiler (2), not for the program.
 
