@@ -2,10 +2,9 @@
 
 From nothing to an F# program running as WebAssembly GC, then to a program that uses a library from NuGet.
 
-**What was verified, and when (2026-11-27):** the commands of steps 2 and 3 were run in an empty `HOME` with an empty NuGet packages folder, the tool and the template restored from
-packages built from this repository (a local feed). Step 4 restored `FSharp.Wasm.Data 0.1.0-preview` from nuget.org and compiled and ran with the compiler of this repository. **Not yet
-verified against nuget.org: `FSharp.Wasm.Cli` and `FSharp.Wasm.Templates` are not published** (the release `0.1.0-preview` is pending), so step 1 works from source today and from NuGet
-once the release is out; this page says so again, in its date, when that is checked.
+**What was verified, and when (2026-11-27):** steps 1, 2 and 4 were run in an empty `HOME` with an empty NuGet packages folder, against nuget.org: `FSharp.Wasm.Cli` and `FSharp.Wasm.Templates`
+`0.1.0-preview` installed, the template created, `fsharp-wasm . --outDir out` compiled it in 4.9 s and `node run.mjs` printed what step 2 shows; step 4 restored `FSharp.Wasm.Data 0.1.0-preview` and `total ()` was 19.
+Step 3 was run earlier the same day against packages built from this repository. **Not verified:** macOS and Windows (Linux only), and the from-source route of step 1 was not run again for this page.
 
 ## What you need
 
@@ -17,14 +16,12 @@ once the release is out; this page says so again, in its date, when that is chec
 
 ## 1. The compiler and the template
 
-From NuGet (once the release is out):
-
 ```bash
 dotnet tool install -g FSharp.Wasm.Cli --prerelease
 dotnet new install FSharp.Wasm.Templates
 ```
 
-From source, today:
+Or from source, to work on the compiler itself:
 
 ```bash
 git clone https://github.com/fsharp-wasm/fsharp-wasm.git && cd fsharp-wasm
@@ -39,25 +36,33 @@ dotnet build tools/FSharp.Wasm.Cli -c Release
 
 ```bash
 dotnet new fsharp-wasm -o hello && cd hello
-fsharp-wasm . --outDir out        # Hello.fs -> out/Hello.wasm
-node run.mjs                      # 55 1 0
+fsharp-wasm . --outDir out        # hello.fs -> out/hello.wasm
+node run.mjs
 ```
 
-`Hello.fs` is ordinary F#; its public top-level functions are the exports of the module:
+```text
+fibonacci 10          = 55
+isPrime 97, 100       = 1 0
+sum of odd squares 9  = 165
+```
+
+`hello.fs` is ordinary F#; its public top-level functions are the exports of the module (a `bool` is an `i32` on the other side, hence `1 0`). The names follow the folder you give `-o`.
 
 ```fsharp
-module Hello
+module hello
 
-let fibonacci n =
+let fibonacci (n: int) : int =
     let mutable a, b = 0, 1
     for _ in 1 .. n do
         let t = a + b
         a <- b
         b <- t
     a
+
+// isPrime and a list pipeline (sumOfSquaresOfOdds) follow in the file
 ```
 
-`out/Hello.wat` is the same module as text: read it. `out/wit/` is the WIT description of its exports. The page of the template runs the same module in a browser: `npx serve .` and open it.
+`out/hello.wat` is the same module as text: read it. `out/wit/` is the WIT description of its exports. The page of the template runs the same module in a browser: `npx serve .` and open it.
 
 ## 3. The same program under .NET
 
@@ -70,6 +75,8 @@ and compare (the compiler's `tests/Differential`, and the gates that run the lib
 ```bash
 dotnet add package FSharp.Wasm.Data --prerelease
 ```
+
+Put the code below in a file, `Json.fs`, and list it in the project (`<Compile Include="Json.fs" />`) in place of `hello.fs`:
 
 ```fsharp
 module Json
