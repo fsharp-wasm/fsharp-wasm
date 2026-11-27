@@ -1908,6 +1908,38 @@ let testArraySortWithDesc () : int =
     let sorted = Array.sortWith (fun a b -> if b < a then -1 elif b > a then 1 else 0) arr
     sorted.[0]  // 4
 
+type SortWithItem = { SwKey: int; SwOrder: int }
+
+/// The comparer reaches these as a function value, not as a lambda written at the call: that is the shared per-array-type helper
+/// ($arraySortWith_n, ArraySort.fs), not the inline merge sort of ArrayReplacements.
+let sortIntsWith (cmp: int -> int -> int) (xs: int[]) : int[] = Array.sortWith cmp xs
+let sortItemsWith (cmp: SortWithItem -> SortWithItem -> int) (xs: SortWithItem[]) : SortWithItem[] = Array.sortWith cmp xs
+
+/// Array.sortWith with a comparer that is a function value is a stable merge sort, O(n log n): empty, one, two and odd lengths,
+/// equal keys keep their order, a permutation of 200 000 numbers comes out sorted (an insertion sort took minutes for that),
+/// and the input is untouched.
+let testArraySortWithMerge () : int =
+    let byInt (a: int) (b: int) = if a < b then -1 elif a > b then 1 else 0
+    let small =
+        sortIntsWith byInt [||] = [||] && sortIntsWith byInt [| 7 |] = [| 7 |] && sortIntsWith byInt [| 2; 1 |] = [| 1; 2 |]
+        && sortIntsWith byInt [| 3; 1; 2 |] = [| 1; 2; 3 |] && sortIntsWith byInt [| 5; 4; 3; 2; 1 |] = [| 1; 2; 3; 4; 5 |]
+        && sortIntsWith byInt [| 1; 1; 1 |] = [| 1; 1; 1 |]
+    // equal keys keep the order they had: key = i * 31 % 7, order = i
+    let items = Array.init 1000 (fun i -> { SwKey = (i * 31) % 7; SwOrder = i })
+    let byKey = sortItemsWith (fun a b -> byInt a.SwKey b.SwKey) items
+    let mutable stable = true
+    for i in 1 .. byKey.Length - 1 do
+        if byKey.[i - 1].SwKey > byKey.[i].SwKey then stable <- false
+        if byKey.[i - 1].SwKey = byKey.[i].SwKey && byKey.[i - 1].SwOrder > byKey.[i].SwOrder then stable <- false
+    let untouched = items.[0].SwOrder = 0 && items.[999].SwOrder = 999 && items.[1].SwKey = 3
+    // a permutation of 0 .. n-1 (a step coprime to n), sorted back to the identity
+    let n = 200000
+    let big = sortIntsWith byInt (Array.init n (fun i -> (i * 7919) % n))
+    let mutable identity = true
+    for i in 0 .. n - 1 do
+        if big.[i] <> i then identity <- false
+    (if small then 1000 else 0) + (if stable then 100 else 0) + (if untouched then 10 else 0) + (if identity then 1 else 0)
+
 // ── List.zip ──────────────────────────────────────────────────────────────
 
 /// Test: List.zip [1;2;3] [10;20;30] |> List.head = (1, 10), sum = 11
