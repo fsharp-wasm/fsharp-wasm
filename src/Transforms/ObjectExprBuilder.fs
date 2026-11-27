@@ -26,9 +26,10 @@ let tryBuild
         (baseCall: Fable.Expr option)
         : WExpr option =
     match typ, baseCall with
-    | Fable.Type.DeclaredType(ifaceRef, []), None when ctx.VTableRegistry.ContainsKey ifaceRef.FullName ->
+    | Fable.Type.DeclaredType(ifaceRef, ifaceArgs), None when ctx.VTableRegistry.ContainsKey (interfaceKeyOf ctx ifaceRef ifaceArgs) ->
         let implName = closureName "$ObjExpr" ctx
-        let ifaceName = ifaceRef.FullName
+        // the key of the instantiation for a generic interface (`IEqualityComparer<string>`), the full name otherwise
+        let ifaceName = interfaceKeyOf ctx ifaceRef ifaceArgs
         // what the members capture from the enclosing scope (their own parameters excluded)
         let captures =
             members

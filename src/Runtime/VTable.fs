@@ -34,30 +34,7 @@ let getOrRegisterInterface
         (ctx: Ctx)
         (ifaceName: string)
         (methodSigs: (string * WType list * WType) list) : int * int =
-    match ctx.VTableRegistry.TryGetValue(ifaceName) with
-    | true, (vtableTypeIdx, boxTypeIdx, _, _) -> vtableTypeIdx, boxTypeIdx
-    | false, _ ->
-        // One func type per method: (eqref, args...) -> result
-        let funcTypeIndices =
-            methodSigs |> List.map (fun (_, paramTypes, retType) ->
-                ctx.GetOrAddFuncType(WType.EqRef :: paramTypes, retType))
-
-        // Vtable struct: one immutable funcref field per method.
-        let vtableFields =
-            methodSigs |> List.mapi (fun i (name, _, _) ->
-                { Name = name; Type = WType.Ref(funcTypeIndices.[i], false); Mutable = false })
-        let vtableTypeIdx = ctx.TypeDefs.Count
-        ctx.TypeDefs.Add({ Name = $"$vtbl_{ifaceName}"; Def = WTypeDef.Struct(vtableFields, None) })
-
-        // Box struct: { vtable: ref $vtable; self: eqref }.
-        let boxFields =
-            [ { Name = "vtable"; Type = WType.Ref(vtableTypeIdx, false); Mutable = false }
-              { Name = "self";   Type = WType.EqRef;                      Mutable = false } ]
-        let boxTypeIdx = ctx.TypeDefs.Count
-        ctx.TypeDefs.Add({ Name = $"$box_{ifaceName}"; Def = WTypeDef.Struct(boxFields, None) })
-
-        ctx.VTableRegistry.[ifaceName] <- (vtableTypeIdx, boxTypeIdx, funcTypeIndices, methodSigs |> List.map (fun (n,_,_) -> n))
-        vtableTypeIdx, boxTypeIdx
+    registerInterfaceVTable ctx ifaceName methodSigs
 
 // ─────────────────────────────────────────────────────────────────
 // Implementation registration
@@ -89,9 +66,12 @@ let registerVTableImpl
     if ctx.VTableImplRegistry.ContainsKey(key) then ()  // already registered
     else
 
+    // the key of a generic interface carries its instantiation (`I<i32,ref12>`): a name made of it must stay a valid identifier
+    let safeIface = ifaceName |> String.map (fun c -> if System.Char.IsLetterOrDigit c || c = '_' || c = '.' || c = '`' then c else '_')
+
     let wrapperNames =
         methodImpls |> List.mapi (fun i (methodName, compiledFunc, compiledParams, compiledRet) ->
-            let wrapperName = $"${implTypeName}_{ifaceName}_{methodName}_wrap"
+            let wrapperName = $"${implTypeName}_{safeIface}_{methodName}_wrap"
             let funcTypeIdx = funcTypeIndices.[i]
 
             // Wrapper params: (self: eqref, non-self args from compiled signature).
@@ -122,7 +102,7 @@ let registerVTableImpl
             wrapperName)
 
     // Vtable global: struct.new $vtable_type (ref.func wrap1, ref.func wrap2, ...)
-    let vtableGlobalName = $"${implTypeName}_{ifaceName}_vtable"
+    let vtableGlobalName = $"${implTypeName}_{safeIface}_vtable"
     let funcRefs = wrapperNames |> List.map WExpr.FuncRef
     let vtableInit = WExpr.StructNew(vtableTypeIdx, funcRefs, WType.Ref(vtableTypeIdx, false))
     let vtableGlobal : WGlobalDecl =

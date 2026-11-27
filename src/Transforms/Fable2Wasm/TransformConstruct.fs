@@ -96,8 +96,8 @@ let buildTypeCast (ctx: Ctx) (wExpr: WExpr) (targetFableType: Fable.Type) : WExp
                 // Interface types currently map to I32 (not yet registered in TypeRegistry).
                 // If the target is a known interface in VTableRegistry, emit a box.
                 match targetFableType with
-                | Fable.Type.DeclaredType(targetEntRef, _) ->
-                    let ifaceName = targetEntRef.FullName
+                | Fable.Type.DeclaredType(targetEntRef, targetArgs) ->
+                    let ifaceName = interfaceKeyOf ctx targetEntRef targetArgs
                     match ctx.VTableRegistry.TryGetValue(ifaceName) with
                     | true, (_, boxTypeIdx, _, _) ->
                         match ctx.TypeRegistry |> Map.tryFindKey (fun _ idx -> idx = concreteTypeIdx) with

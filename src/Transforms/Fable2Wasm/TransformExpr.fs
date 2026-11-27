@@ -370,9 +370,9 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     // ── a property of an interface value (`shape.Bounds`): the getter slot of its vtable ──────────────
     | Fable.Expr.Get(receiver, GetKind.FieldGet fi, typ, _)
           when (match receiver.Type with
-                | Fable.Type.DeclaredType(e, _) -> (VT.tryFindMemberSlot ctx e.FullName [ "get_" + fi.Name; fi.Name ]).IsSome
+                | Fable.Type.DeclaredType(e, args) -> (VT.tryFindMemberSlot ctx (interfaceKeyOf ctx e args) [ "get_" + fi.Name; fi.Name ]).IsSome
                 | _ -> false) ->
-        let ifaceName = match receiver.Type with Fable.Type.DeclaredType(e, _) -> e.FullName | _ -> ""
+        let ifaceName = match receiver.Type with Fable.Type.DeclaredType(e, args) -> interfaceKeyOf ctx e args | _ -> ""
         let slot = (VT.tryFindMemberSlot ctx ifaceName [ "get_" + fi.Name; fi.Name ]).Value
         let vtableTypeIdx, boxTypeIdx, funcTypeIndices, _ = ctx.VTableRegistry.[ifaceName]
         VT.emitCallVirtual ifaceName vtableTypeIdx boxTypeIdx funcTypeIndices slot (transformExpr ctx receiver) [] (mapTypeKnown ctx typ)

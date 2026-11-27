@@ -604,6 +604,34 @@ let getOrAddClosureBase (ctx: Ctx) (funcTypeIdx: int) : int =
         ctx.FuncTypeToClosureMap.[funcTypeIdx] <- idx
         idx
 
+/// Register an interface in the vtable system under `ifaceKey`: its vtable struct and its box struct (idempotent).  The key is the
+/// interface's full name, or, for a generic interface, the full name with the instantiation (`I<i32,ref12>`): every instantiation has
+/// its own slots, as every instantiation of a generic record has its own fields.  `methodSigs` are (method name, parameter types
+/// without self, result type); the vtable's function types take `eqref` self first.  Returns (vtableTypeIdx, boxTypeIdx).
+let registerInterfaceVTable (ctx: Ctx) (ifaceKey: string) (methodSigs: (string * WType list * WType) list) : int * int =
+    match ctx.VTableRegistry.TryGetValue(ifaceKey) with
+    | true, (vtableTypeIdx, boxTypeIdx, _, _) -> vtableTypeIdx, boxTypeIdx
+    | false, _ ->
+        let funcTypeIndices =
+            methodSigs |> List.map (fun (_, paramTypes, retType) ->
+                ctx.GetOrAddFuncType(WType.EqRef :: paramTypes, retType))
+        let vtableFields =
+            methodSigs |> List.mapi (fun i (name, _, _) ->
+                { Name = name; Type = WType.Ref(funcTypeIndices.[i], false); Mutable = false })
+        let vtableTypeIdx = ctx.TypeDefs.Count
+        ctx.TypeDefs.Add({ Name = $"$vtbl_{ifaceKey}"; Def = WTypeDef.Struct(vtableFields, None) })
+        let boxFields =
+            [ { Name = "vtable"; Type = WType.Ref(vtableTypeIdx, false); Mutable = false }
+              { Name = "self";   Type = WType.EqRef;                      Mutable = false } ]
+        let boxTypeIdx = ctx.TypeDefs.Count
+        ctx.TypeDefs.Add({ Name = $"$box_{ifaceKey}"; Def = WTypeDef.Struct(boxFields, None) })
+        ctx.VTableRegistry.[ifaceKey] <- (vtableTypeIdx, boxTypeIdx, funcTypeIndices, methodSigs |> List.map (fun (n, _, _) -> n))
+        vtableTypeIdx, boxTypeIdx
+
+/// The instantiations of generic interfaces being registered right now: an interface whose member mentions the interface itself
+/// (`abstract Next: unit -> I<'T>`) would otherwise register itself without end.
+let private interfacesInProgress = System.Collections.Generic.HashSet<string>()
+
 /// Type mapping that resolves declared (record/DU) types via the context's type registry.
 let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
     match t with
@@ -653,6 +681,11 @@ let rec mapTypeKnown (ctx: Ctx) (t: Fable.Type) : WType =
                 // another, which only validated while the structs of a union were canonical by shape.
                 match registerGenericUnion ctx entRef genericArgs instKey with
                 | Some idx -> WType.Ref(idx, false)
+                | None ->
+                // An interface of the program or of the base library with type arguments (`IEqualityComparer<string>`): the vtable
+                // and the box of this instantiation
+                match registerGenericInterface ctx entRef genericArgs instKey with
+                | Some boxIdx -> WType.Ref(boxIdx, false)
                 | None ->
                 // Fall back to non-generic key (ClassDeclaration-registered types)
                 match Map.tryFind entRef.FullName ctx.TypeRegistry with
@@ -804,6 +837,81 @@ and registerGenericRecord (ctx: Ctx) (entRef: Fable.EntityRef) (genericArgs: Fab
         ctx.TypeDefs.[idx] <- { Name = instKey; Def = WTypeDef.Struct(fields, None) }
         Some idx
     | _ -> None
+
+/// The vtable slots of an interface, in declaration order, derived from its abstract members: (member name, parameter types
+/// without self, result type), the interface's own type parameters mapped through `ctx.TypeSubst`.  None when the declaration
+/// alone does not determine them (inherited interfaces, generic members, overloaded names, no members): the first
+/// implementation registers the interface instead.
+and interfaceSlotsKnown (ctx: Ctx) (ent: Fable.Entity) : (string * WType list * WType) list option =
+    let members =
+        ent.MembersFunctionsAndValues
+        |> Seq.filter (fun m -> m.IsDispatchSlot && not m.IsProperty)
+        |> List.ofSeq
+    let determined =
+        not members.IsEmpty
+        && Seq.isEmpty ent.DeclaredInterfaces
+        && members |> List.forall (fun m -> m.GenericParameters.IsEmpty)
+        && (members |> List.map (fun m -> m.CompiledName) |> List.distinct).Length = members.Length
+    if not determined then None
+    else
+        members
+        |> List.map (fun m ->
+            let args =
+                m.CurriedParameterGroups
+                |> List.concat
+                |> List.map (fun p -> mapTypeKnown ctx p.Type)
+                |> List.filter (fun t -> t <> WType.Void)
+            let result = match m.ReturnParameter.Type with Fable.Type.Unit -> WType.Void | t -> mapTypeKnown ctx t
+            m.CompiledName, args, result)
+        |> Some
+
+/// The vtable and box of ONE instantiation of a generic interface declared in source (the program's or the base library's):
+/// the slots are computed with the interface's type parameters bound to the (already mapped) type arguments, as for a generic
+/// record.  Returns the box type's index.  `None` for an interface of the BCL, for one that is not generic, and for one whose
+/// declaration does not determine its slots.
+and registerGenericInterface (ctx: Ctx) (entRef: Fable.EntityRef) (genericArgs: Fable.Type list) (instKey: string) : int option =
+    match ctx.VTableRegistry.TryGetValue instKey with
+    | true, (_, boxIdx, _, _) -> Some boxIdx
+    | false, _ ->
+    // an argument that is a type parameter nothing binds (the placeholder struct of an open generic class mapping its fields) is no instantiation
+    let rec unbound (t: Fable.Type) : bool =
+        match t with
+        | Fable.Type.GenericParam(name, _, _) -> not (Map.containsKey name ctx.TypeSubst)
+        | Fable.Type.List e | Fable.Type.Option(e, _) | Fable.Type.Array(e, _) -> unbound e
+        | Fable.Type.Tuple(ts, _) -> List.exists unbound ts
+        | Fable.Type.LambdaType(a, r) -> unbound a || unbound r
+        | Fable.Type.DelegateType(ts, r) -> List.exists unbound ts || unbound r
+        | Fable.Type.DeclaredType(_, ts) -> List.exists unbound ts
+        | _ -> false
+    match entRef.Path with
+    | Fable.SourcePath _ when not (List.exists unbound genericArgs) && not (interfacesInProgress.Contains instKey) ->
+        let ent = try Some(ctx.Compiler.GetEntity entRef) with _ -> None
+        match ent with
+        | Some ent when ent.IsInterface && ent.GenericParameters.Length = genericArgs.Length ->
+            interfacesInProgress.Add instKey |> ignore
+            try
+                let subst =
+                    (ent.GenericParameters |> List.map (fun p -> p.Name), genericArgs |> List.map (mapTypeKnown ctx))
+                    ||> List.zip |> Map.ofList
+                match interfaceSlotsKnown { ctx with TypeSubst = subst } ent with
+                | Some slots -> Some(snd (registerInterfaceVTable ctx instKey slots))
+                | None -> None
+            finally
+                interfacesInProgress.Remove instKey |> ignore
+        | _ -> None
+    | _ -> None
+
+/// The key under which the vtable of the interface type `entRef<genericArgs>` is registered: its full name, or, for an
+/// interface with type arguments, the full name with the instantiation — the key of the generic instantiation of any type.
+and interfaceKeyOf (ctx: Ctx) (entRef: Fable.EntityRef) (genericArgs: Fable.Type list) : string =
+    if genericArgs.IsEmpty then entRef.FullName
+    else
+        let argKeys = genericArgs |> List.map (fun t -> wTypeKey (mapTypeKnown ctx t)) |> String.concat ","
+        let instKey = $"{entRef.FullName}<{argKeys}>"
+        // the instantiation is registered when its type is mapped; one that is not (an interface of the BCL, say) keeps the plain name
+        match registerGenericInterface ctx entRef genericArgs instKey with
+        | Some _ -> instKey
+        | None -> entRef.FullName
 
 /// Struct type index of a declared (record / class) type — of its INSTANTIATION when it is generic.
 let declaredStructIdx (ctx: Ctx) (t: Fable.Type) : int option =

@@ -4625,3 +4625,83 @@ let testStringJoinNullable () : int =
     let b = System.String.Join(",", [ "x"; "y" ]) = "x,y"
     let c = System.String.Join("-", [| "p"; "q" |]) = "p-q"
     (if a then 100 else 0) + (if b then 10 else 0) + (if c then 1 else 0)
+
+// ── Dictionary and HashSet with a comparer ─────────────────────────────────
+
+/// `Dictionary(StringComparer.OrdinalIgnoreCase)`, `HashSet(StringComparer.OrdinalIgnoreCase)`, `Dictionary(StringComparer.Ordinal)` and a comparer of our own
+/// (the same length is the same key).  The constructors had no overload taking a comparer, so none of this compiled.
+let testComparerCollections () : int =
+    let d = System.Collections.Generic.Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase)
+    d.["Content-Type"] <- 1
+    d.["content-type"] <- 2
+    d.["Accept"] <- 3
+    let ignoring = d.Count = 2 && d.["CONTENT-TYPE"] = 2 && d.ContainsKey "accept" && not (d.ContainsKey "accepts")
+    let strict = System.Collections.Generic.Dictionary<string, int>(System.StringComparer.Ordinal)
+    strict.["a"] <- 1
+    strict.["A"] <- 2
+    let ordinal = strict.Count = 2 && strict.["a"] = 1
+    let h = System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+    let first = h.Add "Ab"
+    let again = h.Add "aB"
+    let set = first && not again && h.Contains "AB" && h.Count = 1
+    let byLength =
+        { new System.Collections.Generic.IEqualityComparer<string> with
+            member _.Equals(x: string, y: string) = x.Length = y.Length
+            member _.GetHashCode(s: string) = s.Length }
+    let own = System.Collections.Generic.Dictionary<string, int>(byLength)
+    own.["ab"] <- 1
+    own.["cd"] <- 2
+    own.["xyz"] <- 3
+    let custom = own.Count = 2 && own.["zz"] = 2 && own.["qqq"] = 3
+    let fromItems = System.Collections.Generic.Dictionary<string, int>(10, System.StringComparer.OrdinalIgnoreCase)
+    fromItems.["K"] <- 7
+    let capacity = fromItems.ContainsKey "k"
+    (if ignoring then 10000 else 0) + (if ordinal then 1000 else 0) + (if set then 100 else 0) + (if custom then 10 else 0) + (if capacity then 1 else 0)
+
+/// `StringComparer` as a comparer of strings: `Compare` and `Equals` through the interfaces, ignoring case or not.
+let testStringComparer () : int =
+    let ci = System.StringComparer.OrdinalIgnoreCase :> System.Collections.Generic.IEqualityComparer<string>
+    let co = System.StringComparer.Ordinal :> System.Collections.Generic.IEqualityComparer<string>
+    let eq = ci.Equals("Hello", "hELLO") && not (co.Equals("Hello", "hELLO")) && not (ci.Equals("a", "ab"))
+    let hashes = ci.GetHashCode "Hello" = ci.GetHashCode "HELLO" && co.GetHashCode "x" = co.GetHashCode "x"
+    let cmp = System.StringComparer.Ordinal :> System.Collections.Generic.IComparer<string>
+    let order = cmp.Compare("a", "b") < 0 && cmp.Compare("b", "a") > 0 && cmp.Compare("a", "a") = 0 && cmp.Compare("a", "ab") < 0
+    (if eq then 100 else 0) + (if hashes then 10 else 0) + (if order then 1 else 0)
+
+// ── A generic interface, implemented for two type arguments ─────────────────
+
+type IPick<'T> =
+    abstract Pick: 'T * 'T -> 'T
+    abstract Size: 'T -> int
+
+type LongerString() =
+    interface IPick<string> with
+        member _.Pick(a, b) = if a.Length >= b.Length then a else b
+        member _.Size(s) = s.Length
+
+type BiggerInt() =
+    interface IPick<int> with
+        member _.Pick(a, b) = if a >= b then a else b
+        member _.Size(n) = n
+
+/// A class member and the interface member it implements share a name: the interface member calls the class's.
+type Doubling() =
+    member _.Twice(n: int) : int = n * 2
+    interface IPick<int> with
+        member this.Pick(a, b) = this.Twice(max a b)
+        member this.Size(n) = this.Twice n
+
+let private sizeOfPickedString (p: IPick<string>) : int = p.Size(p.Pick("ab", "xyz"))
+let private sizeOfPickedInt (p: IPick<int>) : int = p.Size(p.Pick(4, 9))
+
+/// One generic interface with two instantiations in one program (`IPick<string>`, `IPick<int>`): a vtable per instantiation, reached through
+/// a class, through an object expression, and through a generic class that calls it for whatever type it holds.  Before, there was one vtable
+/// per interface name: the second instantiation was "compiled to a different signature than the slot".
+let testGenericInterfaces () : int =
+    let s = sizeOfPickedString (LongerString() :> IPick<string>)
+    let i = sizeOfPickedInt (BiggerInt() :> IPick<int>)
+    let o = sizeOfPickedString { new IPick<string> with
+                                    member _.Pick(a, b) = b
+                                    member _.Size(x) = x.Length * 10 }
+    let d = sizeOfPickedInt (Doubling() :> IPick<int>)
+    (if s = 3 then 1000 else 0) + (if i = 9 then 100 else 0) + (if o = 30 then 10 else 0) + (if d = 36 then 1 else 0)

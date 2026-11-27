@@ -1087,7 +1087,11 @@ let private transformCallCore
     let ifaceDispatch =
         match info.MemberRef, info.ThisArg with
         | Some(MemberRef(ifaceEntityRef, ifaceMemberInfo)), Some thisArg ->
-            let ifaceName = ifaceEntityRef.FullName
+            // a generic interface is registered per instantiation: the receiver's type says which one
+            let ifaceName =
+                match thisArg.Type with
+                | Fable.Type.DeclaredType(r, args) when r.FullName = ifaceEntityRef.FullName -> interfaceKeyOf ctx r args
+                | _ -> ifaceEntityRef.FullName
             match ctx.VTableRegistry.TryGetValue(ifaceName) with
             | true, (vtableTypeIdx, boxTypeIdx, funcTypeIndices, methodNames) ->
                 let methodName = ifaceMemberInfo.CompiledName

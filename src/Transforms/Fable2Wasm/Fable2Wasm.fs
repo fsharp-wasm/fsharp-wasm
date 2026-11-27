@@ -47,35 +47,34 @@ let private preScanGenerics (ctx: Ctx) (decls: Declaration list) : unit =
     decls |> List.iter scan
 
 
-/// The vtable slots of an interface, in declaration order, derived from its abstract members:
-/// (member name, parameter types without self, result type).  None when the declaration alone does not determine them
-/// (a generic interface or generic members, inherited interfaces, overloaded names): the first implementation registers
-/// the interface instead.
+/// The vtable slots of a NON-generic interface at its declaration (see `interfaceSlotsKnown`).  A generic interface is registered per
+/// instantiation, when its type is first mapped (`registerGenericInterface`).
 let private interfaceSlots (ctx: Ctx) (ent: Fable.Entity) : (string * WType list * WType) list option =
-    let members =
-        ent.MembersFunctionsAndValues
-        |> Seq.filter (fun m -> m.IsDispatchSlot && not m.IsProperty)
-        |> List.ofSeq
-    let determined =
-        not members.IsEmpty
-        && Seq.isEmpty ent.DeclaredInterfaces
-        && ent.GenericParameters |> List.forall (fun p -> p.IsMeasure)
-        && members |> List.forall (fun m -> m.GenericParameters.IsEmpty)
-        && (members |> List.map (fun m -> m.CompiledName) |> List.distinct).Length = members.Length
-    if not determined then None
-    else
-        members
-        |> List.map (fun m ->
-            let args =
-                m.CurriedParameterGroups
-                |> List.concat
-                |> List.map (fun p -> mapTypeKnown ctx p.Type)
-                |> List.filter (fun t -> t <> WType.Void)
-            m.CompiledName, args, mapResultTypeKnown ctx m.ReturnParameter.Type)
-        |> Some
+    if ent.GenericParameters |> List.forall (fun p -> p.IsMeasure) then interfaceSlotsKnown ctx ent else None
 
-/// Wire the interfaces a class, record or union implements to its compiled members (see VT.wireImplementation).
+/// Wire the interfaces a class, record or union implements to its compiled members (see VT.wireImplementation).  A generic interface
+/// is wired under the key of the instantiation the class declares (`interface IEqualityComparer<string>`); a class that implements
+/// two instantiations of one interface gives each member to the instantiation whose slot it fits.
 let private wireInterfaces (ctx: Ctx) (classDecl: Fable.ClassDecl) (typeIdx: int) : unit =
+    let declared =
+        try ctx.Compiler.GetEntity classDecl.Entity |> fun e -> e.DeclaredInterfaces |> List.ofSeq
+        with _ -> []
+    let keyFor (ifaceEntityRef: Fable.EntityRef) (memberName: string) (ps: WType list) (ret: WType) : string =
+        let candidates =
+            declared |> List.filter (fun d -> d.Entity.FullName = ifaceEntityRef.FullName && not d.GenericArgs.IsEmpty)
+        let fits (key: string) =
+            match ctx.VTableRegistry.TryGetValue key with
+            | true, (_, _, funcTypes, names) ->
+                match List.tryFindIndex ((=) memberName) names with
+                | Some i -> ctx.GetOrAddFuncType(WType.EqRef :: (match ps with _ :: rest -> rest | [] -> []), ret) = funcTypes.[i]
+                | None -> false
+            | _ -> false
+        match candidates with
+        | [] -> ifaceEntityRef.FullName
+        | [ d ] -> interfaceKeyOf ctx d.Entity d.GenericArgs
+        | several ->
+            let keys = several |> List.map (fun d -> interfaceKeyOf ctx d.Entity d.GenericArgs)
+            keys |> List.tryFind fits |> Option.defaultValue keys.Head
     let members =
         classDecl.AttachedMembers
         |> List.choose (fun m ->
@@ -86,7 +85,8 @@ let private wireInterfaces (ctx: Ctx) (classDecl: Fable.ClassDecl) (typeIdx: int
                 ctx.Functions
                 |> Seq.tryFindBack (fun f -> f.Name = qualName)
                 |> Option.map (fun func ->
-                    ifaceEntityRef.FullName, ifaceMemberInfo.CompiledName, qualName, List.map snd func.Params, func.Result)
+                    let ps = List.map snd func.Params
+                    keyFor ifaceEntityRef ifaceMemberInfo.CompiledName ps func.Result, ifaceMemberInfo.CompiledName, qualName, ps, func.Result)
             | _ -> None)
     VT.wireImplementation ctx classDecl.Entity.FullName typeIdx members
 

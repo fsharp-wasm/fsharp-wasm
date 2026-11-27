@@ -906,7 +906,17 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
 // WFuncDecl → WAT function text
 // ─────────────────────────────────────────────────────────────────
 
-let private funcToWat (typeNames: Map<int, string>) (arrayElemTypes: Map<int, WType>) (f: WFuncDecl) : string =
+/// The registered function type with the signature of `f`, as a `(type $name)` use.  Without it `wasm-tools` gives a function with an
+/// inline signature a type of its own unless a type of that signature stands alone: one inside a `rec` group (a struct that reserved its
+/// index before the types it mentions) is not taken, and a vtable slot of that type then differs from the function that is put in it.
+let private funcTypeUse (typeNames: Map<int, string>) (funcTypesBySignature: Map<string, int>) (f: WFuncDecl) : string =
+    let ps = f.Params |> List.map snd |> List.filter (fun t -> t <> WType.Void)
+    let rs = match f.Result with WType.Void -> [] | t -> [ t ]
+    match Map.tryFind (WasmGc.Emit.Emit.funcKey ps rs) funcTypesBySignature |> Option.bind (fun i -> Map.tryFind i typeNames) with
+    | Some name -> sprintf " (type %s)" (watId name)
+    | None -> ""
+
+let private funcToWat (typeNames: Map<int, string>) (funcTypesBySignature: Map<string, int>) (arrayElemTypes: Map<int, WType>) (f: WFuncDecl) : string =
     let sb = StringBuilder()
     let funcId = watId f.Name
     // Build (param $name type) list
@@ -926,7 +936,7 @@ let private funcToWat (typeNames: Map<int, string>) (arrayElemTypes: Map<int, WT
         |> String.concat "\n"
     let exportStr =
         if f.Exported then sprintf " ;; exported as \"%s\"" f.Name else ""
-    sb.AppendLine(sprintf "  (func %s%s%s%s" funcId paramStr resultStr exportStr) |> ignore
+    sb.AppendLine(sprintf "  (func %s%s%s%s%s" funcId (funcTypeUse typeNames funcTypesBySignature f) paramStr resultStr exportStr) |> ignore
     if localStr <> "" then
         sb.AppendLine(localStr) |> ignore
     // Emit function body
@@ -1044,6 +1054,16 @@ let private collectGlobalFuncRefs (globals: WGlobalDecl list) : string list =
 /// This is the primary output function for Sprint 1.
 let moduleToWat (wmod: WModule) : string =
     let typeNames     = buildTypeNames wmod.Types
+    // the first registered function type of each signature (the one the binary emitter takes too)
+    let funcTypesBySignature =
+        wmod.Types
+        |> List.mapi (fun i td -> i, td.Def)
+        |> List.fold (fun (m: Map<string, int>) (i, def) ->
+            match def with
+            | WTypeDef.Func(ps, r) ->
+                let key = WasmGc.Emit.Emit.funcKey (ps |> List.filter (fun t -> t <> WType.Void)) (match r with WType.Void -> [] | t -> [ t ])
+                if Map.containsKey key m then m else Map.add key i m
+            | _ -> m) Map.empty
     let arrayElemTypes = buildArrayElemTypes wmod.Types
     let sb = StringBuilder()
 
@@ -1096,7 +1116,7 @@ let moduleToWat (wmod: WModule) : string =
     if not wmod.Functions.IsEmpty then
         sb.AppendLine("  ;; ── Functions ──────────────────────────────────────") |> ignore
         for f in wmod.Functions do
-            sb.Append(funcToWat typeNames arrayElemTypes f) |> ignore
+            sb.Append(funcToWat typeNames funcTypesBySignature arrayElemTypes f) |> ignore
 
     // ── Elem declare (required for ref.func validity) ─────
     // Any function used as ref.func must be declared in an element segment.
