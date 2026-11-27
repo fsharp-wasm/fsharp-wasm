@@ -751,6 +751,23 @@ let testListSkipTakeWhile () : int =
     + (if List.skipWhile (fun x -> x > 0) ([]: int list) = [] && List.takeWhile (fun x -> x > 0) xs = xs then 10 else 0)
     + (if List.skipWhile (fun (s: string) -> s.Length < 3) words = [ "ccc"; "d" ] && List.takeWhile (fun (s: string) -> s.Length < 3) words = [ "a"; "bb" ] then 1 else 0)
 
+type MinMaxRecord = { MmName: string; MmRank: int }
+
+/// List.minBy / maxBy with a key that is not a number: a tuple (the structural comparison), a string, a record; the first of equal keys wins.
+let testListMinMaxByStructural () : int =
+    let xs = [ (3, 1, "a"); (1, 9, "b"); (1, 2, "c"); (2, 0, "d"); (1, 2, "e") ]
+    let (a1, _, n1) = xs |> List.minBy (fun (t, o, _) -> t, o)
+    let (a2, _, n2) = xs |> List.maxBy (fun (t, o, _) -> t, o)
+    let words = [ "pear"; "apple"; "fig"; "apple2" ]
+    let recs = [ { MmName = "x"; MmRank = 2 }; { MmName = "a"; MmRank = 5 }; { MmName = "a"; MmRank = 1 } ]
+    let first = recs |> List.minBy (fun r -> r.MmName, r.MmRank)
+    let nums = [ 4; 2; 9; 2; 9 ]
+    (if a1 = 1 && n1 = "c" then 10000 else 0)            // smallest (1, 2): the first of two equal keys
+    + (if a2 = 3 && n2 = "a" then 1000 else 0)           // largest (3, 1)
+    + (if List.minBy (fun (w: string) -> w) words = "apple" && List.maxBy (fun (w: string) -> w) words = "pear" then 100 else 0)
+    + (if first.MmRank = 1 then 10 else 0)
+    + (if List.minBy (fun n -> n) nums = 2 && List.maxBy (fun n -> -n) nums = 2 && List.maxBy (fun n -> n) nums = 9 then 1 else 0)
+
 /// Test: List.sumBy (fun x -> x * x) [1;2;3;4] = 1+4+9+16 = 30
 let testListSumBy () : int =
     List.sumBy (fun x -> x * x) [1; 2; 3; 4]

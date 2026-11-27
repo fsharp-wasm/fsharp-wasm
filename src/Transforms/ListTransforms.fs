@@ -415,7 +415,19 @@ let tryListMinMaxByInline
             let ctx'  = ctx.WithLocal(farg.Name, elemT)
             let wKey  = transform ctx' fbody
             let wList = transform ctx listArg
-            let cmpOp = if isMin then WCompareOp.LtS else WCompareOp.GtS
+            // F# keeps the FIRST extreme: the best is replaced only when the new key is strictly smaller (larger).  A number is compared
+            // as a number (unsigned ones as such); any other key (a tuple, a record, a union, a string) by the structural comparison.
+            let keyFT = fbody.Type
+            let better (k: WExpr) (best: WExpr) =
+                match keyT with
+                | WType.I32 | WType.I64 | WType.F32 | WType.F64 ->
+                    let unsigned = isUnsignedInt keyFT
+                    WExpr.Compare((match isMin, unsigned with
+                                   | true, false -> WCompareOp.LtS | true, true -> WCompareOp.LtU
+                                   | false, false -> WCompareOp.GtS | false, true -> WCompareOp.GtU), k, best)
+                | _ ->
+                    WExpr.Compare((if isMin then WCompareOp.LtS else WCompareOp.GtS),
+                                  WasmGc.Runtime.Equality.compareValues ctx keyT k best, i32Const 0)
             Some(wasm {
                 let! lst = wList
                 let! nn = s.CastNN lst
@@ -427,7 +439,7 @@ let tryListMinMaxByInline
                     wasm {
                         let! e = elem
                         let! k = WExpr.Let(farg.Name, e, wKey)
-                        return! WExpr.If(WExpr.Compare(cmpOp, k, bestK.Val),
+                        return! WExpr.If(better k bestK.Val,
                             WExpr.Sequence [bestE.Set e; bestK.Set k],
                             WExpr.Nop, WType.Void)
                     })
