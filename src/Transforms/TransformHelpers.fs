@@ -130,6 +130,17 @@ let private unionToString (ctx: Ctx) (ent: Fable.AST.Fable.Entity) (wv: WExpr) :
     | [] -> lit ""
     | last :: before -> WExpr.SwitchInt(tag, List.rev before |> List.mapi (fun i c -> i, lit c.Name), lit last.Name, strRef)
 
+/// Is this an instance of a class (not a record, a union, an exception, a struct or an interface)?  Such objects are equal when they are the same object (F# `=` of a class that does not
+/// override Equals, and `obj.ReferenceEquals`, which Fable compiles to the same node as `=` of two numbers).  What is under an upcast to `obj` counts, since that is how `ReferenceEquals` is called.
+let isClassInstance (ctx: Ctx) (e: Fable.AST.Fable.Expr) : bool =
+    let rec uncast (x: Fable.AST.Fable.Expr) = match x with Fable.AST.Fable.TypeCast(inner, _) -> uncast inner | _ -> x
+    match (uncast e).Type with
+    | Fable.AST.Fable.Type.DeclaredType(entRef, _) when Map.containsKey entRef.FullName ctx.TypeRegistry ->
+        match ctx.Compiler.TryGetEntity entRef with
+        | Some ent -> not (ent.IsFSharpRecord || ent.IsFSharpUnion || ent.IsFSharpExceptionDeclaration || ent.IsValueType || ent.IsInterface || ent.IsMeasure || ent.IsFSharpAbbreviation || ent.IsFSharpModule)
+        | None -> false
+    | _ -> false
+
 /// `string x` / `x.ToString()` / `String(x)` for a primitive: the text .NET gives (floats approximated, see `$floatToStr`).
 let primitiveToString (ctx: Ctx) (fableType: Fable.AST.Fable.Type) (wv: WExpr) : WExpr =
     let strRef = WType.Ref(StringTypeIdx, false)

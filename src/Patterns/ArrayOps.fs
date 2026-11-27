@@ -131,6 +131,26 @@ let arrayMapi
 // arrayExists / arrayForAll — short-circuit search
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Returns 1 (true) if any of the first `n` elements of `arr` satisfies the predicate (short-circuits).  `arr` is a local that is already bound (it is read once per element).
+let arrayExistsIn
+        (gen  : LabelGen)
+        (a    : ArrayShape)
+        (arr  : WExpr)
+        (n    : WExpr)
+        (pred : WExpr -> WExpr)
+        : WExpr =
+    let src = WArray.wrap a.ElemTy arr
+    wasm {
+        let! i  = mut (i32Const 0)
+        return! Wasm.labeledBlock gen "blk" WType.I32 (fun ctrl -> wasm {
+            while (i.Val <. n) do
+                if (pred src.[i.Val]) then
+                    do! ctrl.BreakWith (i32Const 1)
+                do! i <== (i.Val +. i32Const 1)
+            return i32Const 0
+        })
+    }
+
 /// Returns 1 (true) if any element satisfies the predicate (short-circuits).
 let arrayExists
         (gen  : LabelGen)
@@ -140,16 +160,7 @@ let arrayExists
         : WExpr =
     wasm {
         let! arrRef = arr   // bind once: WArray.wrap does not, so `src.[i]` would re-evaluate `arr` every iteration
-        let src = WArray.wrap a.ElemTy arrRef
-        let! n  = src.Len
-        let! i  = mut (i32Const 0)
-        return! Wasm.labeledBlock gen "blk" WType.I32 (fun ctrl -> wasm {
-            while (i.Val <. n) do
-                if (pred src.[i.Val]) then
-                    do! ctrl.BreakWith (i32Const 1)
-                do! i <== (i.Val +. i32Const 1)
-            return i32Const 0
-        })
+        return! arrayExistsIn gen a arrRef (a.Len arrRef) pred
     }
 
 /// Returns 1 (true) if all elements satisfy the predicate (short-circuits).
@@ -178,13 +189,13 @@ let arrayForAll
 // arrayFilter — two-pass filter (count + fill)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Filter in ONE pass: matches go into a worst-case scratch buffer, then a single `array.copy` yields the
-/// exact-size result.  The predicate runs once per element (as in F#) and `arr` is evaluated once.
-let arrayFilter
+/// Filter in ONE pass: the elements that `keep buf count elem` accepts go into a worst-case scratch buffer, then a single `array.copy` yields the exact-size result.  `keep` is told the
+/// buffer and how many it holds so far (what `distinct` compares with); it runs once per element, and `arr` is evaluated once.
+let arrayFilterWith
         (gen  : LabelGen)
         (a    : ArrayShape)
         (arr  : WExpr)
-        (pred : WExpr -> WExpr)
+        (keep : WExpr -> WExpr -> WExpr -> WExpr)
         : WExpr =
     wasm {
         let! src = arr
@@ -193,7 +204,7 @@ let arrayFilter
         let! cnt = mut (i32Const 0)
         do! indexedLoop gen n (fun i ->
                 let elem = a.Get(src, i)
-                wasmWhen (pred elem) (wasm {
+                wasmWhen (keep buf cnt.Val elem) (wasm {
                     do! a.Set(buf, cnt.Val, elem)
                     do! cnt <== (cnt.Val +. i32Const 1)
                 }))
@@ -202,13 +213,24 @@ let arrayFilter
         return res
     }
 
+/// Filter in ONE pass: matches go into a worst-case scratch buffer, then a single `array.copy` yields the
+/// exact-size result.  The predicate runs once per element (as in F#) and `arr` is evaluated once.
+let arrayFilter
+        (gen  : LabelGen)
+        (a    : ArrayShape)
+        (arr  : WExpr)
+        (pred : WExpr -> WExpr)
+        : WExpr =
+    arrayFilterWith gen a arr (fun _ _ elem -> pred elem)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // arraySearch — find first element matching predicate
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Find the first array element satisfying `pred` and return `onFound idx elem`.
+/// Find the first array element satisfying `pred` (the last, when `backwards`) and return `onFound idx elem`.
 /// If not found, returns `onNotFound`.
-let arraySearch
+let arraySearchFrom
+        (backwards  : bool)
         (gen        : LabelGen)
         (a          : ArrayShape)
         (arr        : WExpr)
@@ -221,15 +243,21 @@ let arraySearch
         let! arrRef = arr   // bind once: WArray.wrap does not, so `src.[i]` would re-evaluate `arr` every iteration
         let src = WArray.wrap a.ElemTy arrRef
         let! n  = src.Len
-        let! i  = mut (i32Const 0)
+        let! i  = mut (if backwards then n -. i32Const 1 else i32Const 0)
         return! Wasm.labeledBlock gen "search" resTy (fun ctrl -> wasm {
-            while (i.Val <. n) do
+            while (if backwards then i.Val >=. i32Const 0 else i.Val <. n) do
                 if (pred src.[i.Val]) then
                     do! ctrl.BreakWith (onFound i.Val src.[i.Val])
-                do! i <== (i.Val +. i32Const 1)
+                do! i <== (if backwards then i.Val -. i32Const 1 else i.Val +. i32Const 1)
             return onNotFound
         })
     }
+
+/// The first element satisfying `pred` (see `arraySearchFrom`).
+let arraySearch gen a arr resTy pred onFound onNotFound = arraySearchFrom false gen a arr resTy pred onFound onNotFound
+
+/// The last element satisfying `pred` (see `arraySearchFrom`).
+let arraySearchBack gen a arr resTy pred onFound onNotFound = arraySearchFrom true gen a arr resTy pred onFound onNotFound
 
 
 /// The first non-null result of `f` over the elements, or `onNone` (Array.tryPick: an option is a nullable reference here, None is the null).  `f` is applied once per element and its

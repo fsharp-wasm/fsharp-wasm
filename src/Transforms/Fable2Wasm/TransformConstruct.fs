@@ -292,8 +292,11 @@ let transformValue (ctx: Ctx) (kind: ValueKind) (eval: Ctx -> Fable.Expr -> WExp
             | _ -> i32Zero
         WExpr.ArrayNew(arrTypeIdx, wSize, zero, WType.Ref(arrTypeIdx, false))
     | NewArray(Fable.NewArrayKind.ArrayFrom srcExpr, elemType, _) ->
-        // ArrayFrom: copy from another array/seq. Treat as identity for now (same wasm array ref).
-        eval ctx srcExpr
+        // `Array.ofSeq s`: a new array with the elements of an array (a copy), a seq (a list here), a list or a ResizeArray
+        let w = eval ctx srcExpr
+        match ArrayReplacements.arrayFrom ctx elemType srcExpr.Type w with
+        | Some arr -> arr
+        | None -> w
     | NewList(value, elementType) ->
         // Ensure the $ListCons_T type is registered. mapTypeKnown always returns Ref(ListBaseTypeIdx).
         let _ = mapTypeKnown ctx (Fable.Type.List(elementType))

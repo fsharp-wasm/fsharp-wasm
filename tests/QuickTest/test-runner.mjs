@@ -258,6 +258,9 @@ check("Math.Sin, Cos, Tan, Atan2 and Exp are within 1e-14 of the reference doubl
 check("Array.sortWith through a function value: small lengths, records ordered by key and all there, the input is untouched, 200000 elements are sorted", 1111, exp.testArraySortWithMerge());
 check("Array.pairwise: no pair below two elements, overlapping pairs of numbers, floats, strings and records, the input is untouched", 11111, exp.testArrayPairwise());
 check("Array.zip of strings, of records, of nothing and of numbers: a tuple of references needs no default element", 1111, exp.testArrayZipRefs());
+check("Array.tryFindBack and findBack find the last match, Array.distinct keeps the first of equal elements by content", 11111, exp.testArrayFindBackDistinct());
+check("Array.ofSeq of a list, a ResizeArray, an array (a copy), a mapped or filtered seq, tuples, strings and records", 11111, exp.testArrayOfSeq());
+check("the instances of a class are equal when they are the same object: ReferenceEquals and = of two objects with the same content are false", 11111, exp.testClassReferenceEquality());
 check("List.skipWhile and takeWhile: ends at the first element that fails, empty, never, always, captured, strings", 11111, exp.testListSkipTakeWhile());
 check("List.minBy and maxBy with a tuple, a string or a record as the key: the structural comparison, the first of equal keys wins", 11111, exp.testListMinMaxByStructural());
 check("listSumBy: sumBy (x*x) [1;2;3;4] = 30", 30, exp.testListSumBy());

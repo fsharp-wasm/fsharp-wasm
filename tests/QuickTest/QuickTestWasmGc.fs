@@ -1986,6 +1986,62 @@ let testArrayZipRefs () : int =
     let numbers = Array.zip [| 1; 2; 3 |] [| 4.0; 5.0; 6.0 |] |> Array.sumBy (fun (a, b) -> float a * b) = 32.0
     (if strings then 1000 else 0) + (if none then 100 else 0) + (if records then 10 else 0) + (if numbers then 1 else 0)
 
+/// Array.tryFindBack and findBack: the LAST element that satisfies the predicate (find and tryFind find the first), none in an empty array, a number, a string, a record.
+/// Array.distinct: the first of equal elements in the order they came, by content (strings, tuples and records, not by reference), empty, all different, all equal.
+let testArrayFindBackDistinct () : int =
+    let last = [| 1; 2; 3; 4; 5 |] |> Array.tryFindBack (fun x -> x % 2 = 0) = Some 4 && [| 1; 2; 3; 4; 5 |] |> Array.findBack (fun x -> x % 2 = 1) = 5
+    let first = [| 1; 2; 3; 4; 5 |] |> Array.tryFind (fun x -> x % 2 = 0) = Some 2
+    let none = ([||]: int[]) |> Array.tryFindBack (fun _ -> true) = None && [| 1; 3 |] |> Array.tryFindBack (fun x -> x % 2 = 0) = None
+    let items = Array.init 6 (fun i -> { SwKey = i % 3; SwOrder = i })
+    let records = (items |> Array.findBack (fun r -> r.SwKey = 1)).SwOrder = 4 && (items |> Array.tryFindBack (fun r -> r.SwKey = 7)).IsNone
+    let strings = [| "a"; "bb"; "cc"; "d" |] |> Array.tryFindBack (fun s -> s.Length = 2) = Some "cc"
+    let nums = Array.distinct [| 3; 1; 3; 2; 1; 3 |] = [| 3; 1; 2 |] && (Array.distinct ([||]: int[])).Length = 0 && Array.distinct [| 1; 2; 3 |] = [| 1; 2; 3 |] && Array.distinct [| 5; 5; 5 |] = [| 5 |]
+    let text = Array.distinct [| "b"; "a"; "b"; String.replicate 2 "a"; "aa" |] = [| "b"; "a"; "aa" |]
+    let structured = Array.distinct [| (1, "x"); (1, "x"); (2, "x"); (1, "y") |] = [| (1, "x"); (2, "x"); (1, "y") |]
+    let byContent = (Array.distinct (items |> Array.map (fun r -> { r with SwOrder = r.SwKey }))).Length = 3
+    (if last && first && none then 10000 else 0) + (if records && strings then 1000 else 0) + (if nums then 100 else 0) + (if text && structured then 10 else 0) + (if byContent then 1 else 0)
+
+/// Array.ofSeq of a list, a ResizeArray, an array (a copy: writing to it leaves the source alone), a seq that was mapped or filtered, of nothing, and of tuples, strings and records.
+let testArrayOfSeq () : int =
+    let ofList = Array.ofSeq [ 1; 2; 3 ] = [| 1; 2; 3 |] && (Array.ofSeq ([]: int list)).Length = 0
+    let r = ResizeArray<int>([ 3; 1; 2 ])
+    let ofResize = Array.ofSeq r = [| 3; 1; 2 |] && (r |> Seq.map (fun v -> v * 2) |> Array.ofSeq) = [| 6; 2; 4 |]
+    let source = [| 1; 2; 3 |]
+    let copy = Array.ofSeq source
+    copy.[0] <- 99
+    let copied = source.[0] = 1 && copy.[0] = 99 && copy.Length = 3
+    let filtered = [ 1; 2; 3; 4 ] |> Seq.filter (fun v -> v % 2 = 0) |> Array.ofSeq = [| 2; 4 |]
+    let tuples = (r |> Seq.map (fun v -> (v, v + 1)) |> Array.ofSeq) = [| (3, 4); (1, 2); (2, 3) |]
+    let strings = ([ "a"; "b" ] |> Seq.map (fun s -> s + s) |> Array.ofSeq) = [| "aa"; "bb" |]
+    let items = [ for i in 0 .. 2 -> { SwKey = i; SwOrder = 10 * i } ] |> Seq.map (fun x -> { x with SwKey = x.SwKey + 1 }) |> Array.ofSeq
+    let records = items.Length = 3 && items.[2].SwKey = 3 && items.[2].SwOrder = 20
+    (if ofList then 10000 else 0) + (if ofResize then 1000 else 0) + (if copied && filtered then 100 else 0) + (if tuples && strings then 10 else 0) + (if records then 1 else 0)
+
+/// The instances of a class are equal when they are the same object: `obj.ReferenceEquals` and `=` of two objects with the same content are false, of an object and itself or another name for it true,
+/// also behind a function, in an array and as a field.
+type RefCell() =
+    let mutable n = 0
+    member _.N = n
+    member _.Bump() = n <- n + 1
+
+type RefHolder = { Cell: RefCell }
+
+let testClassReferenceEquality () : int =
+    let a = RefCell()
+    let b = RefCell()
+    let c = a
+    let apart = not (obj.ReferenceEquals(a, b)) && obj.ReferenceEquals(a, c) && obj.ReferenceEquals(a, a)
+    let cells = [| RefCell(); RefCell() |]
+    let pick (i: int) = cells.[i]
+    let behindCalls = not (obj.ReferenceEquals(pick 0, pick 1)) && obj.ReferenceEquals(pick 0, pick 0)
+    let equalsOperator = (a = a) && not (a = b) && (a <> b) && not (a <> c)
+    let holders = [| { Cell = a }; { Cell = b } |]
+    let asFields = not (obj.ReferenceEquals(holders.[0].Cell, holders.[1].Cell)) && obj.ReferenceEquals(holders.[0].Cell, a)
+    // the content is what it is, the identity does not move with it
+    a.Bump()
+    let identityStays = obj.ReferenceEquals(a, c) && a.N = 1 && b.N = 0 && not (obj.ReferenceEquals(a, b))
+    (if apart then 10000 else 0) + (if behindCalls then 1000 else 0) + (if equalsOperator then 100 else 0) + (if asFields then 10 else 0) + (if identityStays then 1 else 0)
+
 // ── List.zip ──────────────────────────────────────────────────────────────
 
 /// Test: List.zip [1;2;3] [10;20;30] |> List.head = (1, 10), sum = 11

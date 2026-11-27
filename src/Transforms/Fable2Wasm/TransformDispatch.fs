@@ -427,6 +427,10 @@ let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: Impo
     | None ->
     match sel, wArgs, ty with
     // ── Structural equality: Fable compiles record/DU/tuple `=` as Util.equals/equalArrays ──
+    // `a = b` of two objects of a class: the same object (a record, a union or a tuple is compared by its content)
+    | ("equals" | "op_Equality" | "equalArrays"), [a; b], WType.I32
+        when (match info.Args with x :: _ -> isClassInstance ctx x | [] -> false) ->
+        WExpr.Compare(WCompareOp.RefEq, a, b)
     | ("equals" | "op_Equality" | "equalArrays"), [a; b], WType.I32
     | "equalsWith", [_; a; b], WType.I32 ->
         structuralEquals ctx a b

@@ -10,6 +10,7 @@ open WasmGc.Runtime.Equality
 module VT = WasmGc.Runtime.VTable
 module Q = WasmGc.Util.FableQuery
 open WasmGc.Transforms.NumericCasts
+open WasmGc.Transforms.TransformHelpers
 
 // ─────────────────────────────────────────────────────────────────
 // Operation translation
@@ -67,6 +68,10 @@ let transformOperation
                     | _ -> WCompareOp.GeS
                 WExpr.Compare(cop, cmp, WExpr.Const(WConst.I32 0))
             | _ -> WExpr.Nop // other string ops unsupported
+        // ── Instances of a class are equal when they are the same object (see isClassInstance) ──
+        elif (op = BinaryEqual || op = BinaryUnequal) && isClassInstance ctx left then
+            let same = WExpr.Compare(WCompareOp.RefEq, eval ctx left, eval ctx right)
+            if op = BinaryUnequal then WExpr.Unary(WUnaryOp.Eqz, same, WType.I32) else same
         // ── Structural equality for records, data-carrying DUs, and tuples ──
         elif (op = BinaryEqual || op = BinaryUnequal) &&
              (match left.Type with

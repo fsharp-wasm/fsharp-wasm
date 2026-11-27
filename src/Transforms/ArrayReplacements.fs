@@ -20,6 +20,7 @@ open WasmGc.Runtime.LoopHelpers
 
 open WasmGc.Patterns
 open WasmGc.Patterns.ListShape
+open WasmGc.Patterns.ListPatterns
 open WasmGc.Patterns.ArrayOps
 
 open WasmGc.Runtime.LoopPrimitives
@@ -103,6 +104,42 @@ let coerceToSeq (ctx: Ctx) (argType: Fable.Type) (w: WExpr) : WExpr =
             }
         | None -> w
     | None -> w
+
+/// The elements of a seq (a list here), a list or a ResizeArray (its first Count elements) in a new array of `elemFT`: what `Array.ofSeq` and `Seq.toArray` of one are.  `None` when the
+/// element type has no list in this module.
+let seqToArray (ctx: Ctx) (elemFT: Fable.Type) (srcType: Fable.Type) (wSrc: WExpr) : WExpr option =
+    let elemT = mapTypeKnown ctx elemFT
+    let arrIdx = getOrAddArrayTypeFor ctx elemFT elemT
+    let arrRefT = WType.Ref(arrIdx, false)
+    match tryListTypeInfoFromElemType ctx elemFT with
+    | Some(listElemT, consIdx) ->
+        let s = mkListShape listElemT consIdx
+        let gen = LabelGen("ofs")
+        let wList = coerceToSeq ctx srcType wSrc
+        Some(wasm {
+            let! lst = wList
+            let! len = listLength gen s lst
+            let! arr = arrayNew arrIdx len (makeNumericZero elemT) arrRefT
+            do! listFold gen s lst (i32Const 0) WType.I32
+                    (fun idx elem -> sequence [ arraySet arr idx elem; add idx (i32Const 1) ])
+            return arr
+        })
+    | None -> None
+
+/// What `NewArray ArrayFrom src` is (Fable's `Array.ofSeq src` and `Seq.toArray src` of a seq that is not built in place): a new array with the elements of `src`.  An array is
+/// copied, a seq (a list here), a list or a ResizeArray (its first Count elements) is walked.
+let arrayFrom (ctx: Ctx) (elemFT: Fable.Type) (srcType: Fable.Type) (wSrc: WExpr) : WExpr option =
+    match srcType with
+    | Fable.Type.Array(_, kind) when kind <> Fable.ArrayKind.ResizeArray ->
+        let elemT = mapTypeKnown ctx elemFT
+        let arrIdx = getOrAddArrayTypeFor ctx elemFT elemT
+        Some(wasm {
+            let! src = wSrc
+            let! dst = arrayNew arrIdx (arrayLen src) (makeNumericZero elemT) (WType.Ref(arrIdx, false))
+            do! arrayCopy dst (i32Const 0) src (i32Const 0) (arrayLen src)
+            return dst
+        })
+    | _ -> seqToArray ctx elemFT srcType wSrc
 
 // let private shapeOf (ctx: Ctx) et =
 //    let wt = mapTypeKnown ctx et
@@ -418,8 +455,8 @@ let tryArrayInline
                 })
             | None -> None
         | _ -> None
-    // ── search: Array.find / tryFind (a missing element raises / is None), tryItem, tryLast ──
-    | "find" | "tryFind" ->
+    // ── search: Array.find / tryFind / findBack / tryFindBack (a missing element raises / is None), tryItem, tryLast ──
+    | "find" | "tryFind" | "findBack" | "tryFindBack" ->
         match fableArgs with
         | [ UnaryLambda(farg, fbody); arrArg ] ->
             match arrElemT arrArg.Type with
@@ -428,11 +465,12 @@ let tryArrayInline
                 let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
                 let wPred = transform (ctx.WithLocal(farg.Name, elemT)) fbody
                 let found elem = WExpr.Let(farg.Name, elem, wPred)
-                if selector = "find" then
-                    Some(arraySearch (LabelGen "afind") a (transform ctx arrArg) elemT found (fun _ e -> e) (WExpr.Throw WExpr.Nop))
-                else
+                let search = if selector.EndsWith "Back" then arraySearchBack else arraySearch
+                if selector.StartsWith "try" then
                     let optT, some, none = optionRepr ctx elemT
-                    Some(arraySearch (LabelGen "atry") a (transform ctx arrArg) optT found (fun _ e -> some e) none)
+                    Some(search (LabelGen "atry") a (transform ctx arrArg) optT found (fun _ e -> some e) none)
+                else
+                    Some(search (LabelGen "afind") a (transform ctx arrArg) elemT found (fun _ e -> e) (WExpr.Throw WExpr.Nop))
             | None -> None
         | _ -> None
     // ── Array.tryPick: the first `Some` the callback returns (once per element, the result is kept) ──
@@ -548,6 +586,21 @@ let tryArrayInline
                 let wPred = transform ctx' fbody
                 Some(arrayFilter gen a wArr
                     (fun elem -> WExpr.Let(farg.Name, elem, wPred)))
+            | None -> None
+        | _ -> None
+    // ── Array.distinct arr — the first of each equal elements, in order (equal by content: strings, records, unions) ──
+    | "distinct" | "Array_distinct" ->
+        match fableArgs with
+        | arrArg :: _ ->   // Fable passes the equality comparer after the array; equality is by content here
+            match arrElemT arrArg.Type with
+            | Some elemFableT ->
+                let elemT = mapTypeKnown ctx elemFableT
+                let a = mkArrayShape elemT (getOrAddArrayTypeFor ctx elemFableT elemT)
+                let gen = LabelGen("adist")
+                // an element is kept when none of those kept before it is equal to it
+                Some(arrayFilterWith gen a (transform ctx arrArg)
+                        (fun buf kept elem ->
+                            eq (arrayExistsIn gen a buf kept (fun seen -> WasmGc.Runtime.Equality.structuralEquals ctx seen elem)) i32Zero))
             | None -> None
         | _ -> None
     // Array.init / initialize
