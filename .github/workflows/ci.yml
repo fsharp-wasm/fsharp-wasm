@@ -259,3 +259,19 @@ jobs:
           FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
           FSHARP_IDE_DIR: ${{ github.workspace }}/.deps/fsharp-wasm-ide
         run: bash tests/Dogfood/run.sh widget-editor
+
+      - name: Check out fsharp-wasm-graphics
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/checkout@v6
+        with:
+          repository: fsharp-wasm/fsharp-wasm-graphics
+          ref: e80a190149eede11ff695d7c7e1a6c8320e9dc46
+          path: .deps/fsharp-wasm-graphics
+          submodules: true
+
+      - name: Dogfood - the charts of fsharp-wasm-graphics (science charts, charts on the data graph, diagrams)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+          FSHARP_GRAPHICS_DIR: ${{ github.workspace }}/.deps/fsharp-wasm-graphics
+        run: bash tests/Dogfood/run.sh graphics-libs

@@ -4,6 +4,7 @@
 #   tests/Dogfood/run.sh core-libs     FSharp.Wasm.Data, FSharp.Wasm.Ui and FSharp.Wasm.Edit (JSON, typed CSS/HTML, the email grid, edit operations), as a Wasmecto project
 #   tests/Dogfood/run.sh newsletter    the newsletter library's suite, and the designer module (it must compile, validate and keep its exports)
 #   tests/Dogfood/run.sh widget-editor the widget editor of fsharp-wasm-ide: the whole FSharp.Graphics stack, as a module that must keep its exports
+#   tests/Dogfood/run.sh graphics-libs the tests of the charts of fsharp-wasm-graphics: the science charts, the charts on the data graph and the diagrams (plain checks, run in Node)
 #
 # Why: the QuickTests are small programs written to hit one feature each.  A real program meets the combinations: since these libraries
 # compile, seven faults were found and fixed that no QuickTest had shown (equality of unions with lists, list-of-class equality, `contains`
@@ -13,11 +14,12 @@
 #   FSHARP_CORE_DIR        fsharp-wasm-core, with `git submodule update --init lib/wasmecto`   (default ../fsharp-wasm-core)
 #   FSHARP_NEWSLETTER_DIR  fsharp-wasm-newsletter, with `git submodule update --init`           (default ../fsharp-wasm-newsletter)
 #   FSHARP_IDE_DIR         fsharp-wasm-ide, with `git submodule update --init`                  (default ../fsharp-wasm-ide)
+#   FSHARP_GRAPHICS_DIR    fsharp-wasm-graphics, with `git submodule update --init`             (default ../fsharp-wasm-graphics)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-WHAT="${1:?usage: run.sh core-libs|newsletter|widget-editor}"
+WHAT="${1:?usage: run.sh core-libs|newsletter|widget-editor|graphics-libs}"
 OUT="$HERE/output/$WHAT"
 
 compile() {   # <project directory> <output directory>
@@ -62,6 +64,23 @@ case "$WHAT" in
       const names = WebAssembly.Module.exports(m).map((e) => e.name);
       if (!names.includes("start")) { console.error("the designer module no longer exports `start`: " + names.join(", ")); process.exit(1); }
       console.log("the designer module is " + fs.statSync(process.argv[1]).size + " bytes and exports `start`");' "$OUT/designer/NewsletterDesigner.wasm"
+    ;;
+  graphics-libs)
+    GFX="${FSHARP_GRAPHICS_DIR:-$ROOT/../fsharp-wasm-graphics}"
+    need "$GFX/tests/FSharp.Graphics.ChartsTests" fsharp-wasm-graphics "$GFX" FSHARP_GRAPHICS_DIR
+    [ -d "$GFX/lib/fsharp-wasm-core/FSharp.Wasm.Graph" ] \
+      || { echo "the submodules of $GFX are empty: git submodule update --init lib/fsharp-wasm-core" >&2; exit 2; }
+    export FSHARP_WASM_CORE_DIR="$GFX/lib/fsharp-wasm-core"   # the core library of the pin of fsharp-wasm-graphics, as its own build takes it
+    export FSHARP_WASM_DIR="$ROOT"                           # the host of the compiled modules (tests/HostInterop/host.mjs), for build/wasm-run.mjs
+    dotnet build "$FSHARP_WASM_CORE_DIR/FSharp.Wasm.Core/FSharp.Wasm.Core.fsproj" -c Release --nologo -v q > /dev/null
+    for t in "ChartsTests charts" "ChartsLiveTests chartslive" "DiagramsTests diagrams"; do
+      set -- $t
+      echo "==> Compiling FSharp.Graphics.$1 (plain checks: they run as they are under .NET)..."
+      compile "$GFX/tests/FSharp.Graphics.$1" "$OUT/$1"
+      validate "$OUT/$1/Tests.wasm"
+      echo "==> Running it in Node..."
+      node "$GFX/build/wasm-run.mjs" "$OUT/$1/Tests.wasm" "${2}_run" "${2}_checks" "${2}_first_failure"
+    done
     ;;
   widget-editor)
     IDE="${FSHARP_IDE_DIR:-$ROOT/../fsharp-wasm-ide}"
