@@ -139,10 +139,14 @@ let compileFile (com: Compiler) (projectFile: string) (isSilent: bool) (outPath:
             || WasmGc.Runtime.Types.isCoreLibraryFile com currentFile
             || System.IO.Path.GetFileName(currentFile) = "Interop.fs"
         // Only the entry project's own files export their functions; a referenced project (a runtime library) does not.
+        // A package's sources are not the program's even when they lie under its folder: `--outDir out` puts them in
+        // `out/fable_modules/`, inside the project, and as "entry" files they kept their names and were never found by the
+        // calls of the program (`Unhandled import call 'isFinite$'`).
         let isEntryFile =
-            let dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath projectFile)
-            let file = System.IO.Path.GetFullPath currentFile
-            file.StartsWith(dir.TrimEnd(System.IO.Path.DirectorySeparatorChar) + string System.IO.Path.DirectorySeparatorChar, System.StringComparison.Ordinal)
+            not isLibraryFile
+            && (let dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath projectFile)
+                let file = System.IO.Path.GetFullPath currentFile
+                file.StartsWith(dir.TrimEnd(System.IO.Path.DirectorySeparatorChar) + string System.IO.Path.DirectorySeparatorChar, System.StringComparison.Ordinal))
 
         // The Fable host hands the files over in parallel and in ANY order, but lowering is order-dependent: a type must
         // be declared before the code that uses it, a function before its callers.  So each file is parked here after

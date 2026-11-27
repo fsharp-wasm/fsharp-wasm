@@ -33,6 +33,7 @@ SUITES=(
   "newsletter|tests/Dogfood/run.sh newsletter"
   "widget-editor|tests/Dogfood/run.sh widget-editor"
   "graphics-libs|tests/Dogfood/run.sh graphics-libs"
+  "packages|tests/Packages/run.sh"
 )
 
 ONLY=""; FAIL_FAST=0; VERBOSE=0

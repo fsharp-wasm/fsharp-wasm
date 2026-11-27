@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A library as the platform's own are packed (compare fsharp-wasm-core's Directory.Build.props): the dll for .NET and the sources under fable/, which the
+       compiler of a program that uses the package compiles with the program's own code. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Fixture.Pkg</PackageId>
+    <Version>1.0.0</Version>
+    <Description>A package for the test of how a program uses one (tests/Packages).</Description>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Numbers.fs" />
+    <Compile Include="Totals.fs" />
+    <Content Include="*.fsproj;**/*.fs" Exclude="obj/**;bin/**" Pack="true" PackagePath="fable/" />
+  </ItemGroup>
+</Project>

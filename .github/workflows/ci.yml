@@ -161,6 +161,14 @@ jobs:
           bash tests/Bench/run.sh | tee bench.txt
           { echo '### Benchmarks (.NET Release vs wasm / node)'; echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # A program that uses a NuGet package: packed from a fixture, restored into an empty packages folder, its sources under out/fable_modules/ inside the
+      # program's folder (what a user's `--outDir out` makes).  The other jobs compile libraries by path, outside the program's folder.
+      - name: Packages (a program that uses a NuGet package)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          FSHARP_COMPILER: ${{ steps.fsc.outputs.fsc }}
+        run: bash tests/Packages/run.sh
+
       - name: Component Embed
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:

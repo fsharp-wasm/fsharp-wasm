@@ -30,7 +30,7 @@ The compiler is the flagship, and the tooling around it (libraries, runtime, IDE
   for several, the Dogfood suites for what only a real program shows (see 3).
 - **The F# compiler itself (`fsharp/`) is not changed on our own.** Look first in our compiler and its libraries; if the fault is in the F# compiler, bring the minimal program and the proposed
   change to the maintainer and agree on it before touching the fork (the fork policy of its `AGENTS.md` then applies).
-- Then `docs/STATUS.md` moves the item from the known gaps to the dated closed list, and the whole suite runs (`bash tests/run-all.sh`, 16 suites, about 10 minutes) before the push.
+- Then `docs/STATUS.md` moves the item from the known gaps to the dated closed list, and the whole suite runs (`bash tests/run-all.sh`, 17 suites, about 10 minutes) before the push.
 - **Never change a test to make it pass if it passes on .NET.** The compiler or the runtime library is what is wrong.
 
 How a compiler fault is found: a minimal program outside the repository, compiled with the CLI (`dotnet tools/FSharp.Wasm.Cli/bin/Debug/net10.0/fsharp-wasm.dll <dir> --outDir out
