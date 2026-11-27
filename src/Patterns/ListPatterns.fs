@@ -176,6 +176,29 @@ let listIteri
             do! cur.Set(s.Tail cur.Val)
     }
 
+/// Side-effect traversal of two lists together, up to the end of the shorter one (.NET raises for lists of different lengths).  `body` gets the index
+/// (0 where `indexed` is false: the counter is only kept when it is asked for), and the two elements.
+let listIter2
+        (indexed : bool)
+        (sX      : ListShape)
+        (sY      : ListShape)
+        (xs      : WExpr)
+        (ys      : WExpr)
+        (body    : WExpr -> WExpr -> WExpr -> WExpr)   // idx → x → y → void
+        : WExpr =
+    wasm {
+        let! xp = mutTy sX.BaseTy xs
+        let! yp = mutTy sY.BaseTy ys
+        let! i = mut (i32Const 0)
+        while! (wasmAnd (refIsNotNull xp.Val) (refIsNotNull yp.Val)) do
+            do! body i.Val (sX.Head xp.Val) (sY.Head yp.Val)
+            match indexed with
+            | true -> do! i.Set(add i.Val (i32Const 1))
+            | false -> ()
+            do! xp.Set(sX.Tail xp.Val)
+            do! yp.Set(sY.Tail yp.Val)
+    }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // listExists / listForAll — short-circuit search returning bool
 // ─────────────────────────────────────────────────────────────────────────────

@@ -368,7 +368,20 @@ let private disposeCall (ctx: Ctx) (wObj: WExpr) : WExpr =
         | None -> WExpr.Nop
     | _ -> WExpr.Nop
 
+/// `Outer(0, "", Inner(0))`: the default of a struct record (the `out` variable of `TryGetValue`, a `let mutable v = Unchecked.defaultof<…>`) is written by the
+/// front end as a call of the record's own name with one value for each field, not as a record expression.
+let private recordConstructorCall (ctx: Ctx) (name: string) (info: CallInfo) (typ: Type) : (EntityRef * Type list) option =
+    match typ with
+    | Fable.Type.DeclaredType(entRef, genArgs) when info.ThisArg.IsNone ->
+        match ctx.Compiler.TryGetEntity entRef with
+        | Some ent when ent.IsFSharpRecord && name = ent.CompiledName && ent.FSharpFields.Length = info.Args.Length -> Some(entRef, genArgs)
+        | _ -> None
+    | _ -> None
+
 let dispatchImportCall (ctx: Ctx) (eval: Ctx -> Expr -> WExpr) (importInfo: ImportInfo) (info: CallInfo) (typ: Type) (wArgs: WExpr list) : WExpr =
+    match recordConstructorCall ctx importInfo.Selector info typ with
+    | Some(entRef, genArgs) -> eval ctx (Fable.Expr.Value(Fable.ValueKind.NewRecord(info.Args, entRef, genArgs), None))
+    | None ->
     let ty = mapTypeKnown ctx typ
     let path = importInfo.Path
     let importStem = System.IO.Path.GetFileNameWithoutExtension(importInfo.Path)
@@ -1098,6 +1111,10 @@ let private transformCallCore
                 // the ClosureBase is created on demand so closureTypeIdx is never 0.
                 ClosureBuilder.applyClosure ctx ident.Type wClosure (info.Args |> List.map (fun a -> a.Type)) wArgs ty
             | _ ->
+            // a record of this file written as a call of its name (see recordConstructorCall)
+            match recordConstructorCall ctx ident.Name info typ with
+            | Some(entRef, genArgs) -> eval ctx (Fable.Expr.Value(Fable.ValueKind.NewRecord(info.Args, entRef, genArgs), None))
+            | None ->
             // Sprint 5: demand-driven generic specialization.
             match trySpecializeCall ctx eval ident.Name (Some ctx.Compiler.CurrentFile) info typ with
             | Some specialized -> specialized

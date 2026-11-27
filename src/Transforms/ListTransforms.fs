@@ -201,6 +201,22 @@ let tryListIterInline
             Some(listIteri (LabelGen "iteri") s (transform ctx listArg)
                     (fun idx elem -> WExpr.Let(iarg.Name, idx, WExpr.Let(farg.Name, elem, wBody))))
         | None -> None
+    // ── List.iter2 f xs ys, List.iteri2 f xs ys: the two lists in lockstep ──
+    | "iterate2", [BinaryLambda(a1, a2, fbody); xsArg; ysArg] ->
+        match tryListTypeInfo ctx xsArg, tryListTypeInfo ctx ysArg with
+        | Some(xT, xCons), Some(yT, yCons) ->
+            let wBody = transform (withElems ctx a1 xT a2 yT) fbody
+            Some(listIter2 false (mkListShape xT xCons) (mkListShape yT yCons) (transform ctx xsArg) (transform ctx ysArg)
+                    (fun _ x y -> WExpr.Let(a1.Name, x, WExpr.Let(a2.Name, y, wBody))))
+        | _ -> None
+
+    | "iterateIndexed2", [TernaryLambda(ia, a1, a2, fbody); xsArg; ysArg] ->
+        match tryListTypeInfo ctx xsArg, tryListTypeInfo ctx ysArg with
+        | Some(xT, xCons), Some(yT, yCons) ->
+            let wBody = transform ((withElems ctx a1 xT a2 yT).WithLocal(ia.Name, WType.I32)) fbody
+            Some(listIter2 true (mkListShape xT xCons) (mkListShape yT yCons) (transform ctx xsArg) (transform ctx ysArg)
+                    (fun i x y -> WExpr.Let(ia.Name, i, WExpr.Let(a1.Name, x, WExpr.Let(a2.Name, y, wBody)))))
+        | _ -> None
     | _ -> None
 
 // ─────────────────────────────────────────────────────────────────

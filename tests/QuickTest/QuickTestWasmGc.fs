@@ -2052,6 +2052,39 @@ let testOptionOrElseFlatten () : int =
     let flattenStrings = Option.flatten (Some (Some "x")) = Some "x"
     (if orElseInts then 10000 else 0) + (if orElseStrings then 1000 else 0) + (if orElseRecords then 100 else 0) + (if flatten && flattenStrings then 10 else 0)
 
+/// List.iter2 and List.iteri2: the two lists in lockstep (numbers, strings, records); the index counts from 0; two empty lists do nothing.
+let testListIter2 () : int =
+    let mutable acc = 0
+    List.iter2 (fun a b -> acc <- acc + a * b) [ 1; 2; 3 ] [ 4; 5; 6 ]
+    let dot = acc = 32
+    acc <- 0
+    List.iteri2 (fun i a b -> acc <- acc + i * (a + b)) [ 1; 2; 3 ] [ 4; 5; 6 ]
+    let indexed = acc = 25
+    let mutable text = ""
+    List.iter2 (fun (k: string) (v: int) -> text <- text + k + string v) [ "a"; "b" ] [ 1; 2 ]
+    let mutable n = 0
+    List.iter2 (fun (_: int) (_: int) -> n <- n + 1) [] []
+    let item = { SwKey = 1; SwOrder = 2 }
+    let mutable total = 0
+    List.iteri2 (fun i (r: SortWithItem) (x: int) -> total <- total + i + r.SwOrder * x) [ item; item ] [ 10; 20 ]
+    (if dot then 10000 else 0) + (if indexed then 1000 else 0) + (if text = "a1b2" then 100 else 0) + (if n = 0 then 10 else 0) + (if total = 61 then 1 else 0)
+
+[<Struct>]
+type SrInner = { SrN: int }
+
+[<Struct>]
+type SrOuter = { SrA: int; SrB: string; SrI: SrInner }
+
+/// A struct record that is a missing value: the `out` variable of `TryGetValue` starts as the default of the type (the front end writes it as a call of the
+/// record's name with a zero for each field), and so does `Unchecked.defaultof`.  A dictionary of struct records is how the cells of a terminal canvas are kept.
+let testStructRecordDefault () : int =
+    let d = System.Collections.Generic.Dictionary<int, SrOuter>()
+    d[1] <- { SrA = 5; SrB = "x"; SrI = { SrN = 2 } }
+    let found = match d.TryGetValue 1 with | true, v -> v.SrA + v.SrI.SrN | _ -> -1
+    let missing = match d.TryGetValue 9 with | true, v -> v.SrA | _ -> -1
+    let z : SrOuter = Unchecked.defaultof<SrOuter>
+    (if found = 7 then 1000 else 0) + (if missing = -1 then 100 else 0) + (if z.SrA = 0 then 10 else 0) + (if z.SrI.SrN = 0 then 1 else 0)
+
 // ── List.zip ──────────────────────────────────────────────────────────────
 
 /// Test: List.zip [1;2;3] [10;20;30] |> List.head = (1, 10), sum = 11

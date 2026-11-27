@@ -262,6 +262,8 @@ check("Array.tryFindBack and findBack find the last match, Array.distinct keeps 
 check("Array.ofSeq of a list, a ResizeArray, an array (a copy), a mapped or filtered seq, tuples, strings and records", 11111, exp.testArrayOfSeq());
 check("the instances of a class are equal when they are the same object: ReferenceEquals and = of two objects with the same content are false", 11111, exp.testClassReferenceEquality());
 check("Option.orElse and Option.flatten: numbers, strings and records, Some and None", 11110, exp.testOptionOrElseFlatten());
+check("List.iter2 and List.iteri2: the two lists in lockstep, the index from 0, empty lists, strings and records", 11111, exp.testListIter2());
+check("a struct record as a missing value: the out variable of TryGetValue and Unchecked.defaultof, with a struct record inside", 1111, exp.testStructRecordDefault());
 check("List.skipWhile and takeWhile: ends at the first element that fails, empty, never, always, captured, strings", 11111, exp.testListSkipTakeWhile());
 check("List.minBy and maxBy with a tuple, a string or a record as the key: the structural comparison, the first of equal keys wins", 11111, exp.testListMinMaxByStructural());
 check("listSumBy: sumBy (x*x) [1;2;3;4] = 30", 30, exp.testListSumBy());
