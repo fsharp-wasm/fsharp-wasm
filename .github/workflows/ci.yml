@@ -233,7 +233,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: fsharp-wasm/fsharp-wasm-newsletter
-          ref: 4ad0e24a2a80b7da2a92b46cfa542cc09817deae
+          ref: daaa807339b3632053b6f49e488db5d90f43e3f1
           path: .deps/fsharp-wasm-newsletter
           submodules: true
 
