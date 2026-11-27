@@ -2042,6 +2042,16 @@ let testClassReferenceEquality () : int =
     let identityStays = obj.ReferenceEquals(a, c) && a.N = 1 && b.N = 0 && not (obj.ReferenceEquals(a, b))
     (if apart then 10000 else 0) + (if behindCalls then 1000 else 0) + (if equalsOperator then 100 else 0) + (if asFields then 10 else 0) + (if identityStays then 1 else 0)
 
+/// Option.orElse (Some stays, None becomes the other option; numbers, strings, records) and Option.flatten (Some (Some x), Some None, None).
+let testOptionOrElseFlatten () : int =
+    let orElseInts = (None |> Option.orElse (Some 3)) = Some 3 && (Some 1 |> Option.orElse (Some 3)) = Some 1 && (None |> Option.orElse (None: int option)).IsNone
+    let orElseStrings = (None |> Option.orElse (Some "b")) = Some "b" && (Some "a" |> Option.orElse (Some "b")) = Some "a"
+    let item = { SwKey = 1; SwOrder = 2 }
+    let orElseRecords = (match (None: SortWithItem option) |> Option.orElse (Some item) with Some r -> r.SwOrder = 2 | None -> false)
+    let flatten = Option.flatten (Some (Some 4)) = Some 4 && (Option.flatten (Some (None: int option))).IsNone && (Option.flatten (None: int option option)).IsNone
+    let flattenStrings = Option.flatten (Some (Some "x")) = Some "x"
+    (if orElseInts then 10000 else 0) + (if orElseStrings then 1000 else 0) + (if orElseRecords then 100 else 0) + (if flatten && flattenStrings then 10 else 0)
+
 // ── List.zip ──────────────────────────────────────────────────────────────
 
 /// Test: List.zip [1;2;3] [10;20;30] |> List.head = (1, 10), sum = 11

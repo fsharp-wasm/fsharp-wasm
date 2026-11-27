@@ -261,6 +261,7 @@ check("Array.zip of strings, of records, of nothing and of numbers: a tuple of r
 check("Array.tryFindBack and findBack find the last match, Array.distinct keeps the first of equal elements by content", 11111, exp.testArrayFindBackDistinct());
 check("Array.ofSeq of a list, a ResizeArray, an array (a copy), a mapped or filtered seq, tuples, strings and records", 11111, exp.testArrayOfSeq());
 check("the instances of a class are equal when they are the same object: ReferenceEquals and = of two objects with the same content are false", 11111, exp.testClassReferenceEquality());
+check("Option.orElse and Option.flatten: numbers, strings and records, Some and None", 11110, exp.testOptionOrElseFlatten());
 check("List.skipWhile and takeWhile: ends at the first element that fails, empty, never, always, captured, strings", 11111, exp.testListSkipTakeWhile());
 check("List.minBy and maxBy with a tuple, a string or a record as the key: the structural comparison, the first of equal keys wins", 11111, exp.testListMinMaxByStructural());
 check("listSumBy: sumBy (x*x) [1;2;3;4] = 30", 30, exp.testListSumBy());

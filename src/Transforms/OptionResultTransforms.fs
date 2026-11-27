@@ -65,6 +65,19 @@ let tryOptionInline
                     (fun opt -> unwrapSome opt optIdx ty))
         | _ -> None
 
+    // Option.orElse ifNone opt — Some stays, None becomes `ifNone` (an option itself).  The call reaches the backend as (option, ifNone): the option first, as the other combinators have it.
+    | "orElse", [optArg; ifNone] when isOptionType optArg.Type ->
+        match exprWType (transform ctx optArg) with
+        | WType.Ref _ -> Some(optBranch (transform ctx optArg) ty (transform ctx ifNone) id)
+        | _ -> None
+
+    // Option.flatten — Some (Some x) → Some x, Some None and None → None.  The outer option holds the inner one, which is a nullable reference, so it is the wrapper struct.
+    | "flatten", [optArg] when isOptionType optArg.Type ->
+        match exprWType (transform ctx optArg), ty with
+        | WType.Ref(outerIdx, _), WType.Ref _ ->
+            Some(optBranch (transform ctx optArg) ty (nullConst ty) (fun opt -> unwrapSome opt outerIdx ty))
+        | _ -> None
+
     // Option.map — None → None, Some x → Some (f x)
     // DSL: UnaryLambda replaces Lambda(farg,...)|Delegate([farg],...) everywhere below
     | "map", [UnaryLambda(farg, fbody); optArg] when isOptionType optArg.Type ->
