@@ -38,6 +38,17 @@ open WasmGc.Util.FableQuery
 
 let private arrElemT = function ArrayOf e -> Some e | _ -> None
 
+/// A new array of `n` non-null references, element `i` being `elem i`.  A non-null reference has no default value to fill a fresh array with
+/// (`array.new_default` is not valid for it), so the first element fills it, and no element at all is the empty array.
+let private arrayBuiltBy (arrIdx: int) (arrRefT: WType) (n: WExpr) (elem: WExpr -> WExpr) : WExpr =
+    wasm {
+        let! res = wasmIf (WExpr.Compare(WCompareOp.GtS, n, i32Zero))
+                       (arrayNew arrIdx n (elem i32Zero) arrRefT)
+                       (arrayNewFixed arrIdx [] arrRefT)
+        do! Wasm.for_ n (fun i -> arraySet res i (elem i))
+        return res
+    }
+
 /// Is this the type of a `seq<'T>` (what a `seq` parameter, or a coercion to `seq`, says)?
 let isSeqType (t: Fable.Type) =
     match t with
@@ -689,19 +700,6 @@ let tryArrayInline
                 let tupleWType  = mapTypeKnown ctx tupleFableT
                 let tupleIdx = getOrAddTupleType ctx [e1T; e2T]
                 let tupleRefT   = WType.Ref(tupleIdx, false)
-                let rec makeWZero (wt: WType) : WExpr =
-                    match wt with
-                    | WType.I64 -> WExpr.Const(WConst.I64 0L)
-                    | WType.F32 -> WExpr.Const(WConst.F32 0.0f)
-                    | WType.F64 -> WExpr.Const(WConst.F64 0.0)
-                    | WType.Ref(idx, true) -> WExpr.Const(WConst.Null(WType.Ref(idx, true)))
-                    | WType.Ref(idx, false) ->
-                        match ctx.TypeDefs.[idx].Def with
-                        | WTypeDef.Struct(fields, _) ->
-                            structNew idx (fields |> List.map (fun f -> makeWZero f.Type)) (WType.Ref(idx, false))
-                        | _ -> WExpr.Const(WConst.Null(WType.Ref(idx, true)))
-                    | _ -> WExpr.Const(WConst.I32 0)
-                let tupleDefault = makeWZero tupleRefT
                 let resArrIdx   = getOrAddArrayType ctx tupleRefT
                 let resArrRefT  = WType.Ref(resArrIdx, false)
                 let wArr1 = transform ctx arr1Arg
@@ -712,15 +710,31 @@ let tryArrayInline
                 Some(wasm {
                     let! a1 = wArr1
                     let! a2 = wArr2
-                    let! res = arrayNew resArrIdx (arrayLen a1) tupleDefault resArrRefT
-                    do! Wasm.for_ (arrayLen a1) (fun idx ->
-                            arraySet res idx
-                                (structNew tupleIdx
-                                    [arrayGet a1 idx e1T; arrayGet a2 idx e2T]
-                                    tupleRefT))
-                    return res
+                    return! arrayBuiltBy resArrIdx resArrRefT (arrayLen a1) (fun idx ->
+                                structNew tupleIdx [arrayGet a1 idx e1T; arrayGet a2 idx e2T] tupleRefT)
                 })
             | _ -> None
+        | _ -> None
+    // ── Array.pairwise arr — the pairs of neighbours: [| (a0, a1); (a1, a2); … |], empty below two elements ──
+    | "pairwise" ->
+        match fableArgs with
+        | [arrArg] ->
+            match arrElemT arrArg.Type with
+            | Some eFT ->
+                let eT = mapTypeKnown ctx eFT
+                let tupleIdx = getOrAddTupleType ctx [eT; eT]
+                let tupleRefT = WType.Ref(tupleIdx, false)
+                let resArrIdx = getOrAddArrayType ctx tupleRefT
+                let resArrRefT = WType.Ref(resArrIdx, false)
+                let wArr = transform ctx arrArg
+                Some(wasm {
+                    let! a = wArr
+                    // no element or one: no pair (a length of -1 would trap)
+                    let! n = wasmIf (WExpr.Compare(WCompareOp.GtS, arrayLen a, i32Zero)) (sub (arrayLen a) i32One) i32Zero
+                    return! arrayBuiltBy resArrIdx resArrRefT n (fun idx ->
+                                structNew tupleIdx [arrayGet a idx eT; arrayGet a (add idx i32One) eT] tupleRefT)
+                })
+            | None -> None
         | _ -> None
     // ── Array.unzip arr — array of pairs → two arrays ─────────────────────
     | "unzip" ->

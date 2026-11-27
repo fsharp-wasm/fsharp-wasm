@@ -1959,6 +1959,33 @@ let testArraySortWithMerge () : int =
         if big.[i] <> i then identity <- false
     (if small then 1000 else 0) + (if stable then 100 else 0) + (if untouched then 10 else 0) + (if identity then 1 else 0)
 
+// ── Array.pairwise ────────────────────────────────────────────────────────
+
+/// Array.pairwise: empty and one element give no pair (the length is clamped, not -1), two give one, the pairs overlap by one
+/// element, the elements may be numbers, floats, strings or records, and the input is untouched.
+let testArrayPairwise () : int =
+    let none = (Array.pairwise ([||]: int[])).Length = 0 && (Array.pairwise [| 7 |]).Length = 0
+    let two = Array.pairwise [| 3; 5 |] = [| (3, 5) |]
+    let ints = [| 1; 4; 9; 16; 25 |]
+    let diffs = ints |> Array.pairwise |> Array.map (fun (a, b) -> b - a)
+    let numbers = diffs = [| 3; 5; 7; 9 |] && ints.Length = 5
+    let floats = [| 1.5; 2.5; 4.0 |] |> Array.pairwise |> Array.map (fun (a, b) -> b - a) = [| 1.0; 1.5 |]
+    let strings = [| "a"; "b"; "c" |] |> Array.pairwise = [| ("a", "b"); ("b", "c") |]
+    let items = Array.init 4 (fun i -> { SwKey = i * i; SwOrder = i })
+    let gaps = items |> Array.pairwise |> Array.map (fun (a, b) -> b.SwKey - a.SwKey)
+    let records = gaps = [| 1; 3; 5 |]
+    (if none then 10000 else 0) + (if two then 1000 else 0) + (if numbers then 100 else 0) + (if floats && strings then 10 else 0) + (if records then 1 else 0)
+
+/// Array.zip of reference elements (a tuple of strings or records is a non-null reference: a fresh array has no default to be filled with),
+/// of none, of numbers.
+let testArrayZipRefs () : int =
+    let strings = Array.zip [| "a"; "b" |] [| "x"; "y" |] = [| ("a", "x"); ("b", "y") |]
+    let none = (Array.zip ([||]: string[]) ([||]: string[])).Length = 0
+    let items = Array.init 3 (fun i -> { SwKey = i; SwOrder = 10 * i })
+    let records = Array.zip items items |> Array.map (fun (a, b) -> a.SwOrder + b.SwKey) = [| 0; 11; 22 |]
+    let numbers = Array.zip [| 1; 2; 3 |] [| 4.0; 5.0; 6.0 |] |> Array.sumBy (fun (a, b) -> float a * b) = 32.0
+    (if strings then 1000 else 0) + (if none then 100 else 0) + (if records then 10 else 0) + (if numbers then 1 else 0)
+
 // ── List.zip ──────────────────────────────────────────────────────────────
 
 /// Test: List.zip [1;2;3] [10;20;30] |> List.head = (1, 10), sum = 11
