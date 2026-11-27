@@ -2,12 +2,21 @@ name: Release
 
 # Tag vX.Y.Z[-suffix] publishes a release: the compiler CLI as self-contained binaries (with FSharp.Wasm.Core, the core submodule, next to
 # them — the other repositories fetch the compiler from here instead of embedding it as a submodule) and the NuGet packages.
-# "Run workflow" (workflow_dispatch) runs the same build without publishing anything and keeps the archives as an artifact.
+# A release is made by "Run workflow" on main with the input `version` (X.Y.Z or X.Y.Z-suffix): the run does everything below and makes the tag v<version> itself, with the GitHub
+# release, once the packages are pushed (a run that fails before that leaves no tag, and can be run again).  Pushing a tag v<version> on main by hand does the same.
+# Run without a version it is a dry run: everything but the push, the release and the tag, and the files uploaded as an artifact.
+
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release this version (X.Y.Z or X.Y.Z-suffix) from main, and make its tag v<version>; empty: a dry run that publishes nothing"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -16,7 +25,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_type == 'tag' && 'production' || 'dry-run' }}
+    # a release (a tag, or a run that was asked for a version) is the environment `production`; the context `steps` is not there yet, so the inputs are asked
+    environment: ${{ (github.ref_type == 'tag' || github.event.inputs.version != '') && 'production' || 'dry-run' }}
     env:
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}   # job level: a step-level `env` is not visible to that step's `if`
 
@@ -61,17 +71,29 @@ jobs:
 
       # No FAKE here: FAKE 6 runs on net6 with FSharp.Core 8 and breaks on the runner image (see ci.yml).  The same
       # dotnet commands the build uses; the tests run in CI on the commit that is tagged.
-      - name: Version, and that a tag is a release of main
+      - name: Version, and whether this is a release
         id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ "${{ github.ref_type }}" = tag ]; then
-            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::$GITHUB_REF_NAME is not vX.Y.Z or vX.Y.Z-suffix"; exit 1; }
-            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_REF_NAME is not on main: a release is tagged on main"; exit 1; }
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
             v="${GITHUB_REF_NAME#v}"
+            [[ "$GITHUB_REF_NAME" == v* && "$v" =~ $semver ]] || { echo "::error::$GITHUB_REF_NAME is not vX.Y.Z or vX.Y.Z-suffix"; exit 1; }
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_REF_NAME is not on main: a release is tagged on main"; exit 1; }
+            release=true
+          elif [ -n "$INPUT_VERSION" ]; then
+            v="${INPUT_VERSION#v}"
+            [[ "$v" =~ $semver ]] || { echo "::error::'$INPUT_VERSION' is not X.Y.Z or X.Y.Z-suffix"; exit 1; }
+            [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::a release is made from main, not from $GITHUB_REF"; exit 1; }
+            ! git ls-remote --exit-code --tags origin "refs/tags/v$v" > /dev/null 2>&1 || { echo "::error::v$v exists already"; exit 1; }
+            release=true
           else
             v="0.0.0-dryrun"
+            release=false
           fi
           echo "value=$v" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
 
       - name: NuGet packages
         env:
@@ -130,13 +152,13 @@ jobs:
 
       # A release that publishes nothing is a failed release: without the key a tag run stops here, red, before anything is pushed or released.
       - name: The key for nuget.org is there
-        if: github.ref_type == 'tag' && env.NUGET_API_KEY == ''
+        if: steps.version.outputs.release == 'true' && env.NUGET_API_KEY == ''
         run: |
           echo "::error::the secret NUGET_API_KEY is not visible to this job: an organisation secret has to be given access to fsharp-wasm (and, with the environment production, the environment has to see it)"
           exit 1
 
       - name: Publish to NuGet.org
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.release == 'true'
         run: |
           dotnet nuget push publish/nuget/*.nupkg \
             --source https://api.nuget.org/v3/index.json \
@@ -145,7 +167,7 @@ jobs:
 
       # Also publish to GitHub Packages (free repo-scoped feed — no NUGET_API_KEY needed).
       - name: Publish to GitHub Packages
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.release == 'true'
         run: |
           dotnet nuget add source \
             --username "${{ github.actor }}" \
@@ -159,12 +181,14 @@ jobs:
             --api-key "${{ secrets.GITHUB_TOKEN }}" \
             --skip-duplicate
 
-      - name: Create GitHub Release
-        if: github.ref_type == 'tag'
+      - name: GitHub release (and its tag, when it is not there yet)
+        if: steps.version.outputs.release == 'true'
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: v${{ steps.version.outputs.value }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.version.outputs.value, '-') }}
           files: |
             publish/nuget/*.nupkg
             publish/fsharp-wasm-linux-x64.tar.gz
