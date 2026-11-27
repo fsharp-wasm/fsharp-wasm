@@ -217,7 +217,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: fsharp-wasm/fsharp-wasm-core
-          ref: 3d8b34d5492538f6699b068e405e16e0f87834af
+          ref: a368f387242b965872153a7f1694aa221c890b2b
           path: .deps/fsharp-wasm-core
           submodules: true
 
