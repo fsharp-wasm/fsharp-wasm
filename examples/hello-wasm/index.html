@@ -8,16 +8,17 @@
 </head>
 <body>
   <h1>Hello, WebAssembly GC</h1>
-  <p>F# compiled to <code>out/Hello.wasm</code>, run by this page. Open the DevTools to see the module: it is a few hundred bytes.</p>
+  <p>F# compiled to <code>out/Hello.wasm</code>, run by this page. Open the DevTools to see the module: it is about 8 kilobytes (7 957 bytes on 2026-11-28, with the collections of FSharp.Wasm.Core in it).</p>
   <ul id="results"></ul>
   <script type="module">
     const { instance } = await WebAssembly.instantiateStreaming(fetch("out/Hello.wasm"), {});
-    const { fibonacci, isPrime, sumOfSquaresOfOdds } = instance.exports;
+    const { fibonacci, isPrime, sumOfSquaresOfOdds, distinctSquaresModulo } = instance.exports;
     const rows = [
       ["fibonacci 10", fibonacci(10)],
       ["isPrime 97", Boolean(isPrime(97))],
       ["isPrime 100", Boolean(isPrime(100))],
       ["sum of the squares of the odd numbers up to 9", sumOfSquaresOfOdds(9)],
+      ["different squares modulo 13 (a HashSet)", distinctSquaresModulo(13)],
     ];
     document.getElementById("results").innerHTML = rows.map(([k, v]) => `<li>${k} = <b>${v}</b></li>`).join("");
   </script>

@@ -5,5 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Hello.fs" />
+    <!-- Dictionary, HashSet, Stack, Queue, StringComparer … of the .NET base library: this package brings them (their sources are compiled with your program) -->
+    <PackageReference Include="FSharp.Wasm.Core" Version="0.1.1-preview" />
   </ItemGroup>
 </Project>

@@ -12,5 +12,5 @@ The page: `python3 -m http.server` (or `npx serve .`) in this folder, then open 
 
 `out/Hello.wat` is the same module as text: read it. `wasm-tools validate out/Hello.wasm --features gc` checks it, if you have [wasm-tools](https://github.com/bytecodealliance/wasm-tools).
 
-Public top-level functions of `Hello.fs` are the exports. What compiles and what does not yet is in the
+Public top-level functions of `Hello.fs` are the exports. `Hello.fsproj` references the package `FSharp.Wasm.Core`, which gives a program `Dictionary`, `HashSet`, `Stack`, `Queue` and `StringComparer` as the .NET base library does. What compiles and what does not yet is in the
 [status page](https://github.com/fsharp-wasm/fsharp-wasm/blob/main/docs/STATUS.md); more to run is on the [demos](https://fsharp-wasm.github.io/demos/).
