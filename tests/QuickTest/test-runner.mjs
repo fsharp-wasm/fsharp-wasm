@@ -268,6 +268,7 @@ check("two-dimensional arrays: create, zeroCreate, init, the indexer, lengths, G
 check("Dictionary and HashSet with a comparer: StringComparer.OrdinalIgnoreCase and Ordinal, a comparer of our own, with a capacity", 11111, exp.testComparerCollections());
 check("StringComparer as an IEqualityComparer and an IComparer of strings", 111, exp.testStringComparer());
 check("a generic interface implemented for two type arguments: a vtable per instantiation, through a class, an object expression and a same-named class member", 1111, exp.testGenericInterfaces());
+check("a generic function instantiated at unit: the binding of its unit result still runs the call", 111, exp.testGenericUnitBinding());
 check("String.Join of a ResizeArray, a list and an array of strings in a project that checks nulls (string | null elements)", 111, exp.testStringJoinNullable());
 check("List.skipWhile and takeWhile: ends at the first element that fails, empty, never, always, captured, strings", 11111, exp.testListSkipTakeWhile());
 check("List.minBy and maxBy with a tuple, a string or a record as the key: the structural comparison, the first of equal keys wins", 11111, exp.testListMinMaxByStructural());

@@ -130,7 +130,8 @@ let private lambdaInstantiation (ctx: Ctx) (ident: Ident) (value: Fable.Expr) (b
 let rec transformExpr (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     let result = transformExprCore ctx expr
     match result, expr.Type with
-    | WExpr.Nop, ty when ty <> Fable.Type.Unit ->
+    // (a type parameter that this instantiation binds to `unit` maps to void: nothing is what it is)
+    | WExpr.Nop, ty when ty <> Fable.Type.Unit && mapTypeKnown ctx ty <> WType.Void ->
         WasmGc.Core.Diagnostics.nonVoidNop
             ctx.Diagnostics (sprintf "%A" expr) ctx.CurrentFunc expr.Range
     | _ -> ()
@@ -174,6 +175,8 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
     | IdentExpr ident ->
         let res = Scope.resolve ctx ctx.CurrentFunc ident.Name
         match res with
+        // a local of type void is a `unit` value (a type parameter bound to unit in this instantiation): it has no local, and reads as nothing
+        | Scope.Resolution.Local(_, WType.Void)     -> WExpr.Nop
         | Scope.Resolution.Local(name, ty)          -> WExpr.LocalGet(name, ty)
         | Scope.Resolution.CapturedVar(name, ty)    -> WExpr.LocalGet(name, ty)
         | Scope.Resolution.Global(qn, ty)           -> readGlobal qn ty
@@ -221,8 +224,11 @@ and private transformExprCore (ctx: Ctx) (expr: Fable.Expr) : WExpr =
         let wValue = transformExpr (lambdaInstantiation ctx ident value body) value
         // A non-unit binding whose value produced nothing keeps the local's default and later fails
         // validation as "uninitialized local".  (A plain Nop is already reported by transformExpr.)
+        // (A binding whose declared type is a type parameter that this instantiation binds to `unit` — `let result = run ()` in a generic
+        // `around (run: unit -> 'T) : 'T` instantiated at `unit` — is a unit binding like any other: the type maps to void.)
         if wValue <> WExpr.Nop && exprWType wValue = WType.Void
-           && ident.Type <> Fable.Type.Unit && value.Type <> Fable.Type.Unit then
+           && ident.Type <> Fable.Type.Unit && value.Type <> Fable.Type.Unit
+           && mapTypeKnown ctx ident.Type <> WType.Void then
             WasmGc.Core.Diagnostics.valuelessBinding
                 ctx.Diagnostics ident.Name (sprintf "%A" value) ctx.CurrentFunc value.Range
         let declaredTy = mapTypeKnown ctx ident.Type

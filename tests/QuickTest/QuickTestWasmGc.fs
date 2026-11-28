@@ -4705,3 +4705,17 @@ let testGenericInterfaces () : int =
                                     member _.Size(x) = x.Length * 10 }
     let d = sizeOfPickedInt (Doubling() :> IPick<int>)
     (if s = 3 then 1000 else 0) + (if i = 9 then 100 else 0) + (if o = 30 then 10 else 0) + (if d = 36 then 1 else 0)
+
+/// A generic wrapper that keeps the result of its argument: instantiated at unit the binding has no value, but the call must still run.
+let aroundKeeping (log: int ref) (run: unit -> 'T) : 'T =
+    log.Value <- log.Value + 1
+    let result = run ()
+    log.Value <- log.Value + 10
+    result
+
+let testGenericUnitBinding () : int =
+    let log = ref 0
+    aroundKeeping log (fun () -> log.Value <- log.Value + 100)
+    let afterUnit = log.Value
+    let v = aroundKeeping log (fun () -> 7)
+    (if afterUnit = 111 then 100 else 0) + (if v = 7 then 10 else 0) + (if log.Value = 122 then 1 else 0)

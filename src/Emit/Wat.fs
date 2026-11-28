@@ -468,8 +468,14 @@ let rec private emitExpr (typeNames: Map<int, string>) (arrayElemTypes: Map<int,
             // assignment: numeric locals default to 0, nullable ref locals
             // default to null. The local keeps its default value instead of
             // corrupting the function's stack balance.
-            eprintfn $"[WasmGc] WARNING: binding '%s{name}' produced no value (Nop) \
-                       — skipping local.set. See WGC008 for the unhandled expression."
+            //
+            // But a value that is an expression with effects and no result (a call of a closure that returns `unit`, bound by
+            // `let result = run ()` in a generic function instantiated at unit) must still RUN: only the `local.set` is skipped.
+            if value = WExpr.Nop then
+                eprintfn $"[WasmGc] WARNING: binding '%s{name}' produced no value (Nop) \
+                           — skipping local.set. See WGC008 for the unhandled expression."
+            else
+                emit value
         | _ ->
             emit value
             w $"local.set {watId name}"
