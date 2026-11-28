@@ -3,6 +3,19 @@ module HostInterop
 
 open Fable.Core
 
+/// The module's own linear memory: stores and loads are instructions of WebAssembly (no import), the host reaches the same bytes as `exports.memory`.
+[<Import("f32.store", "wasm:memory")>]
+let storeF32 (byteOffset: int) (value: float32) : unit = nativeOnly
+
+[<Import("f32.load", "wasm:memory")>]
+let loadF32 (byteOffset: int) : float32 = nativeOnly
+
+[<Import("sumF32", "host.js")>]
+let sumF32 (byteOffset: int) (count: int) : float = nativeOnly
+
+[<Import("fillF32", "host.js")>]
+let fillF32 (byteOffset: int) (count: int) (value: float) : unit = nativeOnly
+
 [<Import("shout", "host.js")>]
 let shout (s: string) : string = nativeOnly
 
@@ -105,3 +118,14 @@ let testChurn (n: int) : int =
     calls
 
 let testBool () : int = (if isEven 4 then 1 else 0) + (if isEven 5 then 10 else 0)   // 1
+
+/// What the module stores in its linear memory the host reads, and what the host writes there the module loads (Browser.Gpu moves buffers this way).
+let testLinearMemory () : int =
+    for i in 0 .. 9 do
+        storeF32 (i * 4) (float32 (i * i))
+    let seenByHost = sumF32 0 10        // 0 + 1 + 4 + ... + 81 = 285
+    fillF32 64 4 2.5                    // the host writes four floats of 2.5 at byte 64
+    let mutable back = 0.0f
+    for i in 0 .. 3 do
+        back <- back + loadF32 (64 + i * 4)
+    (if seenByHost = 285.0 then 10 else 0) + (if back = 10.0f then 1 else 0)   // 11

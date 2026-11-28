@@ -14,7 +14,7 @@
 | Differential: .NET against wasm | generated inputs through the same F# functions on .NET and as wasm | 392 functions, 183 012 calls: 179 115 identical, 0 disagreements, 3 896 where both sides fail, 1 known difference | yes |
 | Showcase | classic algorithms and small programs end to end | 26 passed | yes |
 | String ABI (exports) | no `wasm:js-string` import, accessor exports, non-ASCII round trip, empty and null, 10 000 characters | 5 passed | yes |
-| Host interop | callbacks, strings and numbers across the boundary, 500 closures called and called again after a GC | 15 passed (2026-11-27) | yes |
+| Host interop | callbacks, strings and numbers across the boundary, 500 closures called and called again after a GC, the module's linear memory (`wasm:memory`) both ways | 16 passed (2026-11-28) | yes |
 | IR pass tests | the optimiser passes, with property tests over 50 000 generated programs | 27 passed | yes |
 | Backend harness | scenarios through the binary encoder and through WAT and wasm-tools; closure fuzz | closure fuzz: 30 720 checks, 0 failures | yes |
 | BCL bootstrap | the base library's exceptions and math compiled through the backend | 11 passed | yes |

@@ -24,6 +24,9 @@ const imports = {
     eachRect: (n, f) => { for (let i = 0; i < n; i++) f(i, i, 2 * i, 10, 2, i % 2 === 1); },
     eachEight: (f) => f(1, 2, 3, 4, 5, 6, 7, 8),
     report: (s) => { reported = s; },
+    // the module's linear memory, as the glue of the runtime reaches it
+    sumF32: (offset, n) => new Float32Array(instance.exports.memory.buffer, offset, n).reduce((a, b) => a + b, 0),
+    fillF32: (offset, n, x) => { new Float32Array(instance.exports.memory.buffer, offset, n).fill(x); },
   },
 };
 
@@ -46,6 +49,7 @@ check("closure with a result and two arguments", 12.5, exp.testFold());
 check("string array result", 6, exp.testNames());
 check("callback receiving a string array", 301, exp.testWithNames());
 check("bool result", 1, exp.testBool());
+check("linear memory (wasm:memory): the module's stores are the host's reads and the host's writes are the module's loads", 11, exp.testLinearMemory());
 check("callbacks with six and with eight arguments", 6911, exp.testWideCallbacks());
 
 // callbacks the host fires later, with strings and mixed arguments
